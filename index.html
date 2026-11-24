@@ -5,13 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="dark light" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <title>Caudal</title>
+    <title>Numo App</title>
     <script>
       // El tema oscuro es el de por defecto; el claro se aplica antes de pintar para evitar el destello.
       try {
-        if (localStorage.getItem("caudal.theme") === "light") document.documentElement.dataset.theme = "light";
+        if (localStorage.getItem("numo.theme") === "light") document.documentElement.dataset.theme = "light";
+        var accent = localStorage.getItem("numo.accent");
+        if (accent && accent !== "ambar") document.documentElement.dataset.accent = accent;
         // El modo privado también: los importes no deben verse ni un instante.
-        if (localStorage.getItem("caudal.private") === "1") document.documentElement.dataset.private = "";
+        if (localStorage.getItem("numo.private") === "1") document.documentElement.dataset.private = "";
       } catch (e) {}
     </script>
   </head>

@@ -2,7 +2,7 @@
 @import "@fontsource-variable/archivo/wdth.css";
 
 /*
-  Sistema visual de Caudal — dirección «A · Rail».
+  Sistema visual de Numo App — dirección «A · Rail».
   Gris oscuro mate con profundidad, un único color de acento (ámbar) y los datos
   como protagonistas. El tema oscuro es el de por defecto; el claro se activa con
   data-theme="light" en <html>. Una sola familia, Archivo, con eje de anchura.
@@ -75,6 +75,24 @@
   --shadow-pop: 0 16px 40px -12px rgba(0, 0, 0, 0.25);
   --panel-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), -20px 0 50px -30px rgba(0, 0, 0, 0.18);
   --cta-shine: rgba(255, 255, 255, 0.25);
+}
+
+/* Acentos alternativos (Ajustes → Apariencia). El selector vale también para las
+   muestras de Ajustes, que enseñan cada color con su propio data-accent. */
+[data-accent="azul"] {
+  --accent: #7fa8ee;
+}
+[data-accent="turquesa"] {
+  --accent: #5fc3c4;
+}
+[data-accent="violeta"] {
+  --accent: #a999ee;
+}
+[data-accent="rosa"] {
+  --accent: #e693b4;
+}
+[data-accent="plata"] {
+  --accent: #c8c8d0;
 }
 
 @theme inline {
@@ -285,13 +303,19 @@ dialog[open] {
    La pantalla de carga (src/ui/Splash.tsx) marca su fase en <html data-splash>:
    load → la app espera detrás · enter → entra por bloques · data → se descubren los datos. */
 
+/* Mientras carga, la «N» del logo se dibuja una y otra vez (su trazo mide 1: pathLength). */
 @keyframes logo-flow {
-  to {
-    transform: translateX(-18px);
+  0% {
+    stroke-dashoffset: 1;
+  }
+  55%,
+  100% {
+    stroke-dashoffset: 0;
   }
 }
 .logo-flow {
-  animation: logo-flow 1.8s linear infinite;
+  stroke-dasharray: 1;
+  animation: logo-flow 1.6s cubic-bezier(0.65, 0, 0.35, 1) infinite;
 }
 
 /* El logo del menú y la línea de valor los pone la animación hasta que termina. */

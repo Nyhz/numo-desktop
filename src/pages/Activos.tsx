@@ -1,12 +1,12 @@
 import { CirclePlus, Pencil, Plus, RefreshCw, TriangleAlert } from "lucide-react";
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { fxHealth, needsAttention, parseFailure, type Failure, type HealthStatus, type PriceHealth } from "../../shared/engine/health.ts";
 import { ASSET_KIND_LABEL, PRICE_SOURCE_SHORT, SOURCE_BY_ISIN, type Asset } from "../../shared/types.ts";
 import { derive, isExample, sync, useApp, useHealth } from "../data/store.ts";
 import { ago, dateBrief, eur, money, num, priceDigits } from "../lib/format.ts";
 import { openDialog } from "../ui/dialogs.ts";
-import { Btn, Card, Dot, Empty, HeaderSlot, IconBtn, Kpi, Kpis, Pills } from "../ui/kit.tsx";
+import { Btn, Dot, Empty, HeaderSlot, IconBtn, Kpi, Kpis, Pills } from "../ui/kit.tsx";
 import { L, THead, TRow, Table } from "./common.tsx";
 
 type Filter = "all" | "held" | "gone" | "attention";
@@ -56,20 +56,20 @@ export function Activos() {
     return state.assets
       .map((asset) => ({ asset, health: byAsset.get(asset.id)!, position: held.get(asset.id) ?? null }))
       .filter((r) => r.health)
+      // Primero lo que está en cartera; dentro de cada grupo, lo que necesita atención arriba.
       .sort(
         (a, b) =>
-          STATUS[a.health.status].rank - STATUS[b.health.status].rank ||
           Number(!a.position) - Number(!b.position) ||
+          STATUS[a.health.status].rank - STATUS[b.health.status].rank ||
           a.asset.name.localeCompare(b.asset.name, "es"),
       );
   }, [state.assets, byAsset, d.positions]);
 
-  const currencies = useMemo(() => {
-    const set = new Set<string>(Object.keys(state.fx));
-    for (const a of state.assets) set.add(a.currency);
-    for (const a of state.accounts) set.add(a.currency);
+  // Las divisas solo se mencionan aquí si su tipo de cambio se ha quedado atrás (el detalle está en Ajustes).
+  const lateFx = useMemo(() => {
+    const set = new Set<string>([...state.assets, ...state.accounts].map((a) => a.currency));
     set.delete("EUR");
-    return [...set].sort().map((c) => ({ currency: c, ...fxHealth(state.fx[c], d.today) }));
+    return [...set].sort().map((c) => ({ currency: c, ...fxHealth(state.fx[c], d.today) })).filter((c) => c.late);
   }, [state.fx, state.assets, state.accounts, d.today]);
 
   const addButton = (
@@ -102,6 +102,7 @@ export function Activos() {
     .join(" · ");
 
   const shown = rows.filter((r) => (filter === "held" ? r.position : filter === "gone" ? !r.position : filter === "attention" ? needsAttention(r.health) : true));
+  const mixed = shown.some((r) => r.position) && shown.some((r) => !r.position);
 
   return (
     <div className="screen flex flex-col gap-5">
@@ -162,6 +163,17 @@ export function Activos() {
         </div>
       )}
 
+      {lateFx.length > 0 && !example && (
+        <div className="card flex items-start gap-2.5 px-4 py-3 text-[13px]">
+          <TriangleAlert size={15} className="mt-0.5 shrink-0 text-acc" />
+          <div className="min-w-0 text-ink2">
+            <span className="font-[550] text-ink">{lateFx.length === 1 ? "Un tipo de cambio se ha quedado atrás" : "Hay tipos de cambio que se han quedado atrás"}:</span>{" "}
+            {lateFx.map((c) => `${c.currency} (${c.date ? `último del ${dateBrief(c.date, d.today)}` : "sin datos"})`).join(", ")}. Lo que tengas en esa divisa se convierte a euros con ese cambio hasta
+            que el BCE publique otro.
+          </div>
+        </div>
+      )}
+
       <section className="card overflow-hidden">
         <Table cols={COLS} minWidth={1060}>
           <THead>
@@ -173,22 +185,31 @@ export function Activos() {
             <span>En cartera</span>
             <span />
           </THead>
-          {shown.map(({ asset: a, health: h, position: p }) => {
+          {shown.map(({ asset: a, health: h, position: p }, i) => {
             const st = STATUS[h.status];
+            // Con los dos grupos a la vista, un rótulo separa lo que tienes de lo que solo sigues.
+            const firstOfGroup = mixed && (i === 0 || !!shown[i - 1]!.position !== !!p);
             // Si la fuente principal falló y el precio vino del respaldo, se dice.
             const backup = parseFailure(meta[`backup:asset:${a.id}`]) as (Failure & { source?: string }) | null;
             const why = backup && h.status === "ok" ? `por respaldo (${backup.source ?? "otra fuente"}) · ${backup.message}` : reason(a, h, example);
             return (
-              <TRow key={a.id} onClick={() => go(`/activo/${a.id}`)}>
+              <Fragment key={a.id}>
+              {firstOfGroup && (
+                <div className="flex items-baseline gap-2 border-t border-line bg-wash px-5 py-1.5 text-left text-[11.5px] text-mute" role="row">
+                  <span className="font-[550] text-ink2">{p ? "En cartera" : "Sin posición"}</span>
+                  <span>{p ? `${held} que tienes hoy` : `${rows.length - held} que sigues sin tenerlos`}</span>
+                </div>
+              )}
+              <TRow onClick={() => go(`/activo/${a.id}`)}>
                 <L>
-                  <div className="truncate font-[550]">{a.name}</div>
+                  <div className={`truncate ${p ? "font-[550]" : "text-ink2"}`}>{a.name}</div>
                   <div className="truncate text-[11.5px] text-mute">{[ASSET_KIND_LABEL[a.kind], a.isin].filter(Boolean).join(" · ")}</div>
                 </L>
                 <L>
                   <div className={a.priceSource === "manual" ? "text-mute" : "text-ink2"}>{PRICE_SOURCE_SHORT[a.priceSource]}</div>
                   <div className="selectable truncate text-[11.5px] text-mute">{a.priceSource === "manual" ? "sin fuente automática" : ((SOURCE_BY_ISIN[a.priceSource] ? a.isin : a.symbol) ?? "—")}</div>
                 </L>
-                <span className={h.status === "ok" ? "" : "text-ink2"}>{h.price == null ? "—" : money(h.price, a.currency, priceDigits(h.price))}</span>
+                <span className={h.status === "ok" && p ? "" : "text-ink2"}>{h.price == null ? "—" : money(h.price, a.currency, priceDigits(h.price))}</span>
                 <div>
                   <div className={h.status === "ok" ? "text-ink2" : ""}>{h.priceDate ? dateBrief(h.priceDate, d.today) : "—"}</div>
                   <div className="text-[11.5px] text-mute">{daysAgo(h.ageDays)}</div>
@@ -217,6 +238,7 @@ export function Activos() {
                   </IconBtn>
                 </span>
               </TRow>
+              </Fragment>
             );
           })}
           {shown.length === 0 && <div className="border-t border-line px-5 py-8 text-center text-mute">Ningún activo en este grupo.</div>}
@@ -226,22 +248,6 @@ export function Activos() {
         Un activo se marca como atrasado cuando le falta más de una sesión de bolsa (se tolera un festivo), más de tres en los fondos, que publican su valor con retraso, o un día en las
         criptomonedas. Los manuales se cuentan siempre: no se actualizan solos.
       </p>
-
-      {currencies.length > 0 && (
-        <Card title="Tipos de cambio" note="referencia del BCE, un valor por día hábil" pad={false} className="max-w-[620px]">
-          {currencies.map((c) => (
-            <div key={c.currency} className="flex items-center gap-3 border-t border-line px-5 py-[var(--row)]">
-              <span className="w-12 font-[550]">{c.currency}</span>
-              <span className="flex-1 text-ink2">{c.rate == null ? "sin datos" : `1 EUR = ${num(c.rate, 4, 4)} ${c.currency}`}</span>
-              <span className="w-[76px] text-right text-ink2">{c.date ? dateBrief(c.date, d.today) : "—"}</span>
-              <span className="flex w-[92px] items-center justify-end gap-2">
-                <Dot color={c.late ? "var(--acc)" : "var(--up)"} size={7} />
-                <span className={c.late ? "font-[550]" : "text-ink2"}>{c.late ? "Atrasado" : "Al día"}</span>
-              </span>
-            </div>
-          ))}
-        </Card>
-      )}
     </div>
   );
 }

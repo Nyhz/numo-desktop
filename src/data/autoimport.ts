@@ -4,7 +4,7 @@ import { looksLikeExtras } from "../../shared/extras.ts";
 import { backend, getApp, importExtras, importPlan, importSeries, sync } from "./store.ts";
 
 /**
- * Carga inicial sin interfaz (CAUDAL_IMPORT_DIR=carpeta): importa los archivos
+ * Carga inicial sin interfaz (NUMO_IMPORT_DIR=carpeta): importa los archivos
  * de la carpeta con el mismo código que el diálogo «Importar», actualiza
  * precios, imprime un resumen y cierra la app.
  *

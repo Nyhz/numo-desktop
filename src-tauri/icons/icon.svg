@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Icono de Numo App: la «N» de un solo trazo sobre un cuadrado redondeado casi negro.
+       El margen transparente es el que piden los iconos de macOS. De aquí salen todos
+       los tamaños: pnpm tauri icon src-tauri/icons/icon.svg -->
+  <defs>
+    <linearGradient id="fondo" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1c1c1f"/>
+      <stop offset="1" stop-color="#0a0a0b"/>
+    </linearGradient>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="186" fill="url(#fondo)"/>
+  <rect x="103" y="103" width="818" height="818" rx="183" fill="none" stroke="#34343a" stroke-width="6"/>
+  <path d="M372 706V318L652 706V318" fill="none" stroke="#fafafa" stroke-width="76" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

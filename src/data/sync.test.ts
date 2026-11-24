@@ -174,7 +174,7 @@ describe("sincronización entre equipos", () => {
     expect(mac.s.prices.etf).toEqual([["2026-11-02", 10], ["2026-11-03", 11], ["2026-11-04", 12]]);
   });
 
-  it("solo acepta archivos de Caudal completos y de una versión que entiende", () => {
+  it("solo acepta archivos de Numo App completos y de una versión que entiende", () => {
     const snap = buildSnapshot(conDatos("mac").loaded.state, [], { id: "mac", name: "Mac" }, t(9));
     expect(parseSnapshot(JSON.stringify(snap))).toEqual(snap);
     expect(parseSnapshot("no es json")).toBeNull();

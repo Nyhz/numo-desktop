@@ -5,9 +5,9 @@ import { Logo } from "./Logo.tsx";
 // Pantalla de carga «Marea» y su transición al Resumen. Todo se calcula a partir
 // de un único reloj T (segundos desde que se abre la app):
 //
-//   Carga    el logo fluye y un anillo avanza activo a activo        (variable)
+//   Carga    el logo se dibuja y un anillo avanza activo a activo    (variable)
 //   Listo    el anillo se completa y el logo late                     0,5 s
-//   Caudal   el anillo se expande; una onda sale del logo a los lados 0,6 s
+//   Onda     el anillo se expande; una onda sale del logo a los lados 0,6 s
 //   Gráfico  la onda se convierte en la curva de valor del Resumen,
 //            el logo viaja a su sitio en el menú y la app entra       0,9 s
 //   Datos    se descubren el área y el aportado; la cifra cuenta      1,4 s
@@ -65,7 +65,7 @@ function yAt(t: Target, x: number): number {
 
 /** Parámetros de prueba: ?splash=off la quita, ?splash=full enseña la completa con la cartera de ejemplo. */
 const param = (() => {
-  if ((window as unknown as { __CAUDAL_NO_SPLASH__?: boolean }).__CAUDAL_NO_SPLASH__) return "off";
+  if ((window as unknown as { __NUMO_NO_SPLASH__?: boolean }).__NUMO_NO_SPLASH__) return "off";
   return new URLSearchParams(location.search).get("splash");
 })();
 const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;

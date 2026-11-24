@@ -573,7 +573,7 @@ function ImportDialog() {
     >
       <div className="grid gap-4">
         <p className="text-ink2">
-          Elige uno o varios archivos. Caudal reconoce si son <strong>operaciones</strong>, <strong>precios históricos</strong>, <strong>splits</strong> o el <strong>plan e
+          Elige uno o varios archivos. Numo App reconoce si son <strong>operaciones</strong>, <strong>precios históricos</strong>, <strong>splits</strong> o el <strong>plan e
           inmuebles</strong>, y crea las cuentas y los activos que falten. Se importa todo o nada: si una línea falla no se guarda ninguna.
         </p>
         <input type="file" accept=".csv,.json,text/csv,text/plain,application/json" multiple className="field h-auto py-2" onChange={(e) => void read(e.target.files)} />
@@ -581,7 +581,7 @@ function ImportDialog() {
         {files.map((f) => (
           <div key={f.file} className="border-t border-line pt-3">
             <div className="mb-1 font-semibold">{f.file}</div>
-            {f.kind === "unknown" && <div className="text-down">No se reconoce la cabecera. Una exportación de operaciones de Caudal sirve de plantilla.</div>}
+            {f.kind === "unknown" && <div className="text-down">No se reconoce la cabecera. Una exportación de operaciones de Numo App sirve de plantilla.</div>}
             {f.kind === "operations" && (
               <>
                 <div className="text-ink2">

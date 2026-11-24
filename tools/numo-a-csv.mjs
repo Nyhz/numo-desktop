@@ -1,12 +1,13 @@
 #!/usr/bin/env node
-// Convierte los datos de Numo (la app anterior) al CSV que importa Caudal.
+// Convierte los datos de la Numo anterior (la app que precedió a esta; aquí, «Numo»
+// a secas) al CSV que importa Numo App.
 //
 //   node tools/numo-a-csv.mjs [ruta/a/finances.db] [carpeta/de/salida]
 //
 // Abre la base de datos de Numo SOLO para leer y no la modifica. Escribe:
-//   numo-operaciones.csv  operaciones en el formato de Caudal (Operaciones → Importar),
+//   numo-operaciones.csv  operaciones en el formato de Numo App (Operaciones → Importar),
 //                         más tres columnas finales opcionales: tipo_activo, tipo_cuenta y fuente_precio
-//   numo-precios.csv      histórico de precios de los activos que Caudal no puede
+//   numo-precios.csv      histórico de precios de los activos que Numo App no puede
 //                         cotizar con Yahoo (fondos por ISIN, cripto, precios manuales)
 //   numo-splits.csv       splits y contra-splits registrados en Numo
 //   numo-activos.csv      tipo y origen del precio de cada activo (el CSV de operaciones no lo lleva)
@@ -35,7 +36,7 @@ const TX_HEADER = [
   "retencion_origen", "retencion_espana", "cuenta_destino", "activo_destino",
   "isin_destino", "cantidad_destino", "nota",
 ];
-// Columnas opcionales al final, con las claves de Caudal: el tipo de activo
+// Columnas opcionales al final, con las claves de Numo App: el tipo de activo
 // (stock|etf|fund|crypto|bond|other) y el de cuenta (broker|bank|crypto|pension|other).
 const TX_COLUMNS = [...TX_HEADER, "tipo_activo", "tipo_cuenta", "fuente_precio"];
 const assetKind = (a) => ASSET_KIND[a.asset_type] ?? "other";
@@ -49,7 +50,7 @@ const isoDay = (ms) => new Date(ms).toISOString().slice(0, 10);
 const clean = (n, digits = 10) => Number(Number(n).toFixed(digits));
 const nz = (n) => (n == null || !Number.isFinite(n) || Math.abs(n) < 1e-12 ? null : n);
 
-/** CSV con `;` y coma decimal, igual que csvEncode de Caudal. */
+/** CSV con `;` y coma decimal, igual que csvEncode de Numo App. */
 function csv(rows) {
   const esc = (c) => {
     if (c == null) return "";
@@ -98,7 +99,7 @@ export function convert(db) {
     const fromYahoo = counts.filter((c) => c.source.startsWith("yahoo")).reduce((s, c) => s + c.n, 0);
     // Solo se da por bueno el símbolo de Yahoo si Numo cotiza de verdad el activo con Yahoo.
     const yahoo = provider === "yahoo" && !!symbol && (fromYahoo > 0 || total === 0);
-    // Las cripto grandes cotizan en Yahoo como «TICKER-EUR»: así Caudal las mantiene al día.
+    // Las cripto grandes cotizan en Yahoo como «TICKER-EUR»: así Numo App las mantiene al día.
     const coin = (a.ticker || a.symbol || a.name || "").trim().toUpperCase();
     const cryptoYahoo = provider === "coingecko" && MAJOR_COINS.has(coin) ? `${coin}-EUR` : "";
     pricing.set(a.id, {
@@ -112,7 +113,7 @@ export function convert(db) {
     });
   }
 
-  // Fuente del precio en Caudal: FT para los fondos que Numo cotiza por ISIN en FT,
+  // Fuente del precio en Numo App: FT para los fondos que Numo cotiza por ISIN en FT,
   // Yahoo si hay símbolo válido y manual en el resto.
   const sourceFor = (a) => {
     const p = pricing.get(a.id);
@@ -145,7 +146,7 @@ export function convert(db) {
     cells.tipo_activo = assetKind(a);
     cells.fuente_precio = sourceFor(a);
   };
-  /** Caudal guarda el cambio al estilo BCE (divisa por 1 EUR): el inverso del de Numo. */
+  /** Numo App guarda el cambio al estilo BCE (divisa por 1 EUR): el inverso del de Numo. */
   const fx = (cells, currency, rateToEur) => {
     cells.divisa = currency.toUpperCase();
     cells.cambio = cells.divisa === "EUR" ? null : rateToEur > 0 ? 1 / rateToEur : null;
@@ -213,10 +214,10 @@ export function convert(db) {
       }
       case "transfer_out":
         usedAssets.add(asset.id);
-        skipped.push({ date, type: "transfer_out", asset: asset.name, reason: "retirada a custodia externa: Caudal no tiene una salida de unidades sin destino ni venta" });
+        skipped.push({ date, type: "transfer_out", asset: asset.name, reason: "retirada a custodia externa: Numo App no tiene una salida de unidades sin destino ni venta" });
         break;
       default:
-        skipped.push({ date, type: t.transaction_type, asset: asset.name, reason: "tipo de operación que Caudal no conoce" });
+        skipped.push({ date, type: t.transaction_type, asset: asset.name, reason: "tipo de operación que Numo App no conoce" });
     }
   }
 
@@ -228,7 +229,7 @@ export function convert(db) {
       skipped.push({ date, type: m.movement_type, asset: "", reason: "cuenta inexistente" });
       continue;
     }
-    // Contrapartidas automáticas de una compra, venta o dividendo: en Caudal las genera la propia operación.
+    // Contrapartidas automáticas de una compra, venta o dividendo: en Numo App las genera la propia operación.
     if (m.movement_type === "trade" || (m.external_reference && txIds.has(m.external_reference))) {
       derivedMoves++;
       continue;
@@ -254,7 +255,7 @@ export function convert(db) {
     const c = base(m.occurred_at, tipo, account);
     fx(c, m.currency, m.fx_rate_to_eur);
     if (m.movement_type === "interest") {
-      // Numo guarda el neto abonado y la retención aparte (en EUR); Caudal quiere el bruto.
+      // Numo guarda el neto abonado y la retención aparte (en EUR); Numo App quiere el bruto.
       const wht = clean(toNative(m.withholding_tax_eur ?? 0, m.fx_rate_to_eur));
       c.importe = clean(amount + wht);
       c.retencion_espana = nz(wht);
@@ -263,7 +264,7 @@ export function convert(db) {
     rows.push({ when: m.occurred_at, order, cells: c, numoId: m.id, table: "cash", type: m.movement_type });
   }
 
-  // ── Saldos iniciales: Caudal no tiene saldo de apertura, se registra como ingreso ──
+  // ── Saldos iniciales: Numo App no tiene saldo de apertura, se registra como ingreso ──
   let openings = 0;
   for (const a of accounts.values()) {
     if (!nz(a.opening_balance_eur)) continue;
@@ -281,10 +282,10 @@ export function convert(db) {
   rows.sort((x, y) => x.cells.fecha.localeCompare(y.cells.fecha) || x.order - y.order || x.when - y.when || String(x.numoId).localeCompare(String(y.numoId)));
 
   // ── Histórico de precios de Numo ──
-  // Se exporta para todos los activos: Caudal queda valorado desde el primer
+  // Se exporta para todos los activos: Numo App queda valorado desde el primer
   // momento y después solo pide a Yahoo los días que falten. La excepción son
   // los activos con split, porque los precios antiguos de Numo están en las
-  // unidades de antes y Caudal los espera ya ajustados.
+  // unidades de antes y Numo App los espera ya ajustados.
   const splitAssets = new Set(splits.map((sp) => sp.asset.id));
   const priceRows = [];
   const positions = new Map(all("SELECT * FROM asset_positions").map((p) => [p.asset_id, p]));
@@ -404,7 +405,7 @@ function main() {
   writeFileSync(
     join(outDir, "numo-activos.csv"),
     csv([
-      ["activo", "isin", "simbolo", "divisa", "tipo", "precio_en_numo", "precio_en_caudal"],
+      ["activo", "isin", "simbolo", "divisa", "tipo", "precio_en_numo", "precio_en_numo_app"],
       ...[...r.usedAssets].map((id) => {
         const a = r.assets.get(id);
         const p = r.pricing.get(id);
@@ -439,8 +440,8 @@ function main() {
   console.log(`numo-extra.json       ${r.extras.objetivos.length} objetivos, ${r.extras.asignaciones.length} activos asignados, ${r.extras.inmuebles.length} inmueble(s) (${r.extras.inmuebles.filter((p) => p.hipoteca).length} con hipoteca)`);
   if (r.derivedMoves) console.log(`\n${r.derivedMoves} movimientos de efectivo omitidos por ser la contrapartida automática de una operación.`);
   if (r.splits.length) {
-    console.log("\nSplits: no van en numo-operaciones.csv (Caudal no tiene esa operación). Las compras anteriores");
-    console.log("se exportan con sus unidades originales; Caudal las ajusta con los splits de Yahoo o con numo-splits.csv:");
+    console.log("\nSplits: no van en numo-operaciones.csv (Numo App no tiene esa operación). Las compras anteriores");
+    console.log("se exportan con sus unidades originales; Numo App las ajusta con los splits de Yahoo o con numo-splits.csv:");
     for (const s of r.splits) console.log(`  ${s.date}  ${s.numerator}:${s.denominator}  ${s.asset.name}${r.pricing.get(s.asset.id).yahoo ? "" : "  (sin símbolo de Yahoo: hay que cargarlo a mano)"}`);
   }
   if (r.skipped.length) {

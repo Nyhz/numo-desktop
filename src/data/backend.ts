@@ -55,6 +55,12 @@ export interface Backend {
   info(): Promise<AppInfo>;
   /** Archivos de la carga inicial sin interfaz; vacío en uso normal. */
   importSource(): Promise<Array<{ name: string; text: string }>>;
+  /** Abre en el navegador la página de la que se descargan las versiones. */
+  openReleases(): Promise<void>;
+  /** La versión más nueva publicada, o null si ya se tiene. */
+  checkUpdate(): Promise<{ version: string; notes: string } | null>;
+  /** Descarga e instala la versión nueva y reinicia la app; `onProgress` recibe el porcentaje descargado. */
+  installUpdate(onProgress: (pct: number) => void): Promise<void>;
   // ── Sincronización entre equipos (solo en la app de escritorio) ──
   /** Cuándo cambió por última vez cada registro, y cuáles se han borrado. */
   stamps(): Promise<Stamp[]>;

@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import type { Account, AppState, Asset, Goal, Mortgage, MortgageEvent, Point, Property, PropertyValuation, Tx } from "../../shared/types.ts";
 import type { AppInfo, Backend, Entity, Loaded, Meta, Op } from "./backend.ts";
 import { stampOf } from "./sync.ts";
@@ -306,4 +306,11 @@ export const tauriBackend: Backend = {
   syncRead: (dir) => invoke<Array<{ name: string; text: string }>>("sync_read", { dir }),
   syncWrite: (dir, name, text) => invoke<void>("sync_write", { dir, name, text }),
   backupNow: (label) => invoke<void>("backup_now", { label }),
+  openReleases: () => invoke<void>("open_releases"),
+  checkUpdate: () => invoke<{ version: string; notes: string } | null>("check_update"),
+  installUpdate(onProgress) {
+    const channel = new Channel<number>();
+    channel.onmessage = onProgress;
+    return invoke<void>("install_update", { onProgress: channel });
+  },
 };

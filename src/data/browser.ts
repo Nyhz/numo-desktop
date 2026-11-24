@@ -11,7 +11,7 @@ import { makeDemo } from "./demo.ts";
 export const browserBackend: Backend = {
   native: false,
   // Las pruebas automáticas pueden inyectar un estado concreto antes de cargar la página.
-  load: async () => ({ state: (window as unknown as { __CAUDAL_STATE__?: AppState }).__CAUDAL_STATE__ ?? makeDemo(todayIso()), meta: {} }),
+  load: async () => ({ state: (window as unknown as { __NUMO_STATE__?: AppState }).__NUMO_STATE__ ?? makeDemo(todayIso()), meta: {} }),
   apply: async () => {},
   httpGet: async () => {
     throw new Error("La vista previa del navegador no tiene acceso a datos de mercado");
@@ -34,4 +34,17 @@ export const browserBackend: Backend = {
   syncRead: async () => [],
   syncWrite: async () => {},
   backupNow: async () => {},
+  openReleases: async () => {},
+  // Las pruebas de pantalla pueden simular una versión nueva con ?update=1.2.3.
+  checkUpdate: async () => {
+    const version = new URLSearchParams(location.search).get("update");
+    return version ? { version, notes: "" } : null;
+  },
+  installUpdate: async (onProgress) => {
+    for (let pct = 0; pct <= 100; pct += 20) {
+      onProgress(pct);
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    throw new Error("La vista previa del navegador no instala nada");
+  },
 };

@@ -1,7 +1,7 @@
 import { TriangleAlert } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
-import type { Position } from "../../shared/engine/timeline.ts";
+import { sessionChange, type Position } from "../../shared/engine/timeline.ts";
 import { ASSET_KIND_LABEL } from "../../shared/types.ts";
 import { Spark, Strip } from "../charts/viz.tsx";
 import { useDerived } from "../data/store.ts";
@@ -62,6 +62,7 @@ export function Posiciones() {
   const noPrice = rows.filter((p) => p.priceDate == null).length;
   const total = value + cashTotal;
   const [totalI, totalD] = splitMoney(eur(total));
+  const session = sessionChange(d.positions);
   const noCashAccounts = d.state.accounts.filter((a) => !a.archived && (!d.scope || d.scope.has(a.id)) && !cash.some((c) => c.account.id === a.id)).length;
 
   const Th = ({ k, children, left }: { k: SortKey; children: string; left?: boolean }) => (
@@ -93,6 +94,15 @@ export function Posiciones() {
             {totalI}
             <span className="text-mute">{totalD}</span>
           </div>
+          {rows.length > 0 && (
+            <div className="mt-1.5 flex items-baseline gap-2.5 text-[13.5px]">
+              <span className="priv font-[550]" style={{ color: toneOf(session.gainEur) }}>
+                {eurSigned(session.gainEur)}
+              </span>
+              <span style={{ color: toneOf(session.pct, 0.00005) }}>{pctSigned(session.pct, 2)}</span>
+              <span className="text-mute">en la última sesión de cada activo</span>
+            </div>
+          )}
           {total > 0 && (
             <>
               <div className="mt-4 flex h-2.5 gap-[3px]">

@@ -1,7 +1,7 @@
 import { ChevronDown, Download, TriangleAlert } from "lucide-react";
 import { useMemo, useState } from "react";
 import { dayNum } from "../../shared/dates.ts";
-import { buildYearReport, yearsWithActivity } from "../../shared/engine/reports.ts";
+import { buildYearReport, lossCarryover, taxYearBases, yearsWithActivity } from "../../shared/engine/reports.ts";
 import { ASSET_KIND_LABEL, TX_LABEL } from "../../shared/types.ts";
 import { LotsTimeline, SplitBar } from "../charts/viz.tsx";
 import { useApp, useDerived } from "../data/store.ts";
@@ -24,6 +24,8 @@ export function Informes() {
   const [tab, setTab] = useState<Tab>("pat");
   const rep = useMemo(() => buildYearReport(d.ledger, d.state, d.timeline, d.scope, year, d.today), [d, year]);
 
+  const carry = useMemo(() => lossCarryover(taxYearBases(d.ledger, d.scope)).find((y) => y.year === year), [d.ledger, d.scope, year]);
+
   if (d.state.accounts.length === 0) return <Welcome />;
 
   const t = rep.totals;
@@ -35,7 +37,7 @@ export function Informes() {
   const gross = t.dividendsGrossEur + t.interestGrossEur;
 
   const excel = async () => {
-    const path = await saveXlsx(`caudal-informe-${year}.xlsx`, sheets());
+    const path = await saveXlsx(`numo-informe-${year}.xlsx`, sheets());
     if (path) toast(`Informe ${year} guardado`);
   };
   const CsvLink = ({ sheet, slug }: { sheet: () => Sheet; slug: string }) => (
@@ -43,7 +45,7 @@ export function Informes() {
       type="button"
       className="flex items-center gap-[5px] text-[12px] text-mute hover:text-ink"
       onClick={async () => {
-        const path = await saveCsv(`caudal-${slug}-${year}.csv`, sheet().rows);
+        const path = await saveCsv(`numo-${slug}-${year}.csv`, sheet().rows);
         if (path) toast("Archivo guardado");
       }}
     >
@@ -186,12 +188,50 @@ export function Informes() {
               </Table>
             )}
           </Card>
+          {carry && (carry.pendingInEur > 0 || carry.offsetByIncomeEur > 0 || carry.pendingOut.length > 0 || carry.expiredEur > 0) && (
+            <Card title="Pérdidas pendientes de compensar" note="orientativo, con lo registrado aquí">
+              <div className="grid gap-x-8 gap-y-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))" }}>
+                <div>
+                  <div className="text-[12px] text-mute">Venían de años anteriores</div>
+                  <div className="priv mt-0.5 text-[18px] font-[550]">{eur(carry.pendingInEur)}</div>
+                </div>
+                <div>
+                  <div className="text-[12px] text-mute">Se compensan en {year}</div>
+                  <div className="priv mt-0.5 text-[18px] font-[550]">{eur(carry.usedEur + carry.offsetByIncomeEur)}</div>
+                  {carry.offsetByIncomeEur > 0 && (
+                    <div className="text-[11.5px] text-mute">
+                      <Priv>{eur(carry.offsetByIncomeEur)}</Priv> de la pérdida del año, con dividendos e intereses
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <div className="text-[12px] text-mute">Quedan para los siguientes</div>
+                  <div className="priv mt-0.5 text-[18px] font-[550]">{eur(carry.pendingOut.reduce((s, p) => s + p.lossEur, 0))}</div>
+                  {carry.pendingOut.map((p) => (
+                    <div key={p.year} className="text-[11.5px] text-mute">
+                      de {p.year}: <Priv>{eur(p.lossEur)}</Priv> · hasta {p.until}
+                    </div>
+                  ))}
+                </div>
+                {carry.expiredEur > 0 && (
+                  <div>
+                    <div className="text-[12px] text-mute">Caducan sin compensar</div>
+                    <div className="priv mt-0.5 text-[18px] font-[550] text-acc">{eur(carry.expiredEur)}</div>
+                  </div>
+                )}
+              </div>
+              <p className="mt-3.5 text-[12px] text-pretty text-mute">
+                La pérdida de un año se compensa primero con el 25 % de los dividendos e intereses de ese año, y el resto con las ganancias de los cuatro siguientes, empezando por la más antigua. Solo cuenta lo
+                registrado en Numo App{scopeIds ? " y en las cuentas seleccionadas" : ""}: no conoce pérdidas anteriores ni de otras cuentas, y no sustituye a tu declaración.
+              </p>
+            </Card>
+          )}
           {review > 0 && (
             <p className="-mt-2 flex max-w-3xl items-start gap-2 px-1 text-[12.5px] text-ink2">
               <TriangleAlert size={14} className="mt-0.5 shrink-0 text-acc" />
               <span>
                 {review === 1 ? "Una pérdida tiene" : `${review} pérdidas tienen`} una compra del mismo valor dentro del plazo de recompra (2 meses en cotizados, 12 en fondos). Es un aviso
-                orientativo: Caudal no decide si la pérdida es compensable ni ajusta el coste.
+                orientativo: Numo App no decide si la pérdida es compensable ni ajusta el coste.
               </span>
             </p>
           )}

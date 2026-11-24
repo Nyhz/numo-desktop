@@ -1,4 +1,4 @@
-# Publica una versión de Caudal: sube el número, etiqueta, compila para macOS y
+# Publica una versión de Numo App: sube el número, etiqueta, compila para macOS y
 # Windows y deja los instaladores en la página de versiones del repositorio.
 #
 # Se lanza a mano (pestaña Actions → «Publicar versión», o `pnpm publicar` en el
@@ -83,14 +83,14 @@ jobs:
           body=$(cat <<'NOTAS'
           ## Instalar
 
-          - **macOS** (Apple Silicon e Intel): descarga el `.dmg`, ábrelo y arrastra Caudal a Aplicaciones. La app no está firmada con una cuenta de desarrollador de Apple: la primera vez, macOS la bloquea; ve a Ajustes del Sistema → Privacidad y seguridad y pulsa «Abrir igualmente».
+          - **macOS** (Apple Silicon e Intel): descarga el `.dmg`, ábrelo y arrastra Numo App a Aplicaciones. La app no está firmada con una cuenta de desarrollador de Apple: la primera vez, macOS la bloquea; ve a Ajustes del Sistema → Privacidad y seguridad y pulsa «Abrir igualmente».
           - **Windows** (64 bits): descarga el `-setup.exe` y ejecútalo. Tampoco está firmada: si Windows muestra «Windows protegió su PC», pulsa «Más información» → «Ejecutar de todas formas».
 
           Instalar una versión nueva encima de la anterior conserva tus datos.
           NOTAS
           )
           id=$(gh api -X POST "repos/${{ github.repository }}/releases" \
-            -f tag_name="$TAG" -f name="Caudal $VERSION" -f body="$body" \
+            -f tag_name="$TAG" -f name="Numo App $VERSION" -f body="$body" \
             -F draft=true -F generate_release_notes=true --jq .id)
           echo "id=$id" >> "$GITHUB_OUTPUT"
 
@@ -130,12 +130,17 @@ jobs:
       - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          # Firma de las actualizaciones: la app instalada solo acepta lo firmado con esta clave
+          # (su mitad pública está en tauri.conf.json). Secreto del repositorio.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         with:
           releaseId: ${{ needs.preparar.outputs.release_id }}
           args: ${{ matrix.args }}
-          # Sin actualizador dentro de la app: las versiones se descargan de GitHub.
-          uploadUpdaterJson: false
-          uploadUpdaterSignatures: false
+          # Además de los instaladores sube sus firmas y el `latest.json` que consulta la app
+          # para actualizarse sola (Ajustes → Versión).
+          uploadUpdaterJson: true
+          uploadUpdaterSignatures: true
 
   publicar:
     name: Hacer pública la versión

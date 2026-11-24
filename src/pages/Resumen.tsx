@@ -2,10 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { isoOf } from "../../shared/dates.ts";
 import { equitySeries, viewProperties } from "../../shared/engine/realestate.ts";
-import { monthlyReturns, netInvested, periodStats, returnIndex, totalsIn } from "../../shared/engine/timeline.ts";
+import { monthlyReturns, netInvested, periodStats, returnIndex, sessionChange, totalsIn } from "../../shared/engine/timeline.ts";
+import { IncomeColumns, type IncomeItem } from "../charts/income.tsx";
 import { HeroChart, HeroLegend, bandModel, lineModel, stackModel, type HeroModel, type Row } from "../charts/hero.tsx";
 import { GroupRows, MonthColumns, ReturnBars, treeGroups, type TreeCell, type TreeItem } from "../charts/viz.tsx";
-import { rangeBase, useApp, useDerived, type Derived } from "../data/store.ts";
+import { BENCHMARK, benchmarkReturns } from "../data/benchmark.ts";
+import { ensureBenchmark, rangeBase, useApp, useBenchmark, useDerived, type Derived } from "../data/store.ts";
 import { dateShort, eur, eurAxis, eurSigned, num, pct, pctSigned, seriesColor, splitMoney } from "../lib/format.ts";
 import { openDialog } from "../ui/dialogs.ts";
 import { Btn, Card, Delta, Empty, HeaderSlot, Kpi, Kpis, Money, Pills, Priv, toneOf } from "../ui/kit.tsx";
@@ -85,6 +87,11 @@ export function Resumen() {
   const homes = useMemo(() => (d.scope ? [] : viewProperties(d.state, d.today)), [d.state, d.scope, d.today]);
   const withHomes = homes.length > 0;
   const mode: Mode = picked === "pat" && !withHomes ? "valor" : picked;
+  // El índice con el que se compara la rentabilidad se baja al abrir ese modo, sin esperar por él.
+  const bench = useBenchmark(tl.n ? isoOf(tl.start) : null);
+  useEffect(() => {
+    if (mode === "rent") ensureBenchmark();
+  }, [mode, tl.start, d.today]);
 
   const view = useMemo(() => {
     if (tl.n === 0) return null;
@@ -108,6 +115,7 @@ export function Resumen() {
       invested,
       stats: periodStats(tl, from, to),
       all: periodStats(tl, -1, to),
+      start,
       totals: totalsIn(d.ledger, d.scope, start, d.today),
       ret: returnIndex(d.returns, from, to),
     };
@@ -124,7 +132,10 @@ export function Resumen() {
     if (mode === "rent") {
       // returnIndex puede traer un punto menos cuando el periodo empieza con la cartera.
       const off = dates.length - ret.length;
-      return lineModel({ dates: dates.slice(off), values: ret, label: "Rentabilidad acumulada", format: (v) => pctSigned(v / 100, 2), axis: (v) => `${num(v, 0)} %`, zero: true, lane: (a, b) => lane(a + off, b + off) });
+      const shown = dates.slice(off);
+      // El índice, sobre las mismas fechas y con la misma base; si no lo hay, la línea sola.
+      const index = bench && benchmarkReturns(bench, shown);
+      return lineModel({ dates: shown, values: ret, label: "Rentabilidad acumulada", format: (v) => pctSigned(v / 100, 2), axis: (v) => `${num(v, 0)} %`, zero: true, lane: (a, b) => lane(a + off, b + off), compare: index ? { label: BENCHMARK.label, values: index } : undefined });
     }
     if (mode === "pat") {
       return stackModel({
@@ -171,10 +182,23 @@ export function Resumen() {
         { color: "transparent", label: "Ganancia", value: eurSigned(V[i]! - C[i]!) },
       ],
     });
-  }, [view, mode, withHomes, d.state.accounts, tl]);
+  }, [view, mode, withHomes, d.state.accounts, tl, bench]);
 
-  const groups = useMemo(() => treeGroups(treeItems(d, group), group === "Cuenta"), [d, group]);
+  const groups = useMemo(() => {
+    // Con el patrimonio a la vista, lo que ya es tuyo de cada inmueble entra en el reparto.
+    const items = treeItems(d, group);
+    for (const h of homes) if (h.equity > 0) items.push({ key: `home|${h.property.id}`, name: h.property.name, value: h.equity, group: group === "Divisa" ? "EUR" : "Inmuebles", color: "var(--s8)" });
+    return treeGroups(items, group === "Cuenta");
+  }, [d, group, homes]);
+  const session = useMemo(() => sessionChange(d.positions), [d.positions]);
   const months = useMemo(() => monthlyReturns(tl), [tl]);
+  // Dividendos e intereses cobrados (netos) en el periodo, para ver cómo llegan y de quién.
+  const income = useMemo<IncomeItem[]>(() => {
+    const since = view?.start ?? d.today;
+    return d.ledger.ntxs
+      .filter((n) => (n.tx.type === "dividend" || n.tx.type === "interest") && n.tx.date >= since && (!d.scope || d.scope.has(n.tx.accountId)))
+      .map((n) => ({ date: n.tx.date, amount: n.cashEur, kind: n.tx.type as "dividend" | "interest", name: n.asset?.name ?? `Intereses · ${n.account.name}` }));
+  }, [d.ledger, d.scope, d.today, view?.start]);
 
   // (Antes de cualquier salida anticipada: los hooks han de llamarse siempre en el mismo orden.)
   const counted = useBootCount(tl.n ? tl.total[tl.n - 1]! : 0);
@@ -255,6 +279,9 @@ export function Resumen() {
       </section>
 
       <Kpis>
+        <Kpi label="Última sesión" note={`${pctSigned(session.pct, 2)} · lo que ha movido el precio de lo que tienes`} tone={session.gainEur}>
+          <Money value={session.gainEur} signed dim="soft" />
+        </Kpi>
         <Kpi priv label="Aportado neto" note="desde el inicio">
           {eur(invested[to]!, 0)}
         </Kpi>
@@ -280,6 +307,10 @@ export function Resumen() {
           note={<Pills size="sm" label="Repartir por" value={group} onChange={setGroup} options={[["Tipo", "Tipo"], ["Cuenta", "Cuenta"], ["Divisa", "Divisa"]]} />}
         >
           <GroupRows groups={groups} hot={cell?.key ?? null} onHover={setCell} />
+        </Card>
+
+        <Card className="col-span-full" title="Dividendos e intereses" note={`lo cobrado ${RANGE_PHRASE[range]}, ya sin retenciones`}>
+          <IncomeColumns items={income} from={view.start} to={d.today} />
         </Card>
 
         <Card title="Rentabilidad mes a mes" aside={<span className="text-[12px] text-mute">altura = rentabilidad del mes, en %</span>}>

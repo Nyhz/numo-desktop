@@ -287,7 +287,7 @@ export function Strip({ items, hot, onHover, height = 38 }: { items: Array<{ key
 export type FlowDot = { key: string; date: string; amount: number; color: string; label: string };
 
 /** En qué tramos se agrupa el flujo según lo largo que sea el periodo: meses, trimestres o años. */
-function flowBuckets(from: string, to: string): Array<{ key: string; label: string }> {
+export function flowBuckets(from: string, to: string): Array<{ key: string; label: string }> {
   const ym = (iso: string) => +iso.slice(0, 4) * 12 + (+iso.slice(5, 7) - 1);
   const [a, b] = [ym(from), ym(to)];
   const span = b - a + 1;

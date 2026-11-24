@@ -292,6 +292,21 @@ export function periodStats(tl: Timeline, from: number, to: number): PeriodStats
   };
 }
 
+/**
+ * Cuánto ha movido el precio lo que hay en cartera en la última sesión de cada
+ * activo (la misma variación «Día» de cada posición, sumada en euros).
+ */
+export function sessionChange(positions: Position[]): { gainEur: number; pct: number } {
+  let gain = 0;
+  let before = 0;
+  for (const p of positions) {
+    const prev = p.dayChangePct == null ? p.valueEur : p.valueEur / (1 + p.dayChangePct);
+    gain += p.valueEur - prev;
+    before += prev;
+  }
+  return { gainEur: r2(gain), pct: before > 0 ? gain / before : 0 };
+}
+
 /** Aportación neta acumulada día a día (entradas − salidas). */
 export function netInvested(tl: Timeline): Float64Array {
   const out = new Float64Array(tl.n);

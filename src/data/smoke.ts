@@ -7,7 +7,7 @@ import { backend, derive, getApp, importPlan, removeAccount, removeTx, saveAccou
 import { buildSnapshot, parseSnapshot } from "./sync.ts";
 
 /**
- * Prueba de humo de la app real (CAUDAL_SMOKE=1 con CAUDAL_DATA_DIR apuntando a
+ * Prueba de humo de la app real (NUMO_SMOKE=1 con NUMO_DATA_DIR apuntando a
  * una carpeta temporal): escribe en SQLite a través del núcleo nativo, vuelve a
  * leer del disco y comprueba que lo guardado es lo que se ve. Después cierra la app.
  */

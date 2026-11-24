@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "Caudal",
+  "productName": "Numo App",
   "version": "../package.json",
-  "identifier": "app.caudal.desktop",
+  "identifier": "app.numo.desktop",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:4400",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Caudal",
+        "title": "Numo App",
         "width": 1360,
         "height": 880,
         "minWidth": 1040,
@@ -47,6 +47,15 @@
     ],
     "macOS": {
       "signingIdentity": "-"
+    },
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDg3RTU5MzQwNEE0MjlGQjUKUldTMW4wSktRSlBsaDFrQTJZeldySmwxaFlvekZzOERuR0o4V3htOWE4SHI2ZzZQNzg2UE8vR3EK",
+      "endpoints": [
+        "https://github.com/Nyhz/numo-desktop/releases/latest/download/latest.json"
+      ]
     }
   }
 }

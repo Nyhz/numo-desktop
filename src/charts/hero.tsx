@@ -5,7 +5,7 @@ import { usePrivate } from "../ui/privacy.ts";
 
 // Gráfico principal del diseño: capas SVG en un lienzo 1000×300 que se estira
 // (trazo sin escalar), rejilla y etiquetas en HTML, carril inferior de barras
-// y cursor que cruza gráfico y carril. La geometría sigue caudal-viz.js.
+// y cursor que cruza gráfico y carril. La geometría sigue numo-viz.js.
 
 const W = 1000;
 const H = 300;
@@ -221,16 +221,20 @@ export function lineModel(
     /** Área hasta cero y línea cero visible (rentabilidad). Sin esto, área hasta la base. */
     zero?: boolean;
     marks?: Array<{ i: number; filled: boolean; label: string }>;
+    /** Serie con la que comparar (un índice de referencia), alineada con `values`: línea fina, sin área. */
+    compare?: { label: string; values: ArrayLike<number> };
   },
 ): HeroModel {
   const pre = frame(o.dates, 0, 1, o.axis, false);
   const t = pre.idx.map((i) => o.values[i]!);
-  const [lo, hi] = minMax([t]);
+  const c = o.compare ? pre.idx.map((i) => o.compare!.values[i]!) : null;
+  const [lo, hi] = minMax(c ? [t, c] : [t]);
   const pad = (hi - lo) * 0.06 || 1;
   const f = o.zero ? frame(o.dates, Math.min(lo, 0), Math.max(hi, 0), o.axis, true) : frame(o.dates, lo - pad, hi + pad, o.axis, false);
   const z = o.zero ? f.Y(0).toFixed(1) : String(H);
   const layers: Layer[] = [{ d: `${f.path(t)}L${W} ${z}L0 ${z}Z`, fill: "var(--acc)", opacity: o.zero ? 0.16 : 0.1 }];
   if (o.zero) layers.push({ d: `M0 ${z}H${W}`, stroke: "var(--line2)", width: 1 });
+  if (c) layers.push({ d: f.path(c), stroke: "var(--mute)", width: 1.1, dash: "4 4" });
   layers.push({ d: f.path(t), stroke: "var(--acc)", width: 1.8 });
   // Cada marca se lleva al punto dibujado más cercano.
   const near = (i: number) => {
@@ -245,8 +249,9 @@ export function lineModel(
     priv: !!o.priv,
     xl: f.xl,
     lane: o.lane ? buildLane(f, o.dates.length, o.lane) : null,
-    rowsAt: (k) => [{ color: "var(--acc)", label: o.label, value: o.format(t[k]!), priv: o.priv }],
-    dotsAt: (k) => [{ top: f.top(t[k]!), color: "var(--acc)" }],
+    // La comparación es un dato de mercado: el modo privado no la emborrona.
+    rowsAt: (k) => [{ color: "var(--acc)", label: o.label, value: o.format(t[k]!), priv: o.priv }, ...(c ? [{ color: "var(--mute)", label: o.compare!.label, value: o.format(c[k]!) }] : [])],
+    dotsAt: (k) => [{ top: f.top(t[k]!), color: "var(--acc)" }, ...(c ? [{ top: f.top(c[k]!), color: "var(--mute)" }] : [])],
     dateAt: (k) => o.dates[f.idx[k]!]!,
     src: (k) => f.idx[k]!,
     markers: (o.marks ?? []).map((mk) => {

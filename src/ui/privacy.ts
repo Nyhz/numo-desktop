@@ -6,7 +6,7 @@ import { useSyncExternalStore } from "react";
 // mercado y fechas se siguen viendo. No toca los datos ni lo que se exporta.
 // index.html lo aplica antes de pintar para que nada se vea al abrir.
 
-const KEY = "caudal.private";
+const KEY = "numo.private";
 const listeners = new Set<() => void>();
 
 export const isPrivate = (): boolean => document.documentElement.dataset.private != null;

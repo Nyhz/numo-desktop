@@ -1,14 +1,14 @@
 [package]
-name = "caudal"
+name = "numo-app"
 version = "0.1.0"
-description = "Caudal: seguimiento personal de inversiones"
+description = "Numo App: seguimiento personal de inversiones"
 edition = "2024"
 rust-version = "1.90"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [lib]
-name = "caudal_lib"
+name = "numo_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
@@ -22,3 +22,5 @@ rusqlite = { version = "0.43.0", features = ["bundled"] }
 tauri-plugin-dialog = "2.8.4"
 reqwest = { version = "0.13.5", default-features = false, features = ["gzip", "native-tls"] }
 tokio = { version = "1.54.1", features = ["time"] }
+tauri-plugin-opener = "2.7.3"
+tauri-plugin-updater = "2.14.1"

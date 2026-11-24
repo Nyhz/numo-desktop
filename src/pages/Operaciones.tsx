@@ -82,11 +82,11 @@ export function Operaciones() {
 
   const hotRow = hot ? rows.find((n) => n.tx.id === hot) : null;
   const exportCsv = async () => {
-    const path = await saveText(`caudal-operaciones-${d.today}.csv`, txsToCsv(d.state, new Set(rows.map((n) => n.tx.id))));
+    const path = await saveText(`numo-operaciones-${d.today}.csv`, txsToCsv(d.state, new Set(rows.map((n) => n.tx.id))));
     if (path) toast(`${rows.length} operaciones exportadas`);
   };
   const exportXlsx = async () => {
-    const path = await saveXlsx(`caudal-operaciones-${d.today}.xlsx`, [operationsSheet([...rows].reverse(), d.accounts, d.assets)]);
+    const path = await saveXlsx(`numo-operaciones-${d.today}.xlsx`, [operationsSheet([...rows].reverse(), d.accounts, d.assets)]);
     if (path) toast(`${rows.length} operaciones exportadas`);
   };
 

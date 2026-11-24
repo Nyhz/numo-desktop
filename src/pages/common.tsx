@@ -53,7 +53,7 @@ export function Welcome() {
           <Btn onClick={() => openDialog({ kind: "import" })}>Importar un CSV</Btn>
           {backend.native && (
             <Btn onClick={() => void bring()} disabled={busy}>
-              {busy ? "Sincronizando…" : dir ? "Sincronizar ahora" : "Ya uso Caudal en otro equipo"}
+              {busy ? "Sincronizando…" : dir ? "Sincronizar ahora" : "Ya uso Numo App en otro equipo"}
             </Btn>
           )}
           <Btn variant="ghost" onClick={() => setDemo(true)}>
@@ -62,7 +62,7 @@ export function Welcome() {
         </>
       }
     >
-      Crea una cuenta por cada bróker, banco o exchange y registra en ella tus compras, ventas y dividendos. Caudal calcula el resto.
+      Crea una cuenta por cada bróker, banco o exchange y registra en ella tus compras, ventas y dividendos. Numo App calcula el resto.
       {dir && (
         <span className="mt-3 block text-mute">
           Este equipo ya sincroniza, pero en la carpeta compartida aún no hay nada de otro equipo. Elige esa misma carpeta en el otro (Ajustes → Sincronización entre equipos) y espera a que tu

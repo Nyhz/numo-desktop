@@ -30,7 +30,7 @@ type Form = {
 };
 
 const str = (n: number | null | undefined) => (n == null || n === 0 ? "" : String(n).replace(".", ","));
-const LAST_ACCOUNT = "caudal.lastAccount";
+const LAST_ACCOUNT = "numo.lastAccount";
 const SAVED: Record<TxType, string> = {
   buy: "Compra guardada",
   sell: "Venta guardada",
@@ -94,9 +94,11 @@ export function TxDialog({ tx, preset }: { tx?: Tx; preset?: { type?: TxType; as
   const [f, setF] = useState<Form>(initial);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  // Si el usuario escribe el cambio a mano (o edita una operación guardada) no se pisa.
-  const [fxManual, setFxManual] = useState(!!tx);
-  const [fxSource, setFxSource] = useState<string | null>(null);
+  // El cambio de la operación es, por este orden: el que sale del importe en EUR que
+  // cargó el bróker, el que se escriba, o el de referencia del BCE (que se enseña como
+  // sugerencia: no hay que borrarlo para poner otro). null = aún se está pidiendo.
+  const [ecb, setEcb] = useState<{ rate: number; date: string } | "none" | null>(null);
+  const [eurText, setEurText] = useState("");
   const firstField = useRef<HTMLInputElement>(null);
   const set = (patch: Partial<Form>) => setF((cur) => ({ ...cur, ...patch }));
 
@@ -120,27 +122,31 @@ export function TxDialog({ tx, preset }: { tx?: Tx; preset?: { type?: TxType; as
   const currency = f.currency.toUpperCase();
   const foreign = currency !== "EUR" && /^[A-Z]{3}$/.test(currency);
 
-  // Tipo de referencia del BCE para la fecha, salvo que se haya escrito otro.
+  // Tipo de referencia del BCE para la fecha.
   useEffect(() => {
-    if (!foreign || fxManual || !isIsoDate(f.date)) return;
+    setEcb(null);
+    if (!foreign || !isIsoDate(f.date)) return;
     let alive = true;
     void ecbRate(currency, f.date).then((hit) => {
-      if (!alive) return;
-      if (hit) {
-        set({ fxRate: String(hit.rate).replace(".", ",") });
-        setFxSource(`BCE, ${dateShort(hit.date)}`);
-      } else setFxSource("El BCE no publica esta divisa: escribe el cambio");
+      if (alive) setEcb(hit ? { rate: hit.rate, date: hit.date } : "none");
     });
     return () => {
       alive = false;
     };
-  }, [currency, f.date, foreign, fxManual]);
+  }, [currency, f.date, foreign]);
 
   const n = (s: string) => parseNumber(s);
   const qty = n(f.quantity) ?? 0;
   const price = n(f.price) ?? 0;
   const fee = n(f.fee) ?? 0;
-  const fx = foreign ? (n(f.fxRate) ?? 0) : 1;
+  // Importe de la operación en su divisa, sin comisiones: lo que el bróker convierte a EUR.
+  const gross = isTrade ? qty * price : (n(f.amount) ?? 0);
+  // «4.600» aquí son cuatro mil seiscientos: un importe en euros se escribe con punto de millar.
+  const eurTotal = n(/^\d{1,3}(\.\d{3})+$/.test(eurText.trim()) ? eurText.replace(/\./g, "") : eurText);
+  const fromEur = foreign && eurTotal != null && eurTotal > 0 && gross > 0;
+  const ecbRateNow = ecb && ecb !== "none" ? ecb.rate : null;
+  const fx = !foreign ? 1 : fromEur ? gross / eurTotal : (n(f.fxRate) ?? ecbRateNow ?? 0);
+  const rateText = (v: number) => String(Math.round(v * 1e6) / 1e6).replace(".", ",");
 
   // Cierre del día como ayuda para el precio (en las unidades de la fecha de la operación).
   const closeHint = useMemo(() => {
@@ -176,13 +182,14 @@ export function TxDialog({ tx, preset }: { tx?: Tx; preset?: { type?: TxType; as
       quantity: n(f.quantity),
       price: n(f.price),
       amount: n(f.amount),
-      fxRate: foreign ? n(f.fxRate) : 1,
+      fxRate: !foreign ? 1 : Number.isNaN(fx) ? Number.NaN : fx > 0 ? Math.round(fx * 1e6) / 1e6 : null,
       fee: n(f.fee) ?? 0,
       taxSource: n(f.taxSource) ?? 0,
       taxHome: n(f.taxHome) ?? 0,
       toQuantity: n(f.toQuantity),
     };
     if (Object.values(numbers).some((v) => v != null && Number.isNaN(v))) return setError("Hay un número que no se entiende. Usa coma o punto para los decimales.");
+    if (foreign && eurText.trim() && !fromEur) return setError("El importe en EUR no se entiende, o falta el importe de la operación");
     if (foreign && !(numbers.fxRate! > 0)) return setError(`Indica el cambio de ${currency}`);
     setSaving(true);
     const res = await saveTx(
@@ -385,24 +392,36 @@ export function TxDialog({ tx, preset }: { tx?: Tx; preset?: { type?: TxType; as
         )}
 
         {foreign && !isTransfer && (
-          <Field label={`Cambio: 1 EUR en ${currency}`} hint={fxManual ? (tx ? "el guardado con la operación" : "escrito a mano") : fxSource}>
-            <div className="flex gap-2">
+          <div className="grid grid-cols-2 gap-3">
+            <Field
+              label={`Cambio: 1 EUR en ${currency}`}
+              hint={
+                fromEur
+                  ? "sale del importe en EUR"
+                  : ecb === "none"
+                    ? "el BCE no publica esta divisa"
+                    : ecb
+                      ? f.fxRate.trim()
+                        ? `BCE: ${rateText(ecb.rate)} · en blanco se usa ese`
+                        : `el del BCE, ${dateShort(ecb.date)}`
+                      : null
+              }
+            >
               <input
                 className="field"
                 inputMode="decimal"
-                value={f.fxRate}
+                placeholder={ecbRateNow != null ? rateText(ecbRateNow) : ""}
+                value={fromEur ? rateText(fx) : f.fxRate}
                 onChange={(e) => {
-                  setFxManual(true);
+                  setEurText("");
                   set({ fxRate: e.target.value });
                 }}
               />
-              {fxManual && (
-                <Btn onClick={() => setFxManual(false)} title="Sustituye el cambio por el de referencia del BCE de esa fecha">
-                  Usar el del BCE
-                </Btn>
-              )}
-            </div>
-          </Field>
+            </Field>
+            <Field label="O el importe en EUR" hint="sin comisiones">
+              <input className="field" inputMode="decimal" placeholder={gross > 0 && fx > 0 ? num(gross / fx, 2, 2) : ""} value={eurText} onChange={(e) => setEurText(e.target.value)} />
+            </Field>
+          </div>
         )}
 
         <Field label="Nota" hint="opcional">

@@ -3,9 +3,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { parseNumber } from "../../shared/csv.ts";
 import { buildPlan, planContribution } from "../../shared/engine/plan.ts";
+import { viewProperties } from "../../shared/engine/realestate.ts";
 import type { Goal } from "../../shared/types.ts";
 import { contributionSpan, offAfter } from "../charts/plan-math.ts";
 import { NO_BLOCK, PlanBars, PlanCurve, PlanSplit, type PlanHot } from "../charts/plan.tsx";
+import { Projection } from "../charts/projection.tsx";
 import { assignAsset, derive, removeGoal, saveGoal, useApp } from "../data/store.ts";
 import { eur, num, pct, seriesColor } from "../lib/format.ts";
 import { Btn, Card, Dot, Empty, IconBtn, Kpi, Kpis, Priv, toast } from "../ui/kit.tsx";
@@ -14,7 +16,7 @@ import { L, THead, TRow, Table, Welcome } from "./common.tsx";
 const pp = (v: number, d = 1) => `${num(v, d, d)} %`;
 /** Atajos de importe para la próxima aportación. */
 const SHORTCUTS = [500, 1000, 2500, 5000];
-const AMOUNT_KEY = "caudal.aportacion";
+const AMOUNT_KEY = "numo.aportacion";
 
 /** Fila editable de un bloque: se guarda al salir del campo o con Intro. */
 function GoalRow({ goal, used }: { goal: Goal; used: number }) {
@@ -87,6 +89,18 @@ export function Plan() {
   const alloc = useMemo(() => planContribution(plan, amount), [plan, amount]);
   const after = useMemo(() => offAfter(plan, amount, alloc), [plan, amount, alloc]);
 
+  // Para la proyección: lo que vale hoy la cartera, los inmuebles y lo que se viene aportando al mes.
+  const homes = useMemo(() => viewProperties(state, d.today), [state, d.today]);
+  const tl = d.timeline;
+  const portfolioNow = tl.n ? tl.total[tl.n - 1]! : 0;
+  const suggestedMonthly = useMemo(() => {
+    let net = 0;
+    const from = Math.max(0, tl.n - 365);
+    for (let i = from; i < tl.n; i++) net += tl.inflow[i]! - tl.outflow[i]!;
+    const months = Math.max(1, (tl.n - from) / 30.44);
+    return Math.max(0, Math.round(net / months / 50) * 50);
+  }, [tl]);
+
   if (state.accounts.length === 0) return <Welcome />;
 
   const writeAmount = (text: string) => {
@@ -136,7 +150,7 @@ export function Plan() {
           </form>
         }
       >
-        Un plan reparte tu cartera en bloques con un peso objetivo: Global 60 %, Emergentes 15 %, Oro 5 %… Caudal te dice cuánto te alejas de él y dónde poner la próxima aportación.
+        Un plan reparte tu cartera en bloques con un peso objetivo: Global 60 %, Emergentes 15 %, Oro 5 %… Numo App te dice cuánto te alejas de él y dónde poner la próxima aportación.
       </Empty>
     );
   }
@@ -358,6 +372,8 @@ export function Plan() {
           </div>
         </Card>
       </div>
+
+      {portfolioNow > 0 && <Projection portfolio={portfolioNow} homes={homes} today={d.today} suggestedMonthly={suggestedMonthly} />}
     </div>
   );
 }

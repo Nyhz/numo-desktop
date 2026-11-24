@@ -23,6 +23,7 @@ const monthsText = (n: number) => {
 /** `value` es un importe (el modo privado lo emborrona); `extra`, lo que le sigue y sí se ve. */
 type LegendRow = { color: string; label: string; value: string; extra?: string };
 
+const ALL_COLS: CSSProperties = { gridTemplateColumns: "minmax(160px,1.6fr) 1fr 1fr 1fr 90px" };
 const YEAR_COLS: CSSProperties = { gridTemplateColumns: "52px 1fr 1fr 1fr minmax(70px,.8fr) 1.1fr" };
 
 function YearTable({ years, hot, onHover, total, all, onToggle }: { years: HomeYear[]; hot: number | null; onHover: (year: number | null) => void; total: number; all: boolean; onToggle: () => void }) {
@@ -185,6 +186,9 @@ function PropertyPanel({ v, today, portfolio }: { v: PropertyView; today: string
         ...(loan ? [{ color: "var(--mute)", label: "Hipoteca pendiente", value: eur(loan.outstanding, 0) }] : []),
         { color: "transparent", label: "Ya es tuyo", value: eur(v.equity, 0) },
       ];
+  // Sobre un año la leyenda tiene más filas y cifras más largas que la de hoy: ocupa
+  // siempre el mismo sitio (ancho fijo y filas de relleno) para que la página no se mueva.
+  const legendRows = loan ? 4 : 2;
 
   return (
     <>
@@ -221,16 +225,21 @@ function PropertyPanel({ v, today, portfolio }: { v: PropertyView; today: string
               </span>
             </div>
           </div>
-          <div className="flex min-w-[270px] flex-col gap-[3px] pb-1 text-[12.5px]" aria-live="off">
-            <div className="mb-0.5 text-[12px] text-mute">{legendTitle}</div>
+          <div className="flex w-[290px] flex-none flex-col gap-[3px] pb-1 text-[12.5px] whitespace-nowrap" aria-live="off">
+            <div className="mb-0.5 truncate text-[12px] text-mute">{legendTitle}</div>
             {legend.map((r) => (
               <div key={r.label} className="flex items-center gap-2">
                 <Swatch color={r.color} />
-                <span className="flex-1 text-ink2">{r.label}</span>
+                <span className="min-w-0 flex-1 truncate text-ink2">{r.label}</span>
                 <span className="font-medium">
                   <Priv>{r.value}</Priv>
                   {r.extra}
                 </span>
+              </div>
+            ))}
+            {Array.from({ length: legendRows - legend.length }, (_, i) => (
+              <div key={i} aria-hidden>
+                &nbsp;
               </div>
             ))}
           </div>
@@ -330,6 +339,38 @@ export function Inmuebles() {
           </span>}
       </HeaderSlot>
       <PropertyPanel key={current.property.id} v={current} today={d.today} portfolio={portfolio} />
+      {views.length > 1 && (
+        <section className="card min-w-0 overflow-x-auto">
+          <div className="px-5 pt-4 pb-2.5">
+            <span className="wide font-semibold">Todos tus inmuebles</span>
+          </div>
+          <div className="min-w-[620px] text-right" role="table" aria-label="Todos los inmuebles">
+            <div className="thead border-t border-line" style={{ ...ALL_COLS, padding: "8px 20px" }} role="row">
+              <span className="text-left">Inmueble</span>
+              <span>Valor</span>
+              <span>Hipoteca pendiente</span>
+              <span>Ya es tuyo</span>
+              <span>Del inmueble</span>
+            </div>
+            {views.map((v) => (
+              <div key={v.property.id} className={`trow cursor-pointer hover:bg-wash ${v.property.id === current.property.id ? "linked" : ""}`} style={ALL_COLS} role="row" onClick={() => setPicked(v.property.id)}>
+                <span className="truncate text-left font-[550]">{v.property.name}</span>
+                <span className="priv">{eur(v.value, 0)}</span>
+                <span className="priv text-ink2">{v.loan ? eur(v.loan.outstanding, 0) : "—"}</span>
+                <span className="priv font-semibold">{eur(v.equity, 0)}</span>
+                <span className="text-ink2">{pct(v.ownedShare)}</span>
+              </div>
+            ))}
+            <div className="tfoot" style={ALL_COLS} role="row">
+              <span className="text-left">Total</span>
+              <span className="priv">{eur(views.reduce((s, v) => s + v.value, 0), 0)}</span>
+              <span className="priv">{eur(views.reduce((s, v) => s + (v.loan?.outstanding ?? 0), 0), 0)}</span>
+              <span className="priv">{eur(totalEquity, 0)}</span>
+              <span />
+            </div>
+          </div>
+        </section>
+      )}
     </div>
   );
 }

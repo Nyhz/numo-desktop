@@ -86,6 +86,96 @@ export type YearReport = {
   };
 };
 
+/**
+ * Parte del saldo positivo de dividendos e intereses con la que se pueden
+ * compensar pérdidas de ventas en la base del ahorro (25 % desde 2018).
+ */
+const crossLimit = (year: number): number => (year >= 2018 ? 0.25 : year === 2017 ? 0.2 : year === 2016 ? 0.15 : year === 2015 ? 0.1 : 0);
+/** Ejercicios siguientes en los que se puede compensar una pérdida. */
+const CARRY_YEARS = 4;
+
+export type TaxYearBase = { year: number; netGainEur: number; incomeEur: number };
+export type LossYear = {
+  year: number;
+  /** Saldo de ganancias y pérdidas de las ventas del año. */
+  netGainEur: number;
+  /** Pérdidas de años anteriores que seguían pendientes al empezar el año. */
+  pendingInEur: number;
+  /** De ellas, las que se compensan este año: con ganancias y, hasta el límite, con dividendos e intereses. */
+  usedEur: number;
+  /** Pérdida de este año que se compensa con los dividendos e intereses del propio año. */
+  offsetByIncomeEur: number;
+  /** Pérdidas antiguas que caducan sin compensar al acabar este año. */
+  expiredEur: number;
+  /** Lo que queda pendiente para los años siguientes, por año de origen. */
+  pendingOut: Array<{ year: number; lossEur: number; until: number }>;
+};
+
+/** Saldo de ventas y rendimientos brutos de cada año con actividad, del más antiguo al más reciente. */
+export function taxYearBases(ledger: Ledger, scope: Scope): TaxYearBase[] {
+  const ok = (id: string) => !scope || scope.has(id);
+  const by = new Map<number, TaxYearBase>();
+  const at = (date: string) => {
+    const year = +date.slice(0, 4);
+    let row = by.get(year);
+    if (!row) by.set(year, (row = { year, netGainEur: 0, incomeEur: 0 }));
+    return row;
+  };
+  for (const m of ledger.matches) if (ok(m.accountId)) at(m.sellDate).netGainEur += m.gainEur;
+  for (const t of ledger.ntxs) if (ok(t.tx.accountId) && (t.tx.type === "dividend" || t.tx.type === "interest")) at(t.tx.date).incomeEur += t.grossEur;
+  return [...by.values()].sort((a, b) => a.year - b.year);
+}
+
+/**
+ * Arrastre de pérdidas patrimoniales entre ejercicios, orientativo: la pérdida
+ * de un año se compensa primero con dividendos e intereses de ese año (hasta el
+ * límite), y el resto con las ganancias (y el límite sobrante) de los cuatro
+ * años siguientes, empezando por la más antigua.
+ */
+export function lossCarryover(bases: TaxYearBase[]): LossYear[] {
+  const out: LossYear[] = [];
+  let pending: Array<{ year: number; lossEur: number }> = [];
+  if (!bases.length) return out;
+  const byYear = new Map(bases.map((b) => [b.year, b]));
+  for (let year = bases[0]!.year; year <= bases[bases.length - 1]!.year; year++) {
+    const base = byYear.get(year) ?? { year, netGainEur: 0, incomeEur: 0 };
+    const netGain = r2(base.netGainEur);
+    const pendingIn = pending.reduce((s, p) => s + p.lossEur, 0);
+    let cap = crossLimit(year) * Math.max(0, base.incomeEur);
+    let used = 0;
+    const consume = (room: number) => {
+      for (const p of pending) {
+        const take = Math.min(p.lossEur, room);
+        p.lossEur = r2(p.lossEur - take);
+        room -= take;
+        used += take;
+      }
+    };
+    let offsetByIncome = 0;
+    let fresh = 0;
+    if (netGain > 0) consume(netGain);
+    else if (netGain < 0) {
+      offsetByIncome = Math.min(-netGain, cap);
+      cap -= offsetByIncome;
+      fresh = r2(-netGain - offsetByIncome);
+    }
+    consume(cap);
+    const expired = pending.filter((p) => p.year <= year - CARRY_YEARS).reduce((s, p) => s + p.lossEur, 0);
+    pending = pending.filter((p) => p.year > year - CARRY_YEARS && p.lossEur >= 0.005);
+    if (fresh >= 0.005) pending.push({ year, lossEur: fresh });
+    out.push({
+      year,
+      netGainEur: netGain,
+      pendingInEur: r2(pendingIn),
+      usedEur: r2(used),
+      offsetByIncomeEur: r2(offsetByIncome),
+      expiredEur: r2(expired),
+      pendingOut: pending.map((p) => ({ ...p, until: p.year + CARRY_YEARS })),
+    });
+  }
+  return out;
+}
+
 /** Años con alguna operación, del más reciente al más antiguo. */
 export function yearsWithActivity(state: AppState, today: string): number[] {
   const ys = new Set<number>([+today.slice(0, 4)]);

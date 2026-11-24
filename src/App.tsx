@@ -1,8 +1,8 @@
-import { ArrowLeftRight, Check, ChevronDown, Eye, EyeOff, FileText, House, Landmark, Layers, LineChart, Moon, Plus, Radar, RefreshCw, Settings, Sun, Target } from "lucide-react";
+import { ArrowLeftRight, Check, ChevronDown, CircleArrowUp, CloudOff, Eye, EyeOff, FileText, House, Landmark, Layers, LineChart, Moon, Plus, Radar, RefreshCw, Settings, Sun, Target, X } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, Route, Router, Switch, useLocation } from "wouter";
 import { useHashLocation } from "wouter/use-hash-location";
-import { backend, isExample, setDemo, setScope, sync, syncOnFocus, useApp, useHealth } from "./data/store.ts";
+import { backend, hideUpdate, installUpdate, isExample, setDemo, setScope, sync, syncOnFocus, updateOnFocus, useApp, useHealth } from "./data/store.ts";
 import { Dialogs } from "./features/dialogs.tsx";
 import { ago, seriesColor } from "./lib/format.ts";
 import { Activo } from "./pages/Activo.tsx";
@@ -60,20 +60,44 @@ function RailLink({ nav, alerts = 0 }: { nav: Nav; alerts?: number }) {
   );
 }
 
+/** Colores de acento que se pueden elegir. Ni verde ni rojo: en la app significan ganancia y pérdida. */
+export const ACCENTS = [
+  ["ambar", "Ámbar"],
+  ["azul", "Azul"],
+  ["turquesa", "Turquesa"],
+  ["violeta", "Violeta"],
+  ["rosa", "Rosa"],
+  ["plata", "Plata"],
+] as const;
+export type Accent = (typeof ACCENTS)[number][0];
+
+/** El acento vive en <html data-accent> (sus colores, en styles.css) y se recuerda entre aperturas. */
+export function useAccent(): [Accent, (accent: Accent) => void] {
+  const read = () => (document.documentElement.dataset.accent as Accent | undefined) ?? "ambar";
+  const [accent, setAccent] = useState<Accent>(read);
+  const pick = (next: Accent) => {
+    if (next === "ambar") delete document.documentElement.dataset.accent;
+    else document.documentElement.dataset.accent = next;
+    localStorage.setItem("numo.accent", next);
+    setAccent(next);
+  };
+  return [accent, pick];
+}
+
 export function useTheme(): [boolean, () => void] {
   const [light, setLight] = useState(() => document.documentElement.dataset.theme === "light");
   const flip = () => {
     const next = !light;
     if (next) document.documentElement.dataset.theme = "light";
     else delete document.documentElement.dataset.theme;
-    localStorage.setItem("caudal.theme", next ? "light" : "dark");
+    localStorage.setItem("numo.theme", next ? "light" : "dark");
     setLight(next);
-    window.dispatchEvent(new Event("caudal-theme"));
+    window.dispatchEvent(new Event("numo-theme"));
   };
   useEffect(() => {
     const onChange = () => setLight(document.documentElement.dataset.theme === "light");
-    window.addEventListener("caudal-theme", onChange);
-    return () => window.removeEventListener("caudal-theme", onChange);
+    window.addEventListener("numo-theme", onChange);
+    return () => window.removeEventListener("numo-theme", onChange);
   }, []);
   return [light, flip];
 }
@@ -161,6 +185,64 @@ function SyncButton() {
   );
 }
 
+/** La sincronización entre equipos falla: se avisa en el menú, no solo en Ajustes. */
+function DevicesNotice() {
+  const error = useApp((s) => s.devices.error);
+  const [, go] = useLocation();
+  if (!error) return null;
+  return (
+    <button
+      type="button"
+      title={`La sincronización entre equipos falla: ${error}`}
+      aria-label="La sincronización entre equipos falla"
+      onClick={() => go("/ajustes")}
+      className="relative grid size-10 place-items-center rounded-[11px] text-acc transition-colors hover:bg-wash"
+    >
+      <CloudOff size={18} strokeWidth={1.8} />
+    </button>
+  );
+}
+
+/** Aviso discreto, sobre la pantalla, de que hay una versión nueva; desde él se instala. */
+function UpdateBanner() {
+  const update = useApp((s) => s.update);
+  const busy = update.status === "installing";
+  if (update.hidden || !update.version || !(update.status === "available" || busy || update.status === "error")) return null;
+  return (
+    <div role="status" className="mx-7 mb-1 flex items-center gap-3 rounded-xl border border-line2 bg-raised px-3.5 py-2 text-[12.5px]" style={{ boxShadow: "var(--shadow-active)" }}>
+      <CircleArrowUp size={15} className="shrink-0 text-acc" />
+      <span className="min-w-0 flex-1 truncate">
+        {busy ? (
+          <>
+            Descargando Numo App {update.version}… <span className="text-ink2">{update.progress} % · la app se reiniciará sola</span>
+          </>
+        ) : update.status === "error" ? (
+          <>
+            No se pudo instalar la {update.version}: <span className="text-ink2">{update.error}</span>
+          </>
+        ) : (
+          <>
+            <span className="font-[550]">Numo App {update.version}</span> <span className="text-ink2">ya está disponible. Se instala en un momento y tus datos se conservan.</span>
+          </>
+        )}
+      </span>
+      {!busy && (
+        <>
+          <Btn size="sm" variant="cta" onClick={() => void installUpdate()}>
+            {update.status === "error" ? "Reintentar" : "Actualizar"}
+          </Btn>
+          <button type="button" className="text-ink2 underline decoration-line2 underline-offset-2 hover:text-ink" onClick={() => void backend.openReleases()}>
+            Novedades
+          </button>
+          <button type="button" aria-label="Cerrar el aviso" title="Cerrar; sigue en Ajustes → Versión" className="grid size-6 place-items-center rounded-full text-mute hover:bg-wash hover:text-ink" onClick={hideUpdate}>
+            <X size={13} />
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
 function Shell({ children }: { children: ReactNode }) {
   const [loc] = useLocation();
   const hasAccounts = useApp((s) => (s.demo ?? s.loaded).state.accounts.length > 0);
@@ -172,10 +254,14 @@ function Shell({ children }: { children: ReactNode }) {
   const { attention, fxLate } = useHealth();
   const here = [...NAV_MAIN, ...NAV_SUB].find((n) => matches(n, loc));
 
-  // Al volver a la ventana se mira si otro equipo ha dejado cambios.
+  // Al volver a la ventana se mira si otro equipo ha dejado cambios y si hay una versión nueva.
   useEffect(() => {
-    window.addEventListener("focus", syncOnFocus);
-    return () => window.removeEventListener("focus", syncOnFocus);
+    const onFocus = () => {
+      syncOnFocus();
+      updateOnFocus();
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
   }, []);
 
   // «N» abre una operación nueva desde cualquier pantalla; «P» pone o quita el modo privado.
@@ -198,7 +284,7 @@ function Shell({ children }: { children: ReactNode }) {
       {/* Rail: solo iconos. En macOS se ensancha y deja hueco arriba: los botones de la ventana
           ocupan unos 70 px de ancho y no deben quedar sobre el panel. */}
       <nav data-tauri-drag-region className={`flex flex-none flex-col items-center gap-1.5 pb-3.5 ${backend.native && isMac ? "w-[78px] pt-[46px]" : "w-16 pt-3.5"}`} aria-label="Secciones">
-        <div data-tauri-drag-region data-splash-logo className="mb-3.5 size-9 rounded-full" style={{ boxShadow: "0 0 0 1px var(--line2), var(--shadow)" }} title="Caudal">
+        <div data-tauri-drag-region data-splash-logo className="mb-3.5 size-9 rounded-full" style={{ boxShadow: "0 0 0 1px var(--line2), var(--shadow)" }} title="Numo App">
           <Logo size={36} className="pointer-events-none" />
         </div>
         {NAV_MAIN.map((n) => (
@@ -209,6 +295,7 @@ function Shell({ children }: { children: ReactNode }) {
           <RailLink key={n.href} nav={n} alerts={n.href === "/activos" ? attention + fxLate : 0} />
         ))}
         <div className="my-1.5 h-px w-6 bg-line2" />
+        <DevicesNotice />
         <SyncButton />
         <button
           type="button"
@@ -237,10 +324,10 @@ function Shell({ children }: { children: ReactNode }) {
       >
         <header data-tauri-drag-region className="flex items-center gap-3.5 px-7 py-3 whitespace-nowrap">
           <div data-tauri-drag-region className="flex items-center gap-2 text-[13px] text-mute">
-            <span>Caudal</span>
+            <span>Numo App</span>
             <span className="opacity-50">/</span>
             <span className="font-semibold text-ink" style={{ fontStretch: "110%" }}>
-              {here?.label ?? "Caudal"}
+              {here?.label ?? "Numo App"}
             </span>
           </div>
           <div id="header-slot" className="flex min-w-0 items-center gap-3" />
@@ -262,6 +349,7 @@ function Shell({ children }: { children: ReactNode }) {
             </Btn>
           )}
         </header>
+        <UpdateBanner />
         <div className="min-h-0 flex-1 overflow-auto px-7 pt-4 pb-14">
           <div className="mx-auto max-w-[1240px]">{children}</div>
         </div>

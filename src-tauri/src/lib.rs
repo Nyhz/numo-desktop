@@ -1,4 +1,4 @@
-//! Núcleo nativo de Caudal.
+//! Núcleo nativo de Numo App.
 //!
 //! Hace solo tres cosas que la interfaz no puede hacer por sí misma:
 //! guardar en SQLite, pedir datos de mercado por HTTPS y escribir archivos.
@@ -20,6 +20,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_dialog::DialogExt;
+use tauri_plugin_opener::OpenerExt;
+use tauri_plugin_updater::UpdaterExt;
 
 /// Migraciones en orden. `PRAGMA user_version` recuerda la última aplicada.
 /// Nunca se edita una ya publicada: se añade otra al final.
@@ -134,7 +136,7 @@ fn daily_backup(conn: &Connection, db_path: &Path) {
     };
     let run = || -> Result<(), String> {
         fs::create_dir_all(&dir).map_err(err)?;
-        let file = dir.join(format!("caudal-{}.db", today_utc()));
+        let file = dir.join(format!("numo-{}.db", today_utc()));
         if file.exists() {
             return Ok(());
         }
@@ -153,13 +155,41 @@ fn daily_backup(conn: &Connection, db_path: &Path) {
         Ok(())
     };
     if let Err(e) = run() {
-        eprintln!("[caudal] no se pudo crear la copia diaria: {e}");
+        eprintln!("[numo] no se pudo crear la copia diaria: {e}");
+    }
+}
+
+/// La app se llamó de otra manera hasta la 0.3 y guardaba sus datos en otra
+/// carpeta. Solo se usan para traerlos aquí una vez; la carpeta antigua no se borra.
+const LEGACY_DIR: &str = "app.caudal.desktop";
+const LEGACY_DB: &str = "caudal.db";
+
+/// Primera apertura tras el cambio de nombre: si aquí aún no hay base de datos
+/// y la versión anterior dejó la suya, se copia entera (VACUUM INTO incluye lo
+/// que estuviera pendiente de consolidar). Un fallo no impide abrir la app.
+fn adopt_legacy_data(dir: &Path) {
+    let target = dir.join("numo.db");
+    let Some(old) = dir.parent().map(|p| p.join(LEGACY_DIR).join(LEGACY_DB)) else {
+        return;
+    };
+    if target.exists() || !old.exists() {
+        return;
+    }
+    let run = || -> Result<(), String> {
+        fs::create_dir_all(dir).map_err(err)?;
+        let conn = open(&old).map_err(err)?;
+        conn.execute("VACUUM INTO ?1", [target.to_string_lossy().as_ref()]).map_err(err)?;
+        Ok(())
+    };
+    if let Err(e) = run() {
+        eprintln!("[numo] no se pudieron traer los datos de la versión anterior: {e}");
+        let _ = fs::remove_file(&target);
     }
 }
 
 fn init_db(dir: &Path) -> Result<Db, String> {
     fs::create_dir_all(dir).map_err(err)?;
-    let path = dir.join("caudal.db");
+    let path = dir.join("numo.db");
     let existed = path.exists();
     let mut conn = open(&path).map_err(err)?;
     if existed {
@@ -297,9 +327,9 @@ async fn http_get(db: State<'_, Db>, url: String) -> CmdResult<String> {
     if !matches!(host.as_str(), "data-api.ecb.europa.eu" | "data-api.binance.vision" | "api.indexacapital.com") {
         tokio::time::sleep(reserve_yahoo_slot()).await;
     }
-    let debug = std::env::var_os("CAUDAL_DEBUG").is_some();
+    let debug = std::env::var_os("NUMO_DEBUG").is_some();
     if debug {
-        eprintln!("[caudal] GET {shown}");
+        eprintln!("[numo] GET {shown}");
     }
     let client = reqwest::Client::builder()
         .user_agent(USER_AGENT)
@@ -320,7 +350,7 @@ async fn http_get(db: State<'_, Db>, url: String) -> CmdResult<String> {
         .map_err(|e| format!("Sin conexión: {}", e.without_url()))?;
     let status = res.status();
     if debug {
-        eprintln!("[caudal]   -> {}", status.as_u16());
+        eprintln!("[numo]   -> {}", status.as_u16());
     }
     if !status.is_success() {
         return Err(format!("HTTP {}", status.as_u16()));
@@ -373,7 +403,7 @@ fn is_sync_name(name: &str) -> bool {
     })
 }
 
-/// La carpeta que se usará dentro de la elegida: ella misma si ya es la de Caudal
+/// La carpeta que se usará dentro de la elegida: ella misma si ya es la de Numo App
 /// (se llama así o tiene archivos de otro equipo), o una subcarpeta «numo-app».
 fn sync_target(picked: &Path) -> PathBuf {
     let named = picked.file_name().is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case(SYNC_FOLDER));
@@ -429,10 +459,76 @@ fn backup_now(db: State<'_, Db>, label: String) -> CmdResult<()> {
     fs::create_dir_all(&dir).map_err(err)?;
     let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(err)?.as_secs();
     // El nombre empieza como las copias diarias para que la limpieza las trate igual.
-    let file = dir.join(format!("caudal-{}-{label}-{secs}.db", today_utc()));
+    let file = dir.join(format!("numo-{}-{label}-{secs}.db", today_utc()));
     let conn = db.conn.lock().map_err(err)?;
     conn.execute("VACUUM INTO ?1", [file.to_string_lossy().as_ref()]).map_err(err)?;
     Ok(())
+}
+
+/// Página de versiones del repositorio: de ahí se descargan los instaladores.
+const RELEASES_URL: &str = "https://github.com/Nyhz/numo-desktop/releases/latest";
+
+/// Abre la página de descargas en el navegador. La dirección es fija: la
+/// interfaz no puede abrir ninguna otra.
+#[tauri::command]
+fn open_releases(app: AppHandle) -> CmdResult<()> {
+    app.opener().open_url(RELEASES_URL, None::<&str>).map_err(err)
+}
+
+// ── Actualización de la app ─────────────────────────────────────────────────
+// Las versiones se publican en GitHub con un `latest.json` firmado (lo genera el
+// flujo de publicación). La app lo consulta, descarga el instalador, comprueba
+// la firma con la clave pública de tauri.conf.json y se reinicia ya actualizada.
+
+#[derive(Serialize)]
+struct UpdateInfo {
+    version: String,
+    notes: String,
+}
+
+/// Mira si hay publicada una versión más nueva. No descarga nada.
+#[tauri::command]
+async fn check_update(app: AppHandle) -> CmdResult<Option<UpdateInfo>> {
+    let update = app
+        .updater()
+        .map_err(err)?
+        .check()
+        .await
+        .map_err(|e| format!("No se pudo consultar la última versión: {e}"))?;
+    Ok(update.map(|u| UpdateInfo {
+        version: u.version.clone(),
+        notes: u.body.clone().unwrap_or_default(),
+    }))
+}
+
+/// Descarga la versión nueva, la instala y reinicia la app. `on_progress` recibe
+/// el porcentaje descargado.
+#[tauri::command]
+async fn install_update(app: AppHandle, on_progress: tauri::ipc::Channel<u8>) -> CmdResult<()> {
+    let update = app
+        .updater()
+        .map_err(err)?
+        .check()
+        .await
+        .map_err(|e| format!("No se pudo consultar la última versión: {e}"))?
+        .ok_or("Ya tienes la última versión")?;
+    let mut got: u64 = 0;
+    let mut last: u8 = 0;
+    update
+        .download_and_install(
+            |chunk, total| {
+                got += chunk as u64;
+                let pct = total.map_or(0, |t| (got.saturating_mul(100) / t.max(1)).min(100) as u8);
+                if pct != last {
+                    last = pct;
+                    let _ = on_progress.send(pct);
+                }
+            },
+            || {},
+        )
+        .await
+        .map_err(|e| format!("No se pudo instalar la versión nueva: {e}"))?;
+    app.restart();
 }
 
 #[derive(Serialize)]
@@ -441,7 +537,7 @@ struct AppInfo {
     version: String,
     db_path: String,
     smoke: bool,
-    /// Hay una carga inicial pendiente (CAUDAL_IMPORT_DIR).
+    /// Hay una carga inicial pendiente (NUMO_IMPORT_DIR).
     import: bool,
 }
 
@@ -452,10 +548,10 @@ struct SourceFile {
 }
 
 /// Archivos de la carga inicial sin interfaz: solo los .csv y .json de la
-/// carpeta indicada en CAUDAL_IMPORT_DIR. Sin esa variable no devuelve nada.
+/// carpeta indicada en NUMO_IMPORT_DIR. Sin esa variable no devuelve nada.
 #[tauri::command]
 fn import_source() -> CmdResult<Vec<SourceFile>> {
-    let Some(dir) = std::env::var_os("CAUDAL_IMPORT_DIR") else {
+    let Some(dir) = std::env::var_os("NUMO_IMPORT_DIR") else {
         return Ok(Vec::new());
     };
     let mut out = Vec::new();
@@ -478,8 +574,8 @@ fn app_info(app: AppHandle, db: State<'_, Db>) -> AppInfo {
     AppInfo {
         version: app.package_info().version.to_string(),
         db_path: db.path.display().to_string(),
-        smoke: std::env::var_os("CAUDAL_SMOKE").is_some(),
-        import: std::env::var_os("CAUDAL_IMPORT_DIR").is_some(),
+        smoke: std::env::var_os("NUMO_SMOKE").is_some(),
+        import: std::env::var_os("NUMO_IMPORT_DIR").is_some(),
     }
 }
 
@@ -487,10 +583,10 @@ fn app_info(app: AppHandle, db: State<'_, Db>) -> AppInfo {
 /// imprime el resultado y cierra la app.
 #[tauri::command]
 fn smoke_done(app: AppHandle, ok: bool, report: String) {
-    if std::env::var_os("CAUDAL_SMOKE").is_none() && std::env::var_os("CAUDAL_IMPORT_DIR").is_none() {
+    if std::env::var_os("NUMO_SMOKE").is_none() && std::env::var_os("NUMO_IMPORT_DIR").is_none() {
         return;
     }
-    println!("[caudal-smoke] {}\n{report}", if ok { "OK" } else { "FALLO" });
+    println!("[numo-smoke] {}\n{report}", if ok { "OK" } else { "FALLO" });
     app.exit(if ok { 0 } else { 1 });
 }
 
@@ -498,11 +594,17 @@ fn smoke_done(app: AppHandle, ok: bool, report: String) {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
-            // CAUDAL_DATA_DIR permite probar sin tocar los datos reales.
-            let dir = match std::env::var_os("CAUDAL_DATA_DIR") {
+            // NUMO_DATA_DIR permite probar sin tocar los datos reales.
+            let dir = match std::env::var_os("NUMO_DATA_DIR") {
                 Some(d) => PathBuf::from(d),
-                None => app.path().app_data_dir()?,
+                None => {
+                    let dir = app.path().app_data_dir()?;
+                    adopt_legacy_data(&dir);
+                    dir
+                }
             };
             app.manage(init_db(&dir)?);
             Ok(())
@@ -519,10 +621,13 @@ pub fn run() {
             sync_read,
             sync_write,
             backup_now,
+            open_releases,
+            check_update,
+            install_update,
             smoke_done
         ])
         .run(tauri::generate_context!())
-        .expect("no se pudo iniciar Caudal");
+        .expect("no se pudo iniciar Numo App");
 }
 
 #[cfg(test)]
@@ -670,7 +775,7 @@ mod tests {
         assert!(!is_sync_name(".json"));
         assert!(!is_sync_name("notas.txt"));
 
-        let base = std::env::temp_dir().join(format!("caudal-sync-test-{}", std::process::id()));
+        let base = std::env::temp_dir().join(format!("numo-sync-test-{}", std::process::id()));
         let _ = fs::remove_dir_all(&base);
         fs::create_dir_all(&base).unwrap();
         // Una carpeta cualquiera: se usa una subcarpeta «numo-app».
@@ -683,9 +788,34 @@ mod tests {
         sync_write(dir.clone(), "equipo-1.json".into(), "{}".into()).unwrap();
         assert_eq!(sync_target(&base), base);
         assert!(sync_write(dir.clone(), "../x.json".into(), "{}".into()).is_err());
-        fs::write(base.join("ajeno.txt"), "no es de Caudal").unwrap();
+        fs::write(base.join("ajeno.txt"), "no es de Numo App").unwrap();
         let files = sync_read(dir).unwrap();
         assert_eq!(files.iter().map(|f| f.name.as_str()).collect::<Vec<_>>(), vec!["equipo-1.json"]);
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn data_from_the_old_name_is_adopted_once() {
+        let base = std::env::temp_dir().join(format!("numo-legacy-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let old_dir = base.join(LEGACY_DIR);
+        fs::create_dir_all(&old_dir).unwrap();
+        {
+            let mut old = open(&old_dir.join(LEGACY_DB)).unwrap();
+            migrate(&mut old).unwrap();
+            old.execute(NEW_ACCOUNT, ["a1", "Bróker"]).unwrap();
+        }
+        let new_dir = base.join("app.numo.desktop");
+        adopt_legacy_data(&new_dir);
+        let count = |dir: &Path| -> i64 { open(&dir.join("numo.db")).unwrap().query_row("SELECT COUNT(*) FROM accounts", [], |r| r.get(0)).unwrap() };
+        assert_eq!(count(&new_dir), 1, "la base de datos antigua se copia a la carpeta nueva");
+        // Con datos ya aquí no se vuelve a copiar: lo nuevo manda.
+        open(&new_dir.join("numo.db")).unwrap().execute("DELETE FROM accounts", []).unwrap();
+        adopt_legacy_data(&new_dir);
+        assert_eq!(count(&new_dir), 0);
+        assert!(old_dir.join(LEGACY_DB).exists(), "la carpeta antigua no se toca");
+        // Sin versión anterior no pasa nada.
+        adopt_legacy_data(&base.join("otra").join("app.numo.desktop"));
         let _ = fs::remove_dir_all(&base);
     }
 

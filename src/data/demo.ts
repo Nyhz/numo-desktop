@@ -82,6 +82,9 @@ export function makeDemo(today: string): AppState {
   const eth = asset("eth", "Ethereum", "crypto", "EUR", null, 97, 1650, -0.12, 0.6);
   const fundA = asset("fund-a", "Renta Fija Corto Plazo FI", "fund", "EUR", "ES00DEMO0083", 101, 10.02, 0.028, 0.008);
   const fundB = asset("fund-b", "Bolsa Global Indexado FI", "fund", "EUR", "ES00DEMO0091", 113, 101.5, 0.1, 0.12);
+  // Dos activos que solo se siguen, sin posición: la pantalla Activos los enseña aparte.
+  asset("aurora", "Aurora Renovables", "stock", "EUR", "ES00DEMO0109", 127, 14.2, 0.07, 0.3);
+  asset("pacifico", "Pacífico Emergentes UCITS ETF", "etf", "EUR", "IE00DEMO0117", 131, 28.4, 0.06, 0.16);
 
   const fx: Record<string, Point[]> = {
     USD: walk(131, from, today, 1.085, 0.005, 0.07),

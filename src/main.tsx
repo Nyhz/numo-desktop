@@ -11,8 +11,8 @@ createRoot(document.getElementById("root")!).render(
 );
 
 void boot().then(async () => {
-  // Prueba de humo automática (solo con CAUDAL_SMOKE=1): no se ejecuta en uso normal.
+  // Prueba de humo automática (solo con NUMO_SMOKE=1): no se ejecuta en uso normal.
   if (getApp().info?.smoke) (await import("./data/smoke.ts")).runSmoke();
-  // Carga inicial sin interfaz (solo con CAUDAL_IMPORT_DIR).
+  // Carga inicial sin interfaz (solo con NUMO_IMPORT_DIR).
   else if (getApp().info?.import) (await import("./data/autoimport.ts")).runAutoImport();
 });

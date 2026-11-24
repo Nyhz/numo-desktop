@@ -2,10 +2,11 @@ import { Moon, Sun } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { txsToCsv } from "../../shared/csv.ts";
 import { todayIso } from "../../shared/dates.ts";
-import { useTheme } from "../App.tsx";
-import { backend, chooseSyncFolder, connectionStatus, deviceOf, isExample, renameDevice, saveSecret, setDemo, stopSync, sync, syncDevices, syncFolder, useApp, type Service } from "../data/store.ts";
+import { fxHealth } from "../../shared/engine/health.ts";
+import { ACCENTS, useAccent, useTheme } from "../App.tsx";
+import { backend, checkUpdate, chooseSyncFolder, connectionStatus, deviceOf, isExample, installUpdate, renameDevice, saveSecret, setDemo, stopSync, sync, syncDevices, syncFolder, useApp, type Service } from "../data/store.ts";
 import { saveText } from "../lib/export.ts";
-import { ago } from "../lib/format.ts";
+import { ago, dateBrief, num } from "../lib/format.ts";
 import { openDialog } from "../ui/dialogs.ts";
 import { Btn, toast } from "../ui/kit.tsx";
 
@@ -125,7 +126,7 @@ function Devices() {
           </Btn>
         }
       >
-        Para usar Caudal en varios equipos, elige en cada uno la misma carpeta de un servicio de nube (Proton Drive, iCloud, OneDrive, Dropbox…). La app crea dentro una carpeta
+        Para usar Numo App en varios equipos, elige en cada uno la misma carpeta de un servicio de nube (Proton Drive, iCloud, OneDrive, Dropbox…). La app crea dentro una carpeta
         «numo-app», donde cada equipo deja sus cambios y lee los de los demás; la base de datos no se comparte.
       </Row>
     );
@@ -186,6 +187,43 @@ function Devices() {
   );
 }
 
+/** Qué versión es esta, si hay una más nueva y los botones para buscarla e instalarla. */
+function Version() {
+  const version = useApp((s) => s.info?.version ?? "");
+  const update = useApp((s) => s.update);
+  const busy = update.status === "installing";
+  const found = update.version && (update.status === "available" || busy || update.status === "error");
+  return (
+    <Row
+      title={`Numo App ${version}`}
+      action={
+        <div className="flex gap-2">
+          {found && (
+            <Btn variant="cta" onClick={() => void installUpdate()} disabled={busy}>
+              {busy ? `Descargando… ${update.progress} %` : `Actualizar a la ${update.version}`}
+            </Btn>
+          )}
+          <Btn onClick={() => void checkUpdate(true)} disabled={!backend.native || busy || update.status === "checking"}>
+            {update.status === "checking" ? "Buscando…" : "Buscar actualizaciones"}
+          </Btn>
+        </div>
+      }
+    >
+      {found ? (
+        <span className="font-medium text-ink">Hay una versión nueva: la {update.version}. Se descarga, se instala y la app se reinicia sola; tus datos se conservan.</span>
+      ) : update.status === "current" ? (
+        `Tienes la última versión. Comprobado ${ago(update.checkedAt)}.`
+      ) : (
+        "La app busca versiones nuevas al abrirse y te avisa con un aviso arriba; instalarlas es siempre decisión tuya."
+      )}
+      {update.status === "error" && <span className="mt-1 block font-medium text-down">{update.error}</span>}
+      <button type="button" className="mt-1 block text-mute underline decoration-line2 underline-offset-2 hover:text-ink" onClick={() => void backend.openReleases()}>
+        Ver las versiones y sus novedades
+      </button>
+    </Row>
+  );
+}
+
 export function Ajustes() {
   const info = useApp((s) => s.info);
   const state = useApp((s) => (s.demo ?? s.loaded).state);
@@ -194,18 +232,24 @@ export function Ajustes() {
   const example = useApp((s) => isExample(s));
   const syncing = useApp((s) => s.syncing);
   const [light, flipTheme] = useTheme();
+  const [accent, setAccent] = useAccent();
   const auto = state.assets.filter((a) => a.priceSource !== "manual").length;
+  const today = todayIso();
+  const currencies = [...new Set([...state.assets, ...state.accounts].map((a) => a.currency))]
+    .filter((c) => c !== "EUR")
+    .sort()
+    .map((c) => ({ currency: c, ...fxHealth(state.fx[c], today) }));
 
   const backup = async () => {
     try {
-      const path = await backend.exportBackup(`caudal-copia-${todayIso()}.db`);
+      const path = await backend.exportBackup(`numo-copia-${todayIso()}.db`);
       if (path) toast("Copia guardada");
     } catch (e) {
       toast(`No se pudo guardar la copia: ${e instanceof Error ? e.message : e}`, { tone: "error" });
     }
   };
   const exportAll = async () => {
-    const path = await saveText(`caudal-operaciones-${todayIso()}.csv`, txsToCsv(state));
+    const path = await saveText(`numo-operaciones-${todayIso()}.csv`, txsToCsv(state));
     if (path) toast(`${state.txs.length} operaciones exportadas`);
   };
 
@@ -220,8 +264,8 @@ export function Ajustes() {
             </Btn>
           }
         >
-          Todo está en un único archivo en tu ordenador. Caudal guarda además una copia diaria (las 14 últimas) en la carpeta «copias», junto a la base de datos.
-          <div className="selectable mt-1 text-[12px] break-all text-mute">{info?.dbPath}</div>
+          Tus datos viven en un único archivo en este ordenador (no es una copia: es la base de datos de la app). Numo App guarda además una copia diaria, las 14 últimas, en la carpeta «copias» que hay a su lado.
+          <div className="selectable mt-1 text-[12px] break-all text-mute">Base de datos: {info?.dbPath}</div>
         </Row>
         <Row
           title="Exportar todas las operaciones"
@@ -234,7 +278,7 @@ export function Ajustes() {
           Un CSV legible con todo el libro de operaciones. Es el mismo formato que entiende «Importar», así que también sirve para mover tus datos.
         </Row>
         <Row title="Importar" action={<Btn onClick={() => openDialog({ kind: "import" })}>Importar…</Btn>}>
-          Operaciones, precios históricos, splits, plan e inmuebles desde archivos CSV o JSON, por ejemplo los que genera el conversor de Numo (tools/numo-a-csv.mjs).
+          Operaciones, precios históricos, splits, plan e inmuebles desde archivos CSV o JSON, por ejemplo los que genera el conversor de la Numo anterior (tools/numo-a-csv.mjs).
         </Row>
       </Group>
 
@@ -249,8 +293,23 @@ export function Ajustes() {
         >
           {example
             ? "La cartera de ejemplo usa precios inventados y no se actualiza."
-            : `Se actualizan solos al abrir la app si han pasado más de 6 horas. ${auto} de ${state.assets.length} activos tienen precio automático. Los tipos de cambio son los de referencia del BCE. Última descarga: ${ago(real.lastSync)}. El estado de cada activo está en Activos.`}
+            : `Se actualizan solos al abrir la app si han pasado más de 6 horas. ${auto} de ${state.assets.length} activos tienen precio automático. Última descarga: ${ago(real.lastSync)}. El estado de cada activo está en Activos.`}
         </Row>
+        {currencies.length > 0 && (
+          <Row title="Tipos de cambio">
+            Los de referencia del BCE, un valor por día hábil. Con ellos se pasa a euros, día a día, lo que tienes en otra divisa; el cambio de cada operación es el que tú guardas con ella.
+            <span className="mt-1.5 block">
+              {currencies.map((c, i) => (
+                <span key={c.currency} className="whitespace-nowrap">
+                  {i > 0 && " · "}
+                  <span className="font-medium text-ink">{c.currency}</span> {c.rate == null ? "sin datos" : num(c.rate, 4, 4)}
+                  {c.date && ` (${dateBrief(c.date, today)})`}
+                  {c.late && <span className="font-medium text-acc"> atrasado</span>}
+                </span>
+              ))}
+            </span>
+          </Row>
+        )}
       </Group>
 
       <Group title="Conexiones">
@@ -266,6 +325,10 @@ export function Ajustes() {
         <Devices />
       </Group>
 
+      <Group title="Versión">
+        <Version />
+      </Group>
+
       <Group title="Apariencia">
         <Row
           title="Tema"
@@ -278,6 +341,29 @@ export function Ajustes() {
         >
           Claro u oscuro; también desde el pie del menú lateral.
         </Row>
+        <Row
+          title="Color de acento"
+          action={
+            <div role="radiogroup" aria-label="Color de acento" className="flex gap-1.5">
+              {ACCENTS.map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  role="radio"
+                  aria-checked={accent === id}
+                  aria-label={label}
+                  title={label}
+                  data-accent={id}
+                  onClick={() => setAccent(id)}
+                  className={`grid size-7 place-items-center rounded-full transition-transform active:scale-90 ${accent === id ? "shadow-[0_0_0_2px_var(--card),0_0_0_3.5px_var(--ink)]" : "hover:scale-110"}`}
+                  style={{ background: id === "ambar" ? "#e3b15b" : "var(--accent)" }}
+                />
+              ))}
+            </div>
+          }
+        >
+          El color de los botones principales, las líneas de los gráficos y lo que está seleccionado. No hay verde ni rojo: aquí significan ganancia y pérdida.
+        </Row>
       </Group>
 
       <Group title="Cartera de ejemplo">
@@ -287,7 +373,7 @@ export function Ajustes() {
       </Group>
 
       <p className="m-0 px-1 text-[12px] text-pretty text-mute">
-        Caudal {info?.version}. Sin cuentas de usuario ni servidores propios: la app solo se conecta a las fuentes de precios (Deutsche Börse, BME, Nasdaq, fundinfo y Binance, con Yahoo Finance y Financial Times de respaldo), al BCE y, si pones tu token, a Indexa Capital. A las fuentes de precios solo envía símbolos y divisas.
+        Numo App {info?.version}. Sin cuentas de usuario ni servidores propios: la app solo se conecta a las fuentes de precios (Deutsche Börse, BME, Nasdaq, fundinfo y Binance, con Yahoo Finance y Financial Times de respaldo), al BCE, a GitHub para saber si hay una versión nueva y, si pones tu token, a Indexa Capital. A las fuentes de precios solo envía símbolos y divisas.
       </p>
     </div>
   );

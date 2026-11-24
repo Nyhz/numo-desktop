@@ -27,6 +27,7 @@ import {
 import { SOURCE_BY_ISIN } from "../../shared/types.ts";
 import type { Account, AppState, Asset, Goal, Mortgage, MortgageEvent, Point, Property, PropertyValuation, Tx } from "../../shared/types.ts";
 import { EMPTY_STATE, reduce, type AppInfo, type Backend, type Loaded, type Op } from "./backend.ts";
+import { BENCH_KEY, exampleBenchmark, parseBenchmark, syncBenchmark } from "./benchmark.ts";
 import { browserBackend } from "./browser.ts";
 import { makeDemo } from "./demo.ts";
 import { dueAssets, fxOn, indexaStatus, syncMarket, type SyncIssue, type SyncProgress } from "./market.ts";
@@ -46,6 +47,19 @@ export const RANGES: Array<[RangeKey, string]> = [
   ["ALL", "Todo"],
 ];
 
+export type UpdateState = {
+  /** idle: sin comprobar · current: comprobado, no hay nada · available: hay una · installing: descargándola. */
+  status: "idle" | "checking" | "current" | "available" | "installing" | "error";
+  version: string | null;
+  notes: string;
+  /** Porcentaje descargado mientras se instala. */
+  progress: number;
+  error: string | null;
+  checkedAt: string | null;
+  /** El aviso de esta versión se ha cerrado (sigue en Ajustes). */
+  hidden: boolean;
+};
+
 type S = {
   status: "loading" | "ready" | "error";
   error: string | null;
@@ -60,6 +74,8 @@ type S = {
   progress: SyncProgress | null;
   /** Sincronización con otros equipos a través de una carpeta compartida. */
   devices: { busy: boolean; error: string | null; peers: Array<{ name: string; writtenAt: string }>; notes: string[] };
+  /** Versión nueva de la app: si la hay, y cómo va su descarga. */
+  update: UpdateState;
   /** Animación de arranque: completa si hay precios que actualizar, corta si están al día. */
   splash: { mode: "full" | "short"; phase: SplashPhase; from: number | null } | null;
   issues: SyncIssue[];
@@ -81,10 +97,11 @@ let s: S = {
   loaded: { state: EMPTY_STATE, meta: {} },
   demo: null,
   scope: null,
-  range: saved<RangeKey>("caudal.range", "1A"),
+  range: saved<RangeKey>("numo.range", "1A"),
   syncing: false,
   progress: null,
   devices: { busy: false, error: null, peers: [], notes: [] },
+  update: { status: "idle", version: null, notes: "", progress: 0, error: null, checkedAt: null, hidden: false },
   splash: null,
   issues: [],
   info: null,
@@ -162,7 +179,10 @@ export async function boot(): Promise<void> {
     const tl = derive(loaded.state, null).timeline;
     set({ status: "ready", info, loaded, splash: visible ? { mode: stale ? "full" : "short", phase: "load", from: tl.n ? tl.total[tl.n - 1]! : null } : null });
     // Primero lo de los otros equipos (puede traer activos nuevos) y después los precios.
-    if (!info.smoke && !info.import) void syncDevices().finally(() => sync(false));
+    if (!info.smoke && !info.import) {
+      void syncDevices().finally(() => sync(false));
+      void checkUpdate();
+    }
   } catch (e) {
     set({ status: "error", error: message(e) });
   }
@@ -172,7 +192,7 @@ export function setScope(scope: string[] | null): void {
   set({ scope: scope && scope.length ? scope : null });
 }
 export function setRange(range: RangeKey): void {
-  localStorage.setItem("caudal.range", JSON.stringify(range));
+  localStorage.setItem("numo.range", JSON.stringify(range));
   set({ range });
 }
 
@@ -223,6 +243,41 @@ export async function ecbRate(currency: string, date: string): Promise<{ rate: n
   if (!hit) return null;
   if (hit.ops.length) await commit(hit.ops).catch(() => {});
   return { rate: hit.rate, date: hit.date };
+}
+
+// ── Índice de referencia ───────────────────────────────────────────────────
+// Sus cierres van en `meta` (no son precios de un activo ni se sincronizan) y se
+// bajan en segundo plano cuando el gráfico los pide, como mucho una vez al día.
+
+let benching = false;
+let benchFailedAt = 0;
+
+/** Descarga el índice si falta o es de otro día. No avisa de nada: si falla, el gráfico sale sin él. */
+export function ensureBenchmark(): void {
+  const { state, meta } = s.loaded;
+  // Tras un fallo (sin red, la bolsa caída) no se insiste hasta pasados diez minutos.
+  if (isExample() || benching || s.info?.smoke || s.info?.import || !state.txs.length || Date.now() - benchFailedAt < 600_000) return;
+  const today = todayIso();
+  const first = state.txs.reduce((m, t) => (t.date < m ? t.date : m), today);
+  benching = true;
+  syncBenchmark(meta, backend.httpGet, first, today)
+    .then(commit)
+    .catch(() => {
+      benchFailedAt = Date.now();
+    })
+    .finally(() => {
+      benching = false;
+    });
+}
+
+/**
+ * Cierres del índice para un gráfico que empieza en `from`, o null si (todavía) no
+ * los hay. En la cartera de ejemplo son inventados y no se guardan en ningún sitio.
+ */
+export function useBenchmark(from: string | null): Point[] | null {
+  const example = useApp((x) => isExample(x));
+  const raw = useApp((x) => x.loaded.meta[BENCH_KEY]);
+  return useMemo(() => (!from ? null : example ? exampleBenchmark(from, todayIso()) : (parseBenchmark(raw)?.points ?? null)), [example, raw, from]);
 }
 
 // ── Sincronización entre equipos ───────────────────────────────────────────
@@ -350,6 +405,48 @@ export function renameDevice(name: string): Promise<Result> {
     void syncDevices();
   });
 }
+
+// ── Actualización de la app ────────────────────────────────────────────────
+// La app pregunta a GitHub si hay una versión más nueva: al abrir, al volver a la
+// ventana (como mucho cada seis horas) y cuando se pide en Ajustes. Instalarla es
+// siempre decisión del usuario: se descarga, se comprueba su firma y la app se reinicia.
+
+const UPDATE_EVERY_MS = 6 * 3600_000;
+
+/** Busca una versión nueva. Con `manual`, un fallo se enseña; si no, se calla (puede no haber red). */
+export async function checkUpdate(manual = false): Promise<void> {
+  if (s.update.status === "checking" || s.update.status === "installing") return;
+  const before = s.update;
+  set({ update: { ...before, status: "checking", error: null } });
+  const checkedAt = new Date().toISOString();
+  try {
+    const found = await backend.checkUpdate();
+    if (found) set({ update: { ...before, status: "available", version: found.version, notes: found.notes, error: null, checkedAt, hidden: before.hidden && before.version === found.version } });
+    else set({ update: { ...before, status: "current", version: null, notes: "", error: null, checkedAt } });
+  } catch (e) {
+    set({ update: manual ? { ...before, status: "error", error: message(e), checkedAt } : { ...before, status: before.status === "checking" ? "idle" : before.status } });
+  }
+}
+
+/** Al volver a la ventana se vuelve a mirar, si la última vez fue hace rato. */
+export function updateOnFocus(): void {
+  const last = s.update.checkedAt ? Date.parse(s.update.checkedAt) : 0;
+  if (!s.info?.smoke && !s.info?.import && Date.now() - last > UPDATE_EVERY_MS) void checkUpdate();
+}
+
+/** Descarga e instala la versión nueva. Si todo va bien la app se reinicia y esto no vuelve. */
+export async function installUpdate(): Promise<void> {
+  if (s.update.status !== "available" && s.update.status !== "error") return;
+  const target = s.update;
+  set({ update: { ...target, status: "installing", progress: 0, error: null, hidden: false } });
+  try {
+    await backend.installUpdate((progress) => set({ update: { ...s.update, progress } }));
+  } catch (e) {
+    set({ update: { ...target, status: "error", error: message(e), hidden: false } });
+  }
+}
+
+export const hideUpdate = (): void => set({ update: { ...s.update, hidden: true } });
 
 // ── Conexiones (claves de servicios) ───────────────────────────────────────
 
