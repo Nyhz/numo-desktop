@@ -198,6 +198,48 @@ export function dailyReturns(tl: Timeline): Float64Array {
 }
 
 /** Rentabilidad acumulada (TWR) en los días (from, to]. from = -1 incluye el primer día. */
+export type Drawdown = {
+  /** Caída respecto al máximo anterior, día a día: 0 o negativa, en tanto por uno. */
+  series: Float64Array;
+  /** Día de la caída máxima, y cuánto fue. */
+  worstAt: number;
+  worst: number;
+  /** Caída del último día. */
+  now: number;
+  /** Volatilidad anualizada de la rentabilidad diaria; null con menos de un mes de historia. */
+  volatility: number | null;
+  /** La peor rentabilidad de un solo día. */
+  worstDay: number;
+};
+
+/**
+ * Cuánto ha llegado a caer la cartera desde su máximo anterior, con la
+ * rentabilidad diaria ponderada por tiempo: las aportaciones no la disimulan.
+ */
+export function drawdown(r: Float64Array): Drawdown {
+  const series = new Float64Array(r.length);
+  let index = 1;
+  let peak = 1;
+  let worstAt = 0;
+  let worstDay = 0;
+  let sum = 0;
+  let squares = 0;
+  for (let i = 0; i < r.length; i++) {
+    index *= 1 + r[i]!;
+    if (index > peak) peak = index;
+    series[i] = index / peak - 1;
+    if (series[i]! < series[worstAt]!) worstAt = i;
+    if (r[i]! < worstDay) worstDay = r[i]!;
+    sum += r[i]!;
+    squares += r[i]! * r[i]!;
+  }
+  const n = r.length;
+  const mean = n ? sum / n : 0;
+  // La serie es de días naturales (los festivos rinden cero): se anualiza con 365.
+  const volatility = n >= 30 ? Math.sqrt(Math.max(0, squares / n - mean * mean) * 365) : null;
+  return { series, worstAt, worst: n ? series[worstAt]! : 0, now: n ? series[n - 1]! : 0, volatility, worstDay };
+}
+
 export function twr(r: Float64Array, from: number, to: number): number {
   let acc = 1;
   for (let i = from + 1; i <= to; i++) acc *= 1 + r[i]!;

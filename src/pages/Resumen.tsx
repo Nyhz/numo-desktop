@@ -4,7 +4,8 @@ import { isoOf } from "../../shared/dates.ts";
 import { equitySeries, viewProperties } from "../../shared/engine/realestate.ts";
 import { monthlyReturns, netInvested, periodStats, returnIndex, sessionChange, totalsIn } from "../../shared/engine/timeline.ts";
 import { HeroChart, HeroLegend, bandModel, lineModel, stackModel, type HeroModel, type Row } from "../charts/hero.tsx";
-import { GroupRows, MonthColumns, ReturnBars, treeGroups, type TreeCell, type TreeItem } from "../charts/viz.tsx";
+import { DrawdownCard } from "../charts/drawdown.tsx";
+import { MonthColumns, RepartoRing, ReturnBars, treeGroups, type TreeItem } from "../charts/viz.tsx";
 import { BENCHMARK, benchmarkReturns } from "../data/benchmark.ts";
 import { ensureBenchmark, rangeBase, useApp, useBenchmark, useInvested, type Derived } from "../data/store.ts";
 import { dateShort, eur, eurAxis, eurSigned, num, pct, pctSigned, seriesColor, splitMoney } from "../lib/format.ts";
@@ -29,7 +30,6 @@ function treeItems(d: Derived, g: Group): TreeItem[] {
         name: p.asset.name,
         value: p.valueEur * part.share,
         group: g === "Tipo" ? kindLabel(p.asset.kind) : g === "Cuenta" ? (acct?.name ?? "—") : p.asset.currency,
-        color: acct ? seriesColor(acct.color) : undefined,
       });
     }
   }
@@ -42,7 +42,6 @@ function treeItems(d: Derived, g: Group): TreeItem[] {
       name: `Efectivo · ${acct.name}`,
       value,
       group: g === "Tipo" ? "Efectivo" : g === "Cuenta" ? acct.name : acct.currency,
-      color: seriesColor(acct.color),
     });
   }
   return items;
@@ -80,7 +79,6 @@ export function Resumen() {
   const [picked, setMode] = useState<Mode>("valor");
   const [group, setGroup] = useState<Group>("Tipo");
   const [hover, setHover] = useState<{ src: number; k: number } | null>(null);
-  const [cell, setCell] = useState<TreeCell | null>(null);
   const tl = d.timeline;
   // Con todas las cuentas a la vista, el Resumen es el del patrimonio: la cartera, el fondo
   // de emergencia y lo que ya es tuyo de los inmuebles. Con cuentas filtradas, solo esas cuentas.
@@ -195,15 +193,16 @@ export function Resumen() {
   const groups = useMemo(() => {
     // Con el patrimonio a la vista, lo que ya es tuyo de cada inmueble entra en el reparto.
     const items = treeItems(d, group);
-    for (const h of homes) if (h.equity > 0) items.push({ key: `home|${h.property.id}`, name: h.property.name, value: h.equity, group: group === "Divisa" ? "EUR" : "Inmuebles", color: "var(--s8)" });
+    for (const h of homes) if (h.equity > 0) items.push({ key: `home|${h.property.id}`, name: h.property.name, value: h.equity, group: group === "Divisa" ? "EUR" : "Inmuebles" });
     // Y el fondo de emergencia, cuenta a cuenta.
     for (const [id, series] of reserve?.timeline.byAccount ?? []) {
       const acct = reserve!.accounts.get(id);
       const value = series[series.length - 1] ?? 0;
-      if (acct && value > 0) items.push({ key: `reserve|${id}`, name: acct.name, value, group: group === "Tipo" ? "Fondo de emergencia" : group === "Cuenta" ? acct.name : acct.currency, color: seriesColor(acct.color) });
+      if (acct && value > 0) items.push({ key: `reserve|${id}`, name: acct.name, value, group: group === "Tipo" ? "Fondo de emergencia" : group === "Cuenta" ? acct.name : acct.currency });
     }
-    return treeGroups(items, group === "Cuenta");
+    return treeGroups(items);
   }, [d, group, homes, reserve]);
+  const parts = groups.reduce((n, g) => n + g.cells.length, 0);
   const session = useMemo(() => sessionChange(d.positions), [d.positions]);
   const months = useMemo(() => monthlyReturns(tl), [tl]);
 
@@ -322,13 +321,14 @@ export function Resumen() {
 
       <div className="grid gap-5" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))" }}>
         <Card
-          className="col-span-full"
           title="Reparto"
-          aside={<span className="truncate">{cell ? <>{cell.name} · <Priv>{eur(cell.value, 0)}</Priv> · {pct(cell.share)}</> : "pasa el cursor para ver el detalle"}</span>}
           note={<Pills size="sm" label="Repartir por" value={group} onChange={setGroup} options={[["Tipo", "Tipo"], ["Cuenta", "Cuenta"], ["Divisa", "Divisa"]]} />}
+          aside={<span className="text-mute">{parts === 1 ? "1 posición o saldo" : `${parts} posiciones y saldos`}</span>}
         >
-          <GroupRows groups={groups} hot={cell?.key ?? null} onHover={setCell} />
+          <RepartoRing groups={groups} />
         </Card>
+
+        <DrawdownCard returns={d.returns} start={tl.start} />
 
         <Card title="Rentabilidad mes a mes" aside={<span className="text-[12px] text-mute">altura = rentabilidad del mes, en %</span>}>
           <MonthColumns months={months} />

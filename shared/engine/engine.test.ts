@@ -7,6 +7,7 @@ import { buildLedger } from "./ledger.ts";
 import { buildYearReport } from "./reports.ts";
 import {
   cashReturn,
+  drawdown,
   buildPositions,
   buildTimeline,
   dailyReturns,
@@ -406,5 +407,32 @@ describe("fondo de emergencia", () => {
     // Con menos de un mes de historia, o para una cuenta que no lleva efectivo, no hay cifra.
     expect(cashReturn(buildTimeline(led, s, new Set(["E"]), "2024-01-20"), led, "E").rate).toBeNull();
     expect(cashReturn(tl, led, "otra").rate).toBeNull();
+  });
+});
+
+describe("caída desde máximos", () => {
+  it("mide cada día contra el máximo anterior y recuerda el peor momento", () => {
+    // +10 %, −20 %, +5 %, +30 % (nuevo máximo), −10 %.
+    const dd = drawdown(Float64Array.from([0.1, -0.2, 0.05, 0.3, -0.1]));
+    expect(dd.series[0]).toBe(0);
+    expect(dd.series[1]).toBeCloseTo(-0.2, 12);
+    expect(dd.series[2]).toBeCloseTo(0.8 * 1.05 - 1, 12);
+    expect(dd.series[3]).toBe(0);
+    expect(dd.now).toBeCloseTo(-0.1, 12);
+    expect(dd.worstAt).toBe(1);
+    expect(dd.worst).toBeCloseTo(-0.2, 12);
+    expect(dd.worstDay).toBe(-0.2);
+    // Con menos de un mes no hay volatilidad que anualizar.
+    expect(dd.volatility).toBeNull();
+  });
+
+  it("anualiza la volatilidad diaria y no cae si la cartera solo sube", () => {
+    const flat = drawdown(new Float64Array(60).fill(0.001));
+    expect(flat.worst).toBe(0);
+    expect(flat.volatility).toBeCloseTo(0, 9);
+    // Un día +1 % y otro −1 %: desviación diaria del 1 %, por la raíz de 365.
+    const zigzag = drawdown(Float64Array.from({ length: 60 }, (_, i) => (i % 2 ? -0.01 : 0.01)));
+    expect(zigzag.volatility!).toBeCloseTo(0.01 * Math.sqrt(365), 9);
+    expect(drawdown(new Float64Array(0))).toMatchObject({ worst: 0, now: 0, volatility: null, worstDay: 0 });
   });
 });

@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { dayNum } from "../../shared/dates.ts";
 import { eur, eurSigned, monthName, pct, pctSigned } from "../lib/format.ts";
 import { usePrivate } from "../ui/privacy.ts";
@@ -11,82 +11,138 @@ const toneOf = (v: number): string => (Math.abs(v) < 0.005 ? "var(--ink2)" : v >
 
 // ── Reparto ────────────────────────────────────────────────────────────────
 
-export type TreeItem = { key: string; name: string; value: number; group: string; color?: string };
-export type TreeCell = { key: string; name: string; value: number; share: number; show: boolean; bg: string; bgHot: string };
+export type TreeItem = { key: string; name: string; value: number; group: string };
+export type TreeCell = { key: string; name: string; value: number; share: number };
 export type TreeGroup = { name: string; total: number; share: number; cells: TreeCell[] };
 
-/**
- * Columnas por grupo (ancho = peso) y, dentro, celdas por elemento (alto = peso).
- * Con `byColor` cada grupo usa su propio color al 44 %; si no, el acento en
- * intensidad decreciente según el tamaño del grupo.
- */
-export function treeGroups(items: TreeItem[], byColor = false): TreeGroup[] {
+/** Agrupa los elementos (por tipo, cuenta o divisa), de mayor a menor los grupos y lo de dentro. */
+export function treeGroups(items: TreeItem[]): TreeGroup[] {
   const total = items.reduce((s, it) => s + Math.max(0, it.value), 0);
-  const map = new Map<string, { name: string; total: number; color?: string; items: TreeItem[] }>();
+  const map = new Map<string, { name: string; total: number; items: TreeItem[] }>();
   for (const it of items) {
     if (!(it.value > 0)) continue;
     let g = map.get(it.group);
-    if (!g) map.set(it.group, (g = { name: it.group, total: 0, color: it.color, items: [] }));
+    if (!g) map.set(it.group, (g = { name: it.group, total: 0, items: [] }));
     g.items.push(it);
     g.total += it.value;
   }
   return [...map.values()]
     .sort((a, b) => b.total - a.total)
-    .map((g, r) => {
-      const col = byColor && g.color ? g.color : "var(--acc)";
-      const strength = byColor ? 44 : ([60, 46, 35, 26, 19][r] ?? 16);
-      return {
-        name: g.name,
-        total: g.total,
-        share: total > 0 ? g.total / total : 0,
-        cells: g.items
-          .sort((a, b) => b.value - a.value)
-          .map((it, j) => ({
-            key: it.key,
-            name: it.name,
-            value: it.value,
-            share: total > 0 ? it.value / total : 0,
-            // Las celdas con menos del 10 % de su grupo no llevan rótulo: no cabría.
-            show: it.value / g.total > 0.1,
-            bg: `color-mix(in oklab, ${col} ${Math.max(8, Math.round(strength * (1 - 0.1 * j)))}%, var(--card))`,
-            bgHot: `color-mix(in oklab, ${col} ${Math.min(strength + 28, 92)}%, var(--card))`,
-          })),
-      };
-    });
+    .map((g) => ({
+      name: g.name,
+      total: g.total,
+      share: total > 0 ? g.total / total : 0,
+      cells: g.items.sort((a, b) => b.value - a.value).map((it) => ({ key: it.key, name: it.name, value: it.value, share: total > 0 ? it.value / total : 0 })),
+    }));
 }
 
-/** Una fila por grupo sobre una base común: el largo es el peso del grupo y sus tramos, las posiciones. */
-export function GroupRows({ groups, hot, onHover }: { groups: TreeGroup[]; hot: string | null; onHover: (cell: TreeCell | null) => void }) {
+/** Color de cada grupo, por orden de tamaño: el acento, cada vez más fundido con la tarjeta. */
+const ringColor = (rank: number) => (rank ? `color-mix(in oklab, var(--acc) ${[100, 84, 70, 58, 48, 40][rank] ?? 40}%, var(--card))` : "var(--acc)");
+/** Filas del desglose de un grupo: con más, las mayores y una última que suma el resto. */
+const RING_ROWS = 6;
+
+/**
+ * Reparto en anillo: un arco por grupo y, al lado, lo que compone el grupo
+ * activo. Se activa al pasar por un arco o por su píldora y se queda así al
+ * retirar el cursor; al cambiar los grupos vuelve al mayor.
+ */
+export function RepartoRing({ groups }: { groups: TreeGroup[] }) {
+  const [picked, setPicked] = useState<string | null>(null);
+  // La geometría del anillo solo depende de los grupos, no de cuál está activo.
+  const arcs = useMemo(() => {
+    let angle = -Math.PI / 2;
+    const at = (t: number) => `${(100 + 80 * Math.cos(t)).toFixed(2)} ${(100 + 80 * Math.sin(t)).toFixed(2)}`;
+    return groups.map((g) => {
+      const span = g.share * Math.PI * 2;
+      const pad = Math.min(0.014, span / 4);
+      const [a0, a1] = [angle + pad, angle + span - pad];
+      angle += span;
+      // Un grupo que lo es todo no se puede dibujar como un solo arco: su principio y su final coinciden.
+      return span > Math.PI * 2 - 0.001 ? "M100 20A80 80 0 1 1 99.99 20" : `M${at(a0)}A80 80 0 ${a1 - a0 > Math.PI ? 1 : 0} 1 ${at(a1)}`;
+    });
+  }, [groups]);
   if (!groups.length) return <div className="py-10 text-center text-mute">Sin posiciones que repartir.</div>;
-  const top = groups[0]!.total;
+  const active = groups.some((g) => g.name === picked) ? picked : groups[0]!.name;
+
   return (
-    <div className="flex flex-col gap-1.5" onMouseLeave={() => onHover(null)}>
-      {groups.map((g) => (
-        <div key={g.name} className="grid items-center gap-3.5" style={{ gridTemplateColumns: "minmax(0,110px) minmax(0,1fr) 132px" }}>
-          <span className="truncate font-semibold">{g.name}</span>
-          <div className="h-[34px] border-l border-line2">
-            <div className="flex h-full gap-[2px]" style={{ width: `${(g.total / top) * 100}%` }}>
-              {g.cells.map((c) => (
-                <div
-                  key={c.key}
-                  onMouseEnter={() => onHover(c)}
-                  className="flex min-w-[2px] cursor-default items-center overflow-hidden rounded-[5px] text-[12px] transition-[background] duration-[180ms]"
-                  style={{ flex: `${c.value} 1 0`, background: hot === c.key ? c.bgHot : c.bg }}
-                >
-                  {/* Solo se rotula lo que ocupa bastante de la fila más larga: lo demás no cabría. */}
-                  <span className="truncate px-[9px] font-[550]" style={{ opacity: c.value / top > 0.13 ? 1 : 0 }}>
-                    {c.name}
-                  </span>
-                </div>
-              ))}
-            </div>
+    <>
+      <div className="-mx-1 mb-3.5 flex flex-wrap gap-1">
+        {groups.map((g, i) => (
+          <div
+            key={g.name}
+            onMouseEnter={() => setPicked(g.name)}
+            className={`flex cursor-default items-center gap-[7px] rounded-full px-2.5 py-1 text-[12.5px] transition-[background] duration-200 ${g.name === active ? "bg-wash2" : ""}`}
+          >
+            <span className="size-2 flex-none rounded-[3px]" style={{ background: ringColor(i) }} />
+            <span className="text-ink2">{g.name}</span>
+            <span className="font-semibold whitespace-nowrap">{pct(g.share)}</span>
           </div>
-          <span className="text-right whitespace-nowrap">
-            <span className="font-semibold">{pct(g.share)}</span> <span className="priv pl-1.5 text-[12px] text-mute">{eur(g.total, 0)}</span>
-          </span>
+        ))}
+      </div>
+      <div className="flex flex-wrap items-center gap-x-7 gap-y-5">
+        <div className="relative mx-auto size-[184px] flex-none">
+          <svg viewBox="0 0 200 200" className="block size-full overflow-visible" role="img" aria-label="Reparto de la cartera por grupos">
+            {groups.map((g, i) => (
+              <path
+                key={g.name}
+                d={arcs[i]}
+                fill="none"
+                stroke={ringColor(i)}
+                strokeWidth={g.name === active ? 30 : 22}
+                opacity={g.name === active ? 1 : 0.5}
+                onMouseEnter={() => setPicked(g.name)}
+                className="cursor-pointer"
+                style={{ transition: "opacity .25s, stroke-width .25s cubic-bezier(.2,.8,.2,1)" }}
+              />
+            ))}
+          </svg>
+          {/* El centro de cada grupo, apilados: al cambiar se funden uno en otro. */}
+          <div className="pointer-events-none absolute inset-0 grid">
+            {groups.map((g) => (
+              <div key={g.name} className="col-start-1 row-start-1 flex flex-col items-center justify-center px-[42px] text-center transition-opacity duration-300" style={{ opacity: g.name === active ? 1 : 0 }}>
+                <span className="text-[12px] text-balance text-mute">{g.name}</span>
+                <span className="text-[24px] leading-[1.15] font-medium tracking-[-0.01em]" style={{ fontStretch: "106%" }}>
+                  {pct(g.share)}
+                </span>
+                <span className="priv text-[12px] text-ink2">{eur(g.total, 0)}</span>
+              </div>
+            ))}
+          </div>
         </div>
-      ))}
-    </div>
+        {/* Los desgloses también se apilan en la misma celda: la tarjeta toma el alto del más largo y no salta. */}
+        <div className="grid min-w-0 flex-[1_1_240px]">
+          {groups.map((g, i) => {
+            const on = g.name === active;
+            const rest = g.cells.length > RING_ROWS ? g.cells.slice(RING_ROWS - 1) : [];
+            const rows: Array<{ key: string; name: string; value: number; share: number; more?: boolean }> = rest.length
+              ? [...g.cells.slice(0, RING_ROWS - 1), { key: "resto", name: `${rest.length} más`, value: rest.reduce((s, c) => s + c.value, 0), share: rest.reduce((s, c) => s + c.share, 0), more: true }]
+              : g.cells;
+            return (
+              <div
+                key={g.name}
+                aria-hidden={!on}
+                className="col-start-1 row-start-1 flex flex-col gap-2 self-center"
+                style={{ opacity: on ? 1 : 0, transform: on ? "none" : "translateY(6px)", pointerEvents: on ? "auto" : "none", transition: "opacity .3s, transform .3s cubic-bezier(.2,.8,.2,1)" }}
+              >
+                <span className="text-[12px] text-mute">{g.cells.length === 1 ? "1 posición" : `${g.cells.length} posiciones`}</span>
+                {rows.map((c) => (
+                  <div key={c.key}>
+                    <div className="flex items-baseline gap-2.5 text-[12.5px]">
+                      <span className={`min-w-0 flex-1 text-pretty ${c.more ? "text-mute" : ""}`}>{c.name}</span>
+                      <span className="font-[550] whitespace-nowrap">{pct(c.share)}</span>
+                      <span className="priv min-w-[58px] text-right text-[12px] whitespace-nowrap text-mute">{eur(c.value, 0)}</span>
+                    </div>
+                    <div className="mt-1 h-[3px] rounded-[2px] bg-raised">
+                      <div className="h-[3px] rounded-[2px]" style={{ width: `${((c.value / g.cells[0]!.value) * 100).toFixed(1)}%`, background: ringColor(i) }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </>
   );
 }
 

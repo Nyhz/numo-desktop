@@ -26,7 +26,7 @@ Numo App lleva la cuenta de lo que tienes y de cómo te va, con los datos guarda
 
 - **Todas tus cuentas juntas.** Brókers, bancos, fondos y exchanges, en varias divisas, con el efectivo de cada una.
 - **Patrimonio neto de verdad.** La cartera, tu fondo de emergencia y lo que ya es tuyo de tus inmuebles, y cómo ha evolucionado.
-- **Rentabilidad sin trampas.** Ponderada por tiempo y TIR anualizada, mes a mes, por posición y frente al MSCI World.
+- **Rentabilidad sin trampas.** Ponderada por tiempo y TIR anualizada, mes a mes, por posición y frente al MSCI World; y el riesgo que la acompaña: caída desde máximos, volatilidad y peor día.
 - **Precios al día sin pagar por ellos.** Acciones, ETF, fondos y criptomonedas se actualizan solos desde sus bolsas y gestoras; los tipos de cambio, del BCE.
 - **Un plan de inversión.** Bloques con su peso objetivo, cuánto te alejas de él, dónde poner la próxima aportación y una proyección de a dónde llegarías.
 - **Tu vivienda y su hipoteca.** Cuánto es ya tuyo, cuánto llevas pagado y en qué, y el cuadro año a año con revisiones del tipo.
