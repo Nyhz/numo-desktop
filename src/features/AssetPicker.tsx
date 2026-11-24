@@ -16,8 +16,22 @@ const ISIN = /^[A-Z]{2}[A-Z0-9]{9}\d$/;
 /**
  * Elegir un activo escribiendo: primero los que ya tienes, después el mercado
  * (por nombre, símbolo o ISIN) y, si no aparece, crearlo con precio manual.
+ * Con `suggest`, el campo vacío ofrece solo esos (p. ej. los de una cuenta); al
+ * escribir se sigue buscando en todos.
  */
-export function AssetPicker({ value, onChange, autoFocus, exclude }: { value: string; onChange: (id: string) => void; autoFocus?: boolean; exclude?: string }) {
+export function AssetPicker({
+  value,
+  onChange,
+  autoFocus,
+  exclude,
+  suggest,
+}: {
+  value: string;
+  onChange: (id: string) => void;
+  autoFocus?: boolean;
+  exclude?: string;
+  suggest?: Set<string>;
+}) {
   const assets = useApp((s) => (s.demo ?? s.loaded).state.assets);
   const example = useApp((s) => isExample(s));
   const held = useHeld();
@@ -37,10 +51,10 @@ export function AssetPicker({ value, onChange, autoFocus, exclude }: { value: st
     return assets
       .filter((a) => a.id !== exclude)
       // Los archivados no se ofrecen de primeras, pero se encuentran al escribir su nombre.
-      .filter((a) => (t ? true : held.has(a.id)))
+      .filter((a) => (t ? true : (suggest ?? held).has(a.id)))
       .filter((a) => !t || a.name.toLowerCase().includes(t) || a.symbol?.toLowerCase().includes(t) || a.isin?.toLowerCase().includes(t))
       .slice(0, 8);
-  }, [assets, term, exclude, held]);
+  }, [assets, term, exclude, held, suggest]);
 
   // Búsqueda en el mercado, con espera para no lanzar una petición por tecla.
   useEffect(() => {

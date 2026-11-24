@@ -5,7 +5,7 @@ import { cashReturn, sessionChange, type Position } from "../../shared/engine/ti
 import { ASSET_KIND_LABEL } from "../../shared/types.ts";
 import { Spark, Strip } from "../charts/viz.tsx";
 import { useInvested } from "../data/store.ts";
-import { dateShort, eur, eurSigned, money, num, pct, pctSigned, priceDigits, seriesColor, splitMoney } from "../lib/format.ts";
+import { dateShort, eur, eurSigned, money, num, pct, pctSigned, priceDigits, seriesColor, splitMoney, units } from "../lib/format.ts";
 import { cashNowSheet, positionsSheet, saveBytes, saveCsv, saveXlsx } from "../lib/export.ts";
 import { openDialog } from "../ui/dialogs.ts";
 import { Btn, Dot, Empty, Money, toast, toneOf } from "../ui/kit.tsx";
@@ -152,7 +152,7 @@ export function Posiciones() {
             name: p.asset.name,
             detail: [ASSET_KIND_LABEL[p.asset.kind], p.asset.isin ?? p.asset.symbol].filter(Boolean).join(" · "),
             accounts: p.accounts.map((a) => d.accounts.get(a.accountId)?.name ?? "").filter(Boolean).join(", "),
-            units: num(p.qty, 6),
+            units: units(p.qty),
             price: p.price == null ? "—" : money(p.price, p.asset.currency, priceDigits(p.price)),
             valueEur: p.valueEur,
             costEur: p.costEur,
@@ -375,7 +375,7 @@ export function Posiciones() {
                         <span>· {ASSET_KIND_LABEL[p.asset.kind]}</span>
                       </div>
                     </L>
-                    <span className="priv">{num(p.qty, 6)}</span>
+                    <span className="priv">{units(p.qty)}</span>
                     <span className="text-ink2">{p.price == null ? "—" : money(p.price, p.asset.currency, priceDigits(p.price))}</span>
                     <span style={{ color: toneOf(p.dayChangePct, 0.0005) }}>{p.dayChangePct == null ? "—" : pctSigned(p.dayChangePct)}</span>
                     {series.length > 1 ? <Spark values={series} color={toneOf(trend, 1e-9)} /> : <span className="text-mute">—</span>}

@@ -6,7 +6,7 @@ import { ASSET_KIND_LABEL, TX_LABEL } from "../../shared/types.ts";
 import { LotsTimeline, SplitBar } from "../charts/viz.tsx";
 import { useApp, useDerived } from "../data/store.ts";
 import { cashSheet, gainsSheet, holdingsSheet, incomeSheet, operationsSheet, saveCsv, saveXlsx, summarySheet, txsOfYear, type Sheet } from "../lib/export.ts";
-import { dateNumeric, dateShort, eur, eurSigned, money, num, priceDigits } from "../lib/format.ts";
+import { dateNumeric, dateShort, eur, eurSigned, money, num, priceDigits, units } from "../lib/format.ts";
 import { Btn, Card, HeaderSlot, Kpi, Kpis, Money, Pills, Priv, Tag, toast, toneOf } from "../ui/kit.tsx";
 import { L, TFoot, THead, TRow, Table, Welcome } from "./common.tsx";
 
@@ -127,7 +127,7 @@ export function Informes() {
                   name: g.asset.name,
                   from: g.acqDate!,
                   to: g.sellDate,
-                  detail: `${num(g.qty, 4)} uds · ${num(dayNum(g.sellDate) - dayNum(g.acqDate!), 0)} días`,
+                  detail: `${units(g.qty)} uds · ${num(dayNum(g.sellDate) - dayNum(g.acqDate!), 0)} días`,
                   result: eurSigned(g.gainEur),
                   gain: g.gainEur,
                 }))}
@@ -163,7 +163,7 @@ export function Informes() {
                       <div className="selectable text-[11.5px] text-mute">{[g.asset.isin, ASSET_KIND_LABEL[g.asset.kind]].filter(Boolean).join(" · ")}</div>
                     </L>
                     <L className="truncate">{g.account.name}</L>
-                    <span className="priv">{num(g.qty, 6)}</span>
+                    <span className="priv">{units(g.qty)}</span>
                     <span className="text-ink2">{g.acqDate ? dateNumeric(g.acqDate) : <span className="text-acc">sin compra</span>}</span>
                     <span className="priv">{eur(g.acqValueEur)}</span>
                     <span className="text-ink2">{dateNumeric(g.sellDate)}</span>
@@ -323,7 +323,7 @@ export function Informes() {
                       {h.asset.isin && <div className="selectable text-[11.5px] text-mute">{h.asset.isin}</div>}
                     </L>
                     <L className="text-ink2">{h.country || "—"}</L>
-                    <span className="priv">{num(h.qty, 6)}</span>
+                    <span className="priv">{units(h.qty)}</span>
                     <span className="text-ink2">{h.price == null ? <span className="text-acc">sin precio</span> : money(h.price, h.currency, priceDigits(h.price))}</span>
                     <span className="text-mute">{h.currency === "EUR" ? "" : num(h.fxRate, 4, 4)}</span>
                     <span className="priv font-semibold">{eur(h.valueEur)}</span>

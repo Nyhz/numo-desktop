@@ -33,6 +33,9 @@ export const priceDigits = (p: number): number => (Math.abs(p) >= 10 ? 2 : Math.
 export const num = (n: number, max = 4, min = 0): string =>
   nf(`n${max}-${min}`, { minimumFractionDigits: min, maximumFractionDigits: max }).format(safe(n));
 
+/** Unidades de un activo: todos los decimales que tengan, hasta 8 (fondos y cripto vienen así). */
+export const units = (n: number): string => num(n, 8);
+
 /** Ratio → porcentaje: 0,1234 → 12,3 % */
 export const pct = (ratio: number, digits = 1): string =>
   nf(`p${digits}`, { style: "percent", minimumFractionDigits: digits, maximumFractionDigits: digits }).format(safe(ratio));

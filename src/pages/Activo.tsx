@@ -5,7 +5,7 @@ import { dayNum, isoOf } from "../../shared/dates.ts";
 import { ASSET_KIND_LABEL, TX_LABEL } from "../../shared/types.ts";
 import { HeroChart, lineModel } from "../charts/hero.tsx";
 import { useDerived, useHeld } from "../data/store.ts";
-import { dateShort, eur, eurSigned, money, num, priceDigits, seriesColor, splitMoney } from "../lib/format.ts";
+import { dateShort, eur, eurSigned, money, num, priceDigits, seriesColor, splitMoney, units } from "../lib/format.ts";
 import { openDialog } from "../ui/dialogs.ts";
 import { Btn, Card, Dot, Empty, Kpi, Kpis, Money, Priv, Tag, toneOf } from "../ui/kit.tsx";
 import { L, THead, TRow, Table } from "./common.tsx";
@@ -35,7 +35,7 @@ export function Activo({ id }: { id: string }) {
       .filter((n) => n.tx.type === "buy" || n.tx.type === "sell")
       .flatMap((n) => {
         const i = index.get(n.tx.date);
-        return i == null ? [] : [{ i, filled: n.tx.type === "buy", label: `${TX_LABEL[n.tx.type]} · ${dateShort(n.tx.date)} · ${num(n.qty, 6)} uds.` }];
+        return i == null ? [] : [{ i, filled: n.tx.type === "buy", label: `${TX_LABEL[n.tx.type]} · ${dateShort(n.tx.date)} · ${units(n.qty)} uds.` }];
       });
     const realized = d.ledger.matches.filter((m) => m.assetId === id && (!d.scope || d.scope.has(m.accountId))).reduce((s, m) => s + m.gainEur, 0);
     const income = txs.filter((n) => n.tx.type === "dividend").reduce((s, n) => s + n.cashEur, 0);
@@ -133,7 +133,7 @@ export function Activo({ id }: { id: string }) {
 
       <Kpis>
         <Kpi priv label="Unidades">
-          {num(pos?.qty ?? 0, 6)}
+          {units(pos?.qty ?? 0)}
         </Kpi>
         <Kpi label="Último precio" note={pos?.priceDate ? dateShort(pos.priceDate) : "último precio de operación"}>
           {pos?.price != null ? money(pos.price, asset.currency, priceDigits(pos.price)) : data.last != null ? money(data.last, asset.currency) : "—"}
@@ -161,7 +161,7 @@ export function Activo({ id }: { id: string }) {
             {data.lots.map((l, i) => (
               <TRow key={i}>
                 <L className="text-ink2">{dateShort(l.acqDate)}</L>
-                <span className="priv">{num(l.qty, 6)}</span>
+                <span className="priv">{units(l.qty)}</span>
                 <span className="priv">{eur(l.costEur)}</span>
                 <span className="text-mute">{eur(l.costEur / l.qty, 4)}</span>
                 <span className="priv">{eur(l.valueEur)}</span>
@@ -195,7 +195,7 @@ export function Activo({ id }: { id: string }) {
                   <Dot color={seriesColor(n.account.color)} />
                   {n.account.name}
                 </L>
-                <span className="priv">{n.tx.quantity != null ? num(n.tx.quantity, 6) : ""}</span>
+                <span className="priv">{n.tx.quantity != null ? units(n.tx.quantity) : ""}</span>
                 <span className="text-ink2">{n.tx.price != null ? money(n.tx.price, n.tx.currency, priceDigits(n.tx.price)) : ""}</span>
                 <span className="font-semibold" style={{ color: n.cashEur > 0 ? "var(--up)" : undefined }}>
                   {n.tx.type === "transfer" && !n.cashEur ? <span className="font-normal text-mute">sin efecto</span> : <Money value={n.cashEur} signed dim="soft" />}

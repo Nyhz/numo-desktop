@@ -4,7 +4,7 @@ import { dayNum, isIsoDate, todayIso } from "../../shared/dates.ts";
 import { holdingsAt } from "../../shared/engine/ledger.ts";
 import { TX_LABEL, TX_TYPES, cashOnly, needsAsset, type Tx, type TxType } from "../../shared/types.ts";
 import { ecbRate, removeTx, restoreTx, saveTx, useDerived } from "../data/store.ts";
-import { dateShort, eur, money, num } from "../lib/format.ts";
+import { dateShort, eur, money, num, units } from "../lib/format.ts";
 import { closeDialog } from "../ui/dialogs.ts";
 import { Btn, Dialog, Field, Pills, toast } from "../ui/kit.tsx";
 import { AssetPicker } from "./AssetPicker.tsx";
@@ -161,6 +161,14 @@ export function TxDialog({ tx, preset }: { tx?: Tx; preset?: { type?: TxType; as
     return holdingsAt(d.ledger, dayNum(d.today)).get(`${f.accountId}|${asset.id}`) ?? 0;
   }, [asset, f.type, f.accountId, isTransfer, d.ledger, d.today]);
 
+  // Lo que hay hoy en la cuenta elegida: es lo que se ofrece con el campo de activo vacío.
+  const inAccount = useMemo(() => {
+    const ids = new Set<string>();
+    const prefix = `${f.accountId}|`;
+    for (const [k, q] of holdingsAt(d.ledger, dayNum(d.today))) if (q > 0 && k.startsWith(prefix)) ids.add(k.slice(prefix.length));
+    return ids;
+  }, [f.accountId, d.ledger, d.today]);
+
   const total = useMemo(() => {
     if (isTransfer) return null;
     let native: number;
@@ -295,8 +303,8 @@ export function TxDialog({ tx, preset }: { tx?: Tx; preset?: { type?: TxType; as
         </div>
 
         {needsAsset(f.type) && (
-          <Field label="Activo" hint={held != null && asset ? <>Tienes <span className="priv">{num(held, 6)}</span> en esta cuenta</> : undefined}>
-            <AssetPicker value={f.assetId} onChange={(assetId) => set({ assetId })} autoFocus={!tx && !preset?.assetId} />
+          <Field label="Activo" hint={held != null && asset ? <>Tienes <span className="priv">{units(held)}</span> en esta cuenta</> : undefined}>
+            <AssetPicker value={f.assetId} onChange={(assetId) => set({ assetId })} autoFocus={!tx && !preset?.assetId} suggest={inAccount} />
           </Field>
         )}
 
