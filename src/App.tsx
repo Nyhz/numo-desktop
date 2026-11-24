@@ -168,11 +168,34 @@ function AccountFilter() {
 
   return (
     <div ref={box} className="relative flex-none">
-      <Btn onClick={() => setOpen((o) => !o)} aria-haspopup="listbox" aria-expanded={open} className="!gap-2">
-        {picked.length === 1 && <Dot color={seriesColor(picked[0]!.color)} />}
-        {label}
-        <ChevronDown size={11} className="text-mute" />
-      </Btn>
+      {/* Con cuentas elegidas, la píldora lleva su propia «×»: un clic y se vuelve a todas, sin abrir la lista. */}
+      <div className="inline-flex shrink-0 items-center rounded-full border text-[12.5px] font-medium transition-colors" style={{ borderColor: scope ? "color-mix(in oklab, var(--acc) 55%, var(--line2))" : "var(--line2)" }}>
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          aria-haspopup="listbox"
+          aria-expanded={open}
+          className={`inline-flex items-center gap-2 rounded-full py-[7px] pl-3.5 whitespace-nowrap transition-[background,transform] duration-150 hover:bg-wash active:scale-[.97] ${scope ? "pr-2" : "pr-3.5"}`}
+        >
+          {picked.length === 1 && <Dot color={seriesColor(picked[0]!.color)} />}
+          {label}
+          <ChevronDown size={11} className="text-mute" />
+        </button>
+        {scope && (
+          <button
+            type="button"
+            aria-label="Volver a todas las cuentas"
+            title="Volver a todas las cuentas"
+            onClick={() => {
+              setOpen(false);
+              setScope(null);
+            }}
+            className="mr-1 grid size-[26px] place-items-center rounded-full text-mute transition-colors hover:bg-wash hover:text-ink"
+          >
+            <X size={13} />
+          </button>
+        )}
+      </div>
       {open && (
         <div role="listbox" aria-multiselectable className="absolute right-0 z-30 mt-1.5 w-64 rounded-xl border border-line2 bg-raised p-1" style={{ boxShadow: "var(--shadow-pop)" }}>
           <button type="button" role="option" aria-selected={!scope} className={row} onClick={() => setScope(null)}>
