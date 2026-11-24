@@ -1,4 +1,4 @@
-import { ArrowLeftRight, Check, ChevronDown, CircleArrowUp, CloudOff, Eye, EyeOff, FileText, House, Landmark, Layers, LineChart, Moon, Plus, Radar, RefreshCw, Settings, Sun, Target, X } from "lucide-react";
+import { Activity, ArrowLeftRight, Check, ChevronDown, CircleArrowUp, CloudOff, Eye, EyeOff, FileText, House, Landmark, Layers, LineChart, Moon, PanelLeft, Plus, RefreshCw, Settings, Sun, Target, X } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, Route, Router, Switch, useLocation } from "wouter";
 import { useHashLocation } from "wouter/use-hash-location";
@@ -31,7 +31,7 @@ const NAV_MAIN: Nav[] = [
   { href: "/informes", label: "Informes", icon: FileText, scoped: true },
 ];
 const NAV_SUB: Nav[] = [
-  { href: "/activos", label: "Activos", icon: Radar },
+  { href: "/activos", label: "Activos", icon: Activity },
   { href: "/cuentas", label: "Cuentas", icon: Landmark },
   { href: "/ajustes", label: "Ajustes", icon: Settings },
 ];
@@ -39,23 +39,57 @@ const NAV_SUB: Nav[] = [
 const isMac = /Mac/i.test(navigator.platform);
 const matches = (n: Nav, loc: string) => (n.href === "/" ? loc === "/" : loc.startsWith(n.href) || (n.href === "/posiciones" && loc.startsWith("/activo/")));
 
-function RailLink({ nav, alerts = 0 }: { nav: Nav; alerts?: number }) {
+// El menú lateral se puede contraer a una tira de iconos. El icono de cada fila
+// ocupa siempre la misma casilla de 40 px, en el mismo sitio; lo único que cambia
+// es el ancho del menú, que al abrirse deja ver los rótulos. Así nada salta: la
+// fila activa pasa sola de cuadrado a píldora y los rótulos aparecen deslizándose.
+const MENU_KEY = "numo.menu";
+const MENU_EASE = "cubic-bezier(.2,.8,.2,1)";
+
+function useMenu(): [boolean, () => void] {
+  const [open, setOpen] = useState(() => localStorage.getItem(MENU_KEY) !== "closed");
+  const toggle = () => {
+    localStorage.setItem(MENU_KEY, open ? "closed" : "open");
+    setOpen(!open);
+  };
+  return [open, toggle];
+}
+
+/** Clases de una fila del menú. `quiet`: las acciones del pie, más discretas que las secciones. */
+const railItem = (active: boolean, quiet = false) =>
+  `group relative flex h-10 w-full flex-none items-center overflow-hidden rounded-[11px] text-left transition-[background,color,transform] duration-150 active:scale-[.97] ${
+    active ? "bg-raised text-ink shadow-[var(--shadow-active)]" : quiet ? "text-mute hover:text-ink" : "text-ink2 hover:text-ink"
+  }`;
+
+/** Icono (siempre visible) y rótulo (solo con el menú abierto) de una fila. */
+function RailBody({ open, label, quiet = false, accent = false, dot = false, children }: { open: boolean; label: string; quiet?: boolean; accent?: boolean; dot?: boolean; children: ReactNode }) {
+  return (
+    <>
+      <span className={`relative grid size-10 flex-none place-items-center transition-colors duration-150 ${accent ? "text-acc" : "text-mute group-hover:text-ink"}`}>
+        {children}
+        {dot && <span className="absolute top-2 right-2 size-1.5 rounded-full bg-acc" />}
+      </span>
+      <span
+        aria-hidden={!open}
+        className={`truncate pr-3 whitespace-nowrap transition-[opacity,transform] duration-300 ${quiet ? "text-[12.5px]" : "text-[13.5px] font-semibold"} ${open ? "delay-75" : "-translate-x-1.5 opacity-0"}`}
+        style={{ transitionTimingFunction: MENU_EASE }}
+      >
+        {label}
+      </span>
+    </>
+  );
+}
+
+function RailLink({ nav, open, alerts = 0 }: { nav: Nav; open: boolean; alerts?: number }) {
   const [loc] = useLocation();
   const active = matches(nav, loc);
   const Icon = nav.icon;
   const label = alerts ? `${nav.label} · ${alerts === 1 ? "1 precio necesita" : `${alerts} precios necesitan`} atención` : nav.label;
   return (
-    <Link
-      href={nav.href}
-      title={label}
-      aria-label={label}
-      aria-current={active ? "page" : undefined}
-      className={`relative grid size-10 place-items-center rounded-[11px] transition-[background,color] duration-150 active:scale-[.94] ${
-        active ? "bg-raised text-acc shadow-[var(--shadow-active)]" : "text-mute hover:text-ink"
-      }`}
-    >
-      <Icon size={19} strokeWidth={1.8} />
-      {alerts > 0 && <span className="absolute top-2 right-2 size-1.5 rounded-full bg-acc" />}
+    <Link href={nav.href} title={open && !alerts ? undefined : label} aria-label={label} aria-current={active ? "page" : undefined} className={railItem(active)}>
+      <RailBody open={open} label={nav.label} accent={active} dot={alerts > 0}>
+        <Icon size={19} strokeWidth={1.8} />
+      </RailBody>
     </Link>
   );
 }
@@ -163,7 +197,7 @@ function AccountFilter() {
   );
 }
 
-function SyncButton() {
+function SyncButton({ open }: { open: boolean }) {
   const syncing = useApp((s) => s.syncing);
   const issues = useApp((s) => s.issues);
   const lastSync = useApp((s) => s.loaded.state.lastSync);
@@ -171,34 +205,24 @@ function SyncButton() {
   if (example) return null;
   const title = syncing ? "Actualizando precios…" : `Precios actualizados ${ago(lastSync)}${issues.length ? ` · ${issues.length} avisos (ver Activos)` : ""}. Pulsa para actualizar ahora.`;
   return (
-    <button
-      type="button"
-      title={title}
-      aria-label="Actualizar precios"
-      disabled={syncing}
-      onClick={() => void sync(true)}
-      className="relative grid size-10 place-items-center rounded-[11px] text-mute transition-colors hover:text-ink"
-    >
-      <RefreshCw size={17} strokeWidth={1.8} className={syncing ? "animate-spin" : ""} />
-      {issues.length > 0 && !syncing && <span className="absolute top-2 right-2 size-1.5 rounded-full bg-acc" />}
+    <button type="button" title={title} aria-label="Actualizar precios" disabled={syncing} onClick={() => void sync(true)} className={railItem(false, true)}>
+      <RailBody open={open} quiet label={syncing ? "Actualizando precios…" : lastSync ? `Precios de ${ago(lastSync)}` : "Sin precios todavía"} dot={issues.length > 0 && !syncing}>
+        <RefreshCw size={17} strokeWidth={1.8} className={syncing ? "animate-spin" : ""} />
+      </RailBody>
     </button>
   );
 }
 
 /** La sincronización entre equipos falla: se avisa en el menú, no solo en Ajustes. */
-function DevicesNotice() {
+function DevicesNotice({ open }: { open: boolean }) {
   const error = useApp((s) => s.devices.error);
   const [, go] = useLocation();
   if (!error) return null;
   return (
-    <button
-      type="button"
-      title={`La sincronización entre equipos falla: ${error}`}
-      aria-label="La sincronización entre equipos falla"
-      onClick={() => go("/ajustes")}
-      className="relative grid size-10 place-items-center rounded-[11px] text-acc transition-colors hover:bg-wash"
-    >
-      <CloudOff size={18} strokeWidth={1.8} />
+    <button type="button" title={`La sincronización entre equipos falla: ${error}`} aria-label="La sincronización entre equipos falla" onClick={() => go("/ajustes")} className={railItem(false, true)}>
+      <RailBody open={open} quiet accent label="Falla la sincronización">
+        <CloudOff size={18} strokeWidth={1.8} />
+      </RailBody>
     </button>
   );
 }
@@ -251,6 +275,8 @@ function Shell({ children }: { children: ReactNode }) {
   const dialog = useDialog();
   const [light, flipTheme] = useTheme();
   const hidden = usePrivate();
+  const [menu, toggleMenu] = useMenu();
+  const wideRail = backend.native && isMac;
   const { attention, fxLate } = useHealth();
   const here = [...NAV_MAIN, ...NAV_SUB].find((n) => matches(n, loc));
 
@@ -281,52 +307,63 @@ function Shell({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex h-full bg-bg transition-colors duration-300">
-      {/* Rail: solo iconos. En macOS se ensancha y deja hueco arriba: los botones de la ventana
-          ocupan unos 70 px de ancho y no deben quedar sobre el panel. */}
-      <nav data-tauri-drag-region className={`flex flex-none flex-col items-center gap-1.5 pb-3.5 ${backend.native && isMac ? "w-[78px] pt-[46px]" : "w-16 pt-3.5"}`} aria-label="Secciones">
-        <div data-tauri-drag-region data-splash-logo className="-mt-1 mb-2.5 size-11" title="Numo App">
-          <Logo size={44} className="pointer-events-none" />
+      {/* Menú lateral: desplegado enseña los rótulos; contraído, solo los iconos. */}
+      <nav
+        data-tauri-drag-region
+        aria-label="Secciones"
+        // En macOS deja hueco arriba y a los lados: los botones de la ventana ocupan unos 70 px de ancho.
+        className={`flex flex-none flex-col gap-1.5 overflow-hidden pb-3.5 transition-[width] duration-[320ms] ${wideRail ? "px-[19px] pt-[46px]" : "px-3 pt-3.5"}`}
+        style={{ width: menu ? (wideRail ? 226 : 212) : wideRail ? 78 : 64, transitionTimingFunction: MENU_EASE }}
+      >
+        <div data-tauri-drag-region className="-mt-1 mb-2.5 -ml-0.5 flex h-11 flex-none items-center gap-1.5" title="Numo App">
+          <div data-splash-logo className="size-11 flex-none">
+            <Logo size={44} className="pointer-events-none" />
+          </div>
+          <span
+            aria-hidden={!menu}
+            className={`pointer-events-none text-[17px] font-bold tracking-[-0.01em] whitespace-nowrap transition-[opacity,transform] duration-300 ${menu ? "delay-75" : "-translate-x-1.5 opacity-0"}`}
+            style={{ fontStretch: "112%", transitionTimingFunction: MENU_EASE }}
+          >
+            Numo
+          </span>
         </div>
         {NAV_MAIN.map((n) => (
-          <RailLink key={n.href} nav={n} />
+          <RailLink key={n.href} nav={n} open={menu} />
         ))}
         <div data-tauri-drag-region className="flex-1 self-stretch" />
         {NAV_SUB.map((n) => (
-          <RailLink key={n.href} nav={n} alerts={n.href === "/activos" ? attention + fxLate : 0} />
+          <RailLink key={n.href} nav={n} open={menu} alerts={n.href === "/activos" ? attention + fxLate : 0} />
         ))}
-        <div className="my-1.5 h-px w-6 bg-line2" />
-        <DevicesNotice />
-        <SyncButton />
-        <button
-          type="button"
-          title={`${hidden ? "Mostrar los importes" : "Modo privado: emborronar los importes"} · atajo: P`}
-          aria-label="Modo privado"
-          aria-pressed={hidden}
-          onClick={togglePrivate}
-          className={`grid size-10 place-items-center rounded-[11px] transition-colors hover:text-ink ${hidden ? "text-acc" : "text-mute"}`}
-        >
-          {hidden ? <EyeOff size={18} strokeWidth={1.8} /> : <Eye size={18} strokeWidth={1.8} />}
+        <div className="mx-2 my-1.5 h-px flex-none bg-line2" />
+        <DevicesNotice open={menu} />
+        <SyncButton open={menu} />
+        <button type="button" title={`${hidden ? "Mostrar los importes" : "Modo privado: emborronar los importes"} · atajo: P`} aria-label="Modo privado" aria-pressed={hidden} onClick={togglePrivate} className={railItem(false, true)}>
+          <RailBody open={menu} quiet accent={hidden} label="Modo privado">
+            {hidden ? <EyeOff size={18} strokeWidth={1.8} /> : <Eye size={18} strokeWidth={1.8} />}
+          </RailBody>
         </button>
-        <button
-          type="button"
-          title={light ? "Cambiar a tema oscuro" : "Cambiar a tema claro"}
-          aria-label="Cambiar tema"
-          onClick={flipTheme}
-          className="grid size-10 place-items-center rounded-[11px] text-mute transition-colors hover:text-ink"
-        >
-          {light ? <Moon size={18} strokeWidth={1.8} /> : <Sun size={18} strokeWidth={1.8} />}
+        <button type="button" title={light ? "Cambiar a tema oscuro" : "Cambiar a tema claro"} aria-label="Cambiar tema" onClick={flipTheme} className={railItem(false, true)}>
+          <RailBody open={menu} quiet label={light ? "Tema oscuro" : "Tema claro"}>
+            {light ? <Moon size={18} strokeWidth={1.8} /> : <Sun size={18} strokeWidth={1.8} />}
+          </RailBody>
+        </button>
+        <button type="button" title={menu ? "Contraer el menú" : "Desplegar el menú"} aria-label={menu ? "Contraer el menú" : "Desplegar el menú"} aria-expanded={menu} onClick={toggleMenu} className={railItem(false, true)}>
+          <RailBody open={menu} quiet label="Contraer menú">
+            <PanelLeft size={18} strokeWidth={1.8} />
+          </RailBody>
         </button>
       </nav>
 
       <main
-        className="my-2 mr-2 flex min-w-0 flex-1 flex-col overflow-hidden rounded-[20px] border border-line bg-panel transition-colors duration-300"
+        // Es un contenedor: la cabecera se aprieta según el ancho del panel, que depende de la ventana y del menú.
+        className="@container my-2 mr-2 flex min-w-0 flex-1 flex-col overflow-hidden rounded-[20px] border border-line bg-panel transition-colors duration-300"
         style={{ boxShadow: "var(--panel-shadow)" }}
       >
-        <header data-tauri-drag-region className="flex items-center gap-3.5 px-7 py-3 whitespace-nowrap">
+        <header data-tauri-drag-region className="flex items-center gap-3.5 px-7 py-3 whitespace-nowrap @max-[920px]:gap-2 @max-[920px]:px-4">
           <div data-tauri-drag-region className="flex items-center gap-2 text-[13px] text-mute">
-            {/* En ventanas estrechas el nombre de la app cede su sitio a las pestañas. */}
-            <span className="max-[1180px]:hidden">Numo App</span>
-            <span className="opacity-50 max-[1180px]:hidden">/</span>
+            {/* Con poco sitio, el nombre de la app cede el suyo a las pestañas. */}
+            <span className="@max-[1100px]:hidden">Numo App</span>
+            <span className="opacity-50 @max-[1100px]:hidden">/</span>
             <span className="font-semibold text-ink" style={{ fontStretch: "110%" }}>
               {here?.label ?? "Numo App"}
             </span>
@@ -346,7 +383,7 @@ function Shell({ children }: { children: ReactNode }) {
           {hasAccounts && here?.scoped && <AccountFilter />}
           {hasAccounts && (
             <Btn variant="cta" onClick={() => openDialog({ kind: "tx" })} title="Atajo: N">
-              <Plus size={14} strokeWidth={2.6} /> Operación
+              <Plus size={14} strokeWidth={2.6} /> <span className="@max-[920px]:hidden">Operación</span>
             </Btn>
           )}
         </header>
