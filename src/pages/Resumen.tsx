@@ -3,7 +3,6 @@ import { useLocation } from "wouter";
 import { isoOf } from "../../shared/dates.ts";
 import { equitySeries, viewProperties } from "../../shared/engine/realestate.ts";
 import { monthlyReturns, netInvested, periodStats, returnIndex, sessionChange, totalsIn } from "../../shared/engine/timeline.ts";
-import { IncomeColumns, type IncomeItem } from "../charts/income.tsx";
 import { HeroChart, HeroLegend, bandModel, lineModel, stackModel, type HeroModel, type Row } from "../charts/hero.tsx";
 import { GroupRows, MonthColumns, ReturnBars, treeGroups, type TreeCell, type TreeItem } from "../charts/viz.tsx";
 import { BENCHMARK, benchmarkReturns } from "../data/benchmark.ts";
@@ -96,13 +95,12 @@ export function Resumen() {
   const view = useMemo(() => {
     if (tl.n === 0) return null;
     const to = tl.n - 1;
-    const { from, fromDate } = rangeBase(range, tl, d.today);
+    const { from } = rangeBase(range, tl, d.today);
     const i0 = Math.max(from, 0);
     const dates = Array.from({ length: to - i0 + 1 }, (_, k) => isoOf(tl.start + i0 + k));
     const invested = netInvested(tl);
     const V = tl.total.subarray(i0);
     const C = invested.subarray(i0);
-    const start = fromDate ?? isoOf(tl.start);
     return {
       to,
       from,
@@ -115,7 +113,6 @@ export function Resumen() {
       invested,
       stats: periodStats(tl, from, to),
       all: periodStats(tl, -1, to),
-      start,
       // Las cifras clave de debajo del gráfico son de toda la historia: el periodo solo manda arriba.
       totals: totalsIn(d.ledger, d.scope, isoOf(tl.start), d.today),
       ret: returnIndex(d.returns, from, to),
@@ -193,13 +190,6 @@ export function Resumen() {
   }, [d, group, homes]);
   const session = useMemo(() => sessionChange(d.positions), [d.positions]);
   const months = useMemo(() => monthlyReturns(tl), [tl]);
-  // Dividendos e intereses cobrados (netos) en el periodo, para ver cómo llegan y de quién.
-  const income = useMemo<IncomeItem[]>(() => {
-    const since = view?.start ?? d.today;
-    return d.ledger.ntxs
-      .filter((n) => (n.tx.type === "dividend" || n.tx.type === "interest") && n.tx.date >= since && (!d.scope || d.scope.has(n.tx.accountId)))
-      .map((n) => ({ date: n.tx.date, amount: n.cashEur, kind: n.tx.type as "dividend" | "interest", name: n.asset?.name ?? `Intereses · ${n.account.name}` }));
-  }, [d.ledger, d.scope, d.today, view?.start]);
 
   // (Antes de cualquier salida anticipada: los hooks han de llamarse siempre en el mismo orden.)
   const counted = useBootCount(tl.n ? tl.total[tl.n - 1]! : 0);
@@ -309,10 +299,6 @@ export function Resumen() {
           note={<Pills size="sm" label="Repartir por" value={group} onChange={setGroup} options={[["Tipo", "Tipo"], ["Cuenta", "Cuenta"], ["Divisa", "Divisa"]]} />}
         >
           <GroupRows groups={groups} hot={cell?.key ?? null} onHover={setCell} />
-        </Card>
-
-        <Card className="col-span-full" title="Dividendos e intereses" note={`lo cobrado ${RANGE_PHRASE[range]}, ya sin retenciones`}>
-          <IncomeColumns items={income} from={view.start} to={d.today} />
         </Card>
 
         <Card title="Rentabilidad mes a mes" aside={<span className="text-[12px] text-mute">altura = rentabilidad del mes, en %</span>}>
