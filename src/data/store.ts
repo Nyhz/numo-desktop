@@ -553,6 +553,8 @@ export function saveAsset(input: unknown, id?: string): Promise<Result<Asset>> {
     // El formulario de activo no toca el plan: se conserva lo que hubiera.
     goalId: "goalId" in raw ? d.goalId : (before?.goalId ?? null),
     planExcluded: "planExcluded" in raw ? d.planExcluded : (before?.planExcluded ?? false),
+    // Tampoco archiva ni desarchiva: eso se hace aparte (archiveAsset).
+    archived: before?.archived ?? false,
     symbol: d.symbol || null,
     isin: d.isin || null,
     // Cada fuente necesita su dato: unas el ISIN, otras su código. Sin él, manual.
@@ -578,6 +580,22 @@ export function saveAsset(input: unknown, id?: string): Promise<Result<Asset>> {
   return attempt(async () => {
     await commit(ops);
     return row;
+  });
+}
+
+/**
+ * Archiva un activo que ya no se tiene (o lo recupera). Archivado conserva sus
+ * operaciones y sus precios, pero sale de la lista y deja de actualizarse.
+ */
+export function archiveAsset(id: string, archived: boolean): Promise<Result> {
+  const { state } = current();
+  const asset = state.assets.find((a) => a.id === id);
+  if (!asset) return Promise.resolve(fail("El activo ya no existe"));
+  if (archived && derive(state, null).positions.some((p) => p.asset.id === id)) return Promise.resolve(fail(`Todavía tienes «${asset.name}» en cartera: solo se archiva lo que ya no tienes.`));
+  return attempt(async () => {
+    await commit([{ op: "putAsset", row: { ...asset, archived } }]);
+    // Al recuperarlo, su precio vuelve a ponerse al día.
+    if (!archived) syncSoon();
   });
 }
 
@@ -628,8 +646,10 @@ export function saveTx(input: unknown, id?: string): Promise<Result<Tx>> {
     id: id ?? newId(),
     createdAt: before?.createdAt ?? new Date().toISOString(),
   };
+  // Volver a operar con un activo archivado lo saca del archivo: hay que seguirlo otra vez.
+  const revived = [row.assetId, row.toAssetId].flatMap((assetId) => state.assets.filter((a) => a.id === assetId && a.archived));
   return attempt(async () => {
-    await commit([{ op: "putTx", row }]);
+    await commit([...revived.map((a): Op => ({ op: "putAsset", row: { ...a, archived: false } })), { op: "putTx", row }]);
     syncSoon();
     return row;
   });
@@ -877,9 +897,10 @@ export function useHealth(): { byAsset: Map<string, PriceHealth>; attention: num
     for (const a of state.assets) {
       const h = priceHealth(a, state.prices[a.id], meta[`fetched:asset:${a.id}`] || null, parseFailure(meta[`failed:asset:${a.id}`]), today);
       byAsset.set(a.id, h);
-      if (needsAttention(h)) attention++;
+      // Un activo archivado no se actualiza: que su precio envejezca no es un aviso.
+      if (!a.archived && needsAttention(h)) attention++;
     }
-    const currencies = new Set([...state.assets, ...state.accounts].map((x) => x.currency));
+    const currencies = new Set([...state.assets.filter((a) => !a.archived), ...state.accounts].map((x) => x.currency));
     currencies.delete("EUR");
     const fxLate = [...currencies].filter((c) => fxHealth(state.fx[c], today).late).length;
     return { byAsset, attention, fxLate };

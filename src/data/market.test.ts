@@ -21,6 +21,7 @@ import {
   rescaleBefore,
   splitSuspect,
   syncMarket,
+  dueAssets,
 } from "./market.ts";
 
 describe("Financial Times", () => {
@@ -131,6 +132,7 @@ describe("actualización", () => {
     priceSource: "yahoo",
     goalId: null,
     planExcluded: false,
+    archived: false,
     createdAt: "2026-01-01T00:00:00.000Z",
     ...patch,
   });
@@ -231,9 +233,16 @@ describe("bolsas y fundinfo", () => {
     expect(parseFtQuote(sheet).date).toBe("2026-11-20");
   });
 
-  const asset = (id: string, patch: Partial<Asset>): Asset => ({ id, name: id, kind: "etf", symbol: null, isin: null, currency: "EUR", priceSource: "xetra", goalId: null, planExcluded: false, createdAt: "2026-01-01T00:00:00.000Z", ...patch });
+  const asset = (id: string, patch: Partial<Asset>): Asset => ({ id, name: id, kind: "etf", symbol: null, isin: null, currency: "EUR", priceSource: "xetra", goalId: null, planExcluded: false, archived: false, createdAt: "2026-01-01T00:00:00.000Z", ...patch });
   const yahoo = (symbol: string, close: number, splits?: object) =>
     JSON.stringify({ chart: { error: null, result: [{ meta: { currency: "EUR", symbol, gmtoffset: 0 }, timestamp: [Date.UTC(2026, 10, 23) / 1000], events: splits ? { splits } : undefined, indicators: { quote: [{ close: [close] }] } }] } });
+
+  it("un activo archivado ya no se actualiza", () => {
+    const state = { ...EMPTY_STATE, assets: [asset("vivo", { isin: "IE00B4L5Y983" }), asset("archivado", { isin: "IE00B5L8K969", archived: true })] };
+    expect(dueAssets(state, {}).map((a) => a.id)).toEqual(["vivo"]);
+    // Ni siquiera forzando la actualización a mano.
+    expect(dueAssets(state, {}, true).map((a) => a.id)).toEqual(["vivo"]);
+  });
 
   it("pide cada activo a su bolsa y usa Yahoo de respaldo cuando la bolsa falla", async () => {
     const state = {
@@ -329,7 +338,7 @@ describe("Binance e Indexa", () => {
   });
 
   it("actualiza el plan con una sola ronda de consultas y anota el fallo si la clave no vale", async () => {
-    const plan: Asset = { id: "p", name: "Plan", kind: "fund", symbol: "0192#0011", isin: null, currency: "EUR", priceSource: "indexa", goalId: null, planExcluded: false, createdAt: "2026-01-01T00:00:00.000Z" };
+    const plan: Asset = { id: "p", name: "Plan", kind: "fund", symbol: "0192#0011", isin: null, currency: "EUR", priceSource: "indexa", goalId: null, planExcluded: false, archived: false, createdAt: "2026-01-01T00:00:00.000Z" };
     const state = { ...EMPTY_STATE, assets: [plan] };
     const good = await syncMarket(state, {}, async (url) => (url.endsWith("/users/me") ? me : portfolio), true);
     expect(good.ops.find((o) => o.op === "prices")).toMatchObject({ assetId: "p", points: [["2026-11-23", 22.05622]] });

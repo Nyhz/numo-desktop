@@ -16,13 +16,19 @@ const EPOCH = "1970-01-01T00:00:00.000Z";
 const FIELDS: Record<Entity, readonly string[]> = {
   accounts: ["id", "name", "institution", "kind", "currency", "color", "trackCash", "archived", "createdAt"],
   goals: ["id", "name", "targetPct", "color", "sortOrder", "createdAt"],
-  assets: ["id", "name", "kind", "symbol", "isin", "currency", "priceSource", "goalId", "planExcluded", "createdAt"],
+  assets: ["id", "name", "kind", "symbol", "isin", "currency", "priceSource", "goalId", "planExcluded", "archived", "createdAt"],
   properties: ["id", "name", "address", "purchaseDate", "purchasePrice", "purchaseCosts", "note", "createdAt"],
   mortgages: ["id", "propertyId", "lender", "principal", "rateType", "ratePct", "termMonths", "firstPaymentDate", "createdAt"],
   txs: ["id", "date", "type", "accountId", "assetId", "quantity", "price", "amount", "currency", "fxRate", "fee", "feeCurrency", "taxSource", "taxHome", "toAccountId", "toAssetId", "toQuantity", "note", "createdAt"],
   mortgageEvents: ["id", "mortgageId", "date", "type", "amount", "mode", "ratePct", "note", "createdAt"],
   valuations: ["id", "propertyId", "date", "value", "note"],
 };
+/**
+ * Campos añadidos después de publicar el formato, con el valor que se entiende
+ * cuando un equipo sin actualizar no los envía. Sin esto, sus registros se
+ * tomarían por incompletos y se descartarían.
+ */
+const ADDED: Partial<Record<Entity, Record<string, unknown>>> = { assets: { archived: false } };
 const PUT = { accounts: "putAccount", goals: "putGoal", assets: "putAsset", properties: "putProperty", mortgages: "putMortgage", txs: "putTx", mortgageEvents: "putMortgageEvent", valuations: "putValuation" } as const;
 const DEL = { accounts: "delAccount", goals: "delGoal", assets: "delAsset", properties: "delProperty", mortgages: "delMortgage", txs: "delTx", mortgageEvents: "delMortgageEvent", valuations: "delValuation" } as const;
 
@@ -93,7 +99,9 @@ export function parseSnapshot(text: string): Snapshot | null {
   for (const entity of ENTITIES) {
     const list = Array.isArray(raw.records[entity]) ? raw.records[entity] : [];
     // Solo se aceptan registros completos: con todos sus campos y su marca de tiempo.
-    records[entity] = list.filter((r): r is Stamped => !!r && typeof r.id === "string" && typeof r._at === "string" && FIELDS[entity].every((f) => r[f] !== undefined));
+    records[entity] = list
+      .map((r) => (r && typeof r === "object" ? { ...ADDED[entity], ...r } : r))
+      .filter((r): r is Stamped => !!r && typeof r.id === "string" && typeof r._at === "string" && FIELDS[entity].every((f) => r[f] !== undefined));
   }
   // Hasta la 0.4 había un tipo de cuenta «banco». Si otro equipo aún lo publica, se lee como
   // lo que hace la migración: fondo de emergencia si no tiene inversiones, bróker si las tiene.

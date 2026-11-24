@@ -1,12 +1,12 @@
-import { CirclePlus, Pencil, Plus, RefreshCw, TriangleAlert } from "lucide-react";
+import { Archive, ArchiveRestore, ChevronDown, CirclePlus, Pencil, Plus, RefreshCw, TriangleAlert } from "lucide-react";
 import { Fragment, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { fxHealth, needsAttention, parseFailure, type Failure, type HealthStatus, type PriceHealth } from "../../shared/engine/health.ts";
 import { ASSET_KIND_LABEL, PRICE_SOURCE_SHORT, SOURCE_BY_ISIN, type Asset } from "../../shared/types.ts";
-import { derive, isExample, sync, useApp, useHealth } from "../data/store.ts";
+import { archiveAsset, derive, isExample, sync, useApp, useHealth } from "../data/store.ts";
 import { ago, dateBrief, eur, money, num, priceDigits } from "../lib/format.ts";
 import { openDialog } from "../ui/dialogs.ts";
-import { Btn, Dot, Empty, HeaderSlot, IconBtn, Kpi, Kpis, Pills } from "../ui/kit.tsx";
+import { Btn, Dot, Empty, HeaderSlot, IconBtn, Kpi, Kpis, Pills, toast } from "../ui/kit.tsx";
 import { L, THead, TRow, Table } from "./common.tsx";
 
 type Filter = "all" | "held" | "gone" | "attention";
@@ -37,7 +37,7 @@ function reason(a: Asset, h: PriceHealth, example: boolean): string {
   }
 }
 
-const COLS = "minmax(230px,2.1fr) 150px 118px 112px minmax(200px,1.5fr) 118px 64px";
+const COLS = "minmax(210px,2.1fr) 150px 118px 112px minmax(190px,1.5fr) 118px 92px";
 
 export function Activos() {
   const state = useApp((s) => (s.demo ?? s.loaded).state);
@@ -48,10 +48,11 @@ export function Activos() {
   const { byAsset } = useHealth();
   const [, go] = useLocation();
   const [filter, setFilter] = useState<Filter>("all");
+  const [showArchived, setShowArchived] = useState(false);
 
   // Aquí se ven siempre todos los activos, con independencia del filtro de cuentas.
   const d = derive(state, null);
-  const rows = useMemo(() => {
+  const everything = useMemo(() => {
     const held = new Map(d.positions.map((p) => [p.asset.id, p]));
     return state.assets
       .map((asset) => ({ asset, health: byAsset.get(asset.id)!, position: held.get(asset.id) ?? null }))
@@ -64,6 +65,15 @@ export function Activos() {
           a.asset.name.localeCompare(b.asset.name, "es"),
       );
   }, [state.assets, byAsset, d.positions]);
+  // Los archivados no cuentan en nada de esta pantalla: van aparte, al final.
+  const rows = useMemo(() => everything.filter((r) => !r.asset.archived), [everything]);
+  const archived = useMemo(() => everything.filter((r) => r.asset.archived).sort((a, b) => a.asset.name.localeCompare(b.asset.name, "es")), [everything]);
+
+  const archive = async (asset: Asset, on: boolean) => {
+    const res = await archiveAsset(asset.id, on);
+    if (!res.ok) return toast(res.error, { tone: "error" });
+    toast(on ? `«${asset.name}» archivado` : `«${asset.name}» vuelve a la lista`, on ? { action: { label: "Deshacer", run: () => void archiveAsset(asset.id, false) } } : {});
+  };
 
   // Las divisas solo se mencionan aquí si su tipo de cambio se ha quedado atrás (el detalle está en Ajustes).
   const lateFx = useMemo(() => {
@@ -233,6 +243,12 @@ export function Activos() {
                       <CirclePlus size={15} />
                     </IconBtn>
                   )}
+                  {/* Lo que ya no se tiene se puede archivar: conserva su historia y deja de seguirse. */}
+                  {!p && (
+                    <IconBtn label="Archivar: sale de la lista y deja de actualizarse; su historia se conserva" onClick={() => void archive(a, true)}>
+                      <Archive size={14} />
+                    </IconBtn>
+                  )}
                   <IconBtn label="Editar el activo y su fuente" onClick={() => openDialog({ kind: "asset", asset: a, stay: true })}>
                     <Pencil size={14} />
                   </IconBtn>
@@ -248,6 +264,35 @@ export function Activos() {
         Un activo se marca como atrasado cuando le falta más de una sesión de bolsa (se tolera un festivo), más de tres en los fondos, que publican su valor con retraso, o un día en las
         criptomonedas. Los manuales se cuentan siempre: no se actualizan solos.
       </p>
+
+      {archived.length > 0 && (
+        <section className="card overflow-hidden">
+          <button type="button" className="flex w-full items-center gap-2.5 px-5 py-3.5 text-left hover:bg-wash" aria-expanded={showArchived} onClick={() => setShowArchived((v) => !v)}>
+            <Archive size={14} className="text-mute" />
+            <span className="wide font-semibold">Archivados</span>
+            <span className="text-[12px] text-mute">
+              {archived.length} · ya no los tienes ni se actualizan; sus operaciones y su historia siguen contando
+            </span>
+            <ChevronDown size={13} className={`ml-auto text-mute transition-transform duration-200 ${showArchived ? "rotate-180" : ""}`} />
+          </button>
+          {showArchived &&
+            archived.map(({ asset: a, health: h }) => (
+              <div key={a.id} className="flex items-center gap-4 border-t border-line px-5 py-2.5 hover:bg-wash">
+                <button type="button" className="min-w-0 flex-1 text-left" onClick={() => go(`/activo/${a.id}`)}>
+                  <div className="truncate text-ink2">{a.name}</div>
+                  <div className="truncate text-[11.5px] text-mute">{[ASSET_KIND_LABEL[a.kind], a.isin ?? a.symbol].filter(Boolean).join(" · ")}</div>
+                </button>
+                <span className="text-right text-[12px] whitespace-nowrap text-mute">
+                  {h.price == null ? "sin precio" : `último precio ${money(h.price, a.currency, priceDigits(h.price))}`}
+                  {h.priceDate ? ` · ${dateBrief(h.priceDate, d.today)}` : ""}
+                </span>
+                <Btn size="sm" onClick={() => void archive(a, false)}>
+                  <ArchiveRestore size={12} /> Recuperar
+                </Btn>
+              </div>
+            ))}
+        </section>
+      )}
     </div>
   );
 }

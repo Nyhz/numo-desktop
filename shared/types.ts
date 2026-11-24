@@ -88,6 +88,11 @@ export type Asset = {
   goalId: string | null;
   /** Fuera del plan: no cuenta en ningún bloque ni en el total repartido (p. ej. un plan de pensiones). */
   planExcluded: boolean;
+  /**
+   * Archivado: ya no se tiene ni se quiere seguir. Conserva sus operaciones y sus
+   * precios, pero sale de la lista de activos y deja de actualizarse.
+   */
+  archived: boolean;
   createdAt: string;
 };
 

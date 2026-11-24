@@ -35,6 +35,8 @@ export function AssetPicker({ value, onChange, autoFocus, exclude }: { value: st
     const t = term.toLowerCase();
     return assets
       .filter((a) => a.id !== exclude)
+      // Los archivados no se ofrecen de primeras, pero se encuentran al escribir su nombre.
+      .filter((a) => (t ? true : !a.archived))
       .filter((a) => !t || a.name.toLowerCase().includes(t) || a.symbol?.toLowerCase().includes(t) || a.isin?.toLowerCase().includes(t))
       .slice(0, 8);
   }, [assets, term, exclude]);

@@ -37,7 +37,7 @@ class Equipo {
 const t = (n: number) => `2026-11-${String(n).padStart(2, "0")}T10:00:00.000Z`;
 
 const account = (id: string, name = id): Account => ({ id, name, institution: "", kind: "broker", currency: "EUR", color: 1, trackCash: false, archived: false, createdAt: t(1) });
-const asset = (id: string, goalId: string | null = null): Asset => ({ id, name: id, kind: "etf", symbol: null, isin: null, currency: "EUR", priceSource: "manual", goalId, planExcluded: false, createdAt: t(1) });
+const asset = (id: string, goalId: string | null = null): Asset => ({ id, name: id, kind: "etf", symbol: null, isin: null, currency: "EUR", priceSource: "manual", goalId, planExcluded: false, archived: false, createdAt: t(1) });
 const goal = (id: string, targetPct = 50): Goal => ({ id, name: id, targetPct, color: 1, sortOrder: 0, createdAt: t(1) });
 const tx = (id: string, accountId: string, assetId: string, quantity = 1): Tx => ({ id, date: "2026-11-02", type: "buy", accountId, assetId, quantity, price: 10, amount: 10 * quantity, currency: "EUR", fxRate: 1, fee: 0, feeCurrency: "EUR", taxSource: 0, taxHome: 0, toAccountId: null, toAssetId: null, toQuantity: null, note: "", createdAt: t(2) });
 const property = (id: string): Property => ({ id, name: id, address: "", purchaseDate: "2024-01-10", purchasePrice: 200000, purchaseCosts: 0, note: "", createdAt: t(1) });
@@ -196,6 +196,9 @@ describe("sincronización entre equipos", () => {
       ["cuenta", "broker", false],
       ["ahorro", "emergency", true],
     ]);
+    // Un equipo sin actualizar no envía «archivado» en sus activos: no por eso se descartan.
+    const { archived: _sinEse, ...activoAntiguo } = snap.records.assets[0]!;
+    expect(parseSnapshot(JSON.stringify({ ...snap, records: { ...snap.records, assets: [activoAntiguo] } }))!.records.assets).toEqual([{ ...activoAntiguo, archived: false }]);
     // La hora de escritura no cuenta para decidir si hay que volver a publicar.
     expect(snapshotBody({ ...snap, writtenAt: t(20) })).toBe(snapshotBody(snap));
   });

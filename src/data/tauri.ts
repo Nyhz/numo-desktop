@@ -28,6 +28,7 @@ const ASSET: Array<[string, keyof Asset]> = [
   ["price_source", "priceSource"],
   ["goal_id", "goalId"],
   ["plan_excluded", "planExcluded"],
+  ["archived", "archived"],
   ["created_at", "createdAt"],
 ];
 const GOAL: Array<[string, keyof Goal]> = [

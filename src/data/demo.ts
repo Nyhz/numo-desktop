@@ -67,7 +67,7 @@ export function makeDemo(today: string): AppState {
   ) => {
     // Fuentes de mentira (no se consultan): sirven para enseñar cómo se ve cada una.
     const source = kind === "fund" ? "ft" : "yahoo";
-    const a: Asset = { id: `demo-${key}`, name, kind, symbol: source === "yahoo" ? `${key.toUpperCase()}.DEMO` : null, isin, currency, priceSource: source, goalId: null, planExcluded: false, createdAt: at };
+    const a: Asset = { id: `demo-${key}`, name, kind, symbol: source === "yahoo" ? `${key.toUpperCase()}.DEMO` : null, isin, currency, priceSource: source, goalId: null, planExcluded: false, archived: false, createdAt: at };
     assets.push(a);
     prices[a.id] = walk(seed, from, today, p0, drift, vol);
     return a;

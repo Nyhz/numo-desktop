@@ -511,7 +511,8 @@ const span = (pts: Point[] | undefined) =>
 /** Activos cuyo precio toca descargar: los de fuente automática sin precio o con la descarga caducada. */
 export function dueAssets(state: AppState, meta: Meta, force = false): AppState["assets"] {
   return state.assets.filter((a) => {
-    if (a.priceSource === "manual") return false;
+    // Los archivados ya no se siguen: su histórico basta para el pasado.
+    if (a.archived || a.priceSource === "manual") return false;
     if (a.priceSource !== "indexa" && !(SOURCE_BY_ISIN[a.priceSource] ? a.isin : a.symbol)) return false;
     return !(state.prices[a.id]?.length && fresh(meta, `fetched:asset:${a.id}`, force));
   });
