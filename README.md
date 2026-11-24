@@ -1,20 +1,72 @@
-# Caudal
+<p align="center">
+  <img src="src-tauri/icons/128x128@2x.png" width="96" alt="Numo App">
+</p>
 
-Seguimiento personal de inversiones. App de escritorio (Tauri) para un solo usuario: cuentas, compras, ventas, dividendos, varias divisas, plan de inversión, inmuebles con su hipoteca, gráficos y extractos para llevar a Hacienda. Los datos viven en un archivo SQLite en tu ordenador.
+<h1 align="center">Numo App</h1>
 
-## Uso
+<p align="center">
+  <strong>Tu patrimonio, en tu ordenador.</strong><br>
+  Inversiones, efectivo e inmuebles en una app de escritorio para macOS y Windows.<br>
+  Sin cuentas de usuario, sin servidores, sin suscripción.
+</p>
 
-```
-pnpm install
-pnpm dev            # abre la app en modo desarrollo
-pnpm build          # genera Caudal.app en src-tauri/target/release/bundle/macos/
-pnpm test           # tests del motor de cálculo y de los lectores de datos de mercado
-pnpm test:native    # tests del núcleo nativo (Rust)
-pnpm typecheck
-pnpm dev:web        # solo la interfaz en un navegador, con la cartera de ejemplo
-```
+<p align="center">
+  <a href="https://github.com/Nyhz/numo-desktop/releases/latest"><img src="https://img.shields.io/github/v/release/Nyhz/numo-desktop?label=versi%C3%B3n&color=222225" alt="Última versión"></a>
+  <a href="https://github.com/Nyhz/numo-desktop/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/Nyhz/numo-desktop/ci.yml?label=tests&color=222225" alt="Tests"></a>
+  <img src="https://img.shields.io/badge/macOS%20%C2%B7%20Windows-222225" alt="macOS y Windows">
+</p>
 
-Requisitos para compilar en local: Node 22+, pnpm, Rust y, en macOS, las herramientas de línea de comandos de Xcode.
+<p align="center">
+  <a href="https://github.com/Nyhz/numo-desktop/releases/latest"><strong>Descargar la última versión</strong></a>
+</p>
+
+![El Resumen de Numo App con la cartera de ejemplo](docs/resumen.png)
+
+## Qué es
+
+Numo App lleva la cuenta de lo que tienes y de cómo te va, con los datos guardados en un archivo de tu ordenador. Tú registras lo que haces (compras, ventas, dividendos, ingresos, tu vivienda y su hipoteca) y la app calcula el resto: posiciones, rentabilidad, plusvalías, reparto, cuadro de amortización y los extractos que pide Hacienda.
+
+- **Todas tus cuentas juntas.** Brókers, bancos, fondos y exchanges, en varias divisas, con el efectivo de cada una.
+- **Patrimonio neto de verdad.** La cartera más lo que ya es tuyo de tus inmuebles, y cómo ha evolucionado.
+- **Rentabilidad sin trampas.** Ponderada por tiempo y TIR anualizada, mes a mes, por posición y frente al MSCI World.
+- **Precios al día sin pagar por ellos.** Acciones, ETF, fondos y criptomonedas se actualizan solos desde sus bolsas y gestoras; los tipos de cambio, del BCE.
+- **Un plan de inversión.** Bloques con su peso objetivo, cuánto te alejas de él, dónde poner la próxima aportación y una proyección de a dónde llegarías.
+- **Tu vivienda y su hipoteca.** Cuánto es ya tuyo, cuánto llevas pagado y en qué, y el cuadro año a año con revisiones del tipo.
+- **Los papeles de Hacienda.** Ventas emparejadas por FIFO, dividendos e intereses con sus retenciones, posiciones a cierre de ejercicio y pérdidas pendientes de compensar; todo exportable a Excel y CSV.
+- **Modo privado.** Un clic (o la tecla `P`) emborrona importes y unidades para enseñar la app sin enseñar cuánto hay.
+- **En varios equipos.** Mac y Windows se sincronizan a través de una carpeta de tu nube, sin servidor de por medio.
+- **Se actualiza sola.** Avisa cuando hay una versión nueva y la instala con un botón.
+
+La app está en español y pensada para un inversor particular con residencia fiscal en España. La moneda de referencia es el euro.
+
+## Capturas
+
+| | |
+|---|---|
+| ![Posiciones](docs/posiciones.png) | ![Plan de inversión](docs/plan.png) |
+| ![Inmuebles e hipoteca](docs/inmuebles.png) | ![Informe fiscal](docs/informes.png) |
+| ![Rentabilidad frente al MSCI World](docs/rentabilidad.png) | ![Modo privado](docs/privado.png) |
+
+Todas las capturas son de la cartera de ejemplo que trae la app (Ajustes → Cartera de ejemplo): entidades, empresas y cifras inventadas.
+
+## Descargar e instalar
+
+Los instaladores están en la [página de versiones](https://github.com/Nyhz/numo-desktop/releases/latest):
+
+- **macOS** (Apple Silicon e Intel): descarga el `.dmg`, ábrelo y arrastra Numo App a Aplicaciones.
+- **Windows** (64 bits): descarga el `-setup.exe` y ejecútalo.
+
+No están firmados con certificados de pago, así que la primera vez el sistema avisa: en macOS, Ajustes del Sistema → Privacidad y seguridad → «Abrir igualmente»; en Windows, «Más información» → «Ejecutar de todas formas».
+
+A partir de ahí **la app se actualiza sola**: al abrirla comprueba si hay una versión nueva y, si la hay, lo avisa arriba con un botón «Actualizar». También en Ajustes → Versión → «Buscar actualizaciones». Cada actualización va firmada y la app solo instala lo que lleva esa firma. Tus datos se conservan siempre.
+
+¿Solo quieres mirar? Ajustes → «Ver la cartera de ejemplo» carga una cartera inventada sin tocar nada tuyo.
+
+## Privacidad
+
+- Tus datos están en un archivo SQLite en tu ordenador. No hay cuentas de usuario, ni servidor propio, ni telemetría.
+- La app solo se conecta a las fuentes de precios (Deutsche Börse, BME, Nasdaq, fundinfo y Binance, con Yahoo Finance y Financial Times de respaldo), al BCE para los tipos de cambio, a GitHub para saber si hay una versión nueva y, si pones tu token, a Indexa Capital. A las fuentes de precios solo les envía símbolos y divisas, nunca importes ni posiciones.
+- El núcleo nativo no deja que la interfaz se conecte a ningún otro sitio: la lista de servidores permitidos está escrita en el código (`src-tauri/src/lib.rs`).
 
 ## Pantallas
 
@@ -23,15 +75,37 @@ Requisitos para compilar en local: Node 22+, pnpm, Rust y, en macOS, las herrami
 | Resumen | Tu patrimonio neto (la cartera más lo que ya es tuyo de los inmuebles), cuánto has puesto, cuánto ha ganado y cómo se reparte. |
 | Posiciones | Qué tienes, cuánto pesa cada cosa y cuánto gana o pierde. |
 | Operaciones | El libro de operaciones y el flujo de efectivo; importar y exportar. |
-| Plan | Cuánto te alejas de tu reparto objetivo y dónde poner la próxima aportación. |
+| Plan | Cuánto te alejas de tu reparto objetivo, dónde poner la próxima aportación y a dónde llegarías con una aportación y una rentabilidad dadas. |
 | Inmuebles | Cuánto es ya tuyo, cuánto llevas pagado y en qué, y cuánto queda. |
-| Informes | Lo que pide Hacienda por ejercicio: ventas emparejadas, rendimientos, posiciones a cierre. |
+| Informes | Lo que pide Hacienda por ejercicio: ventas emparejadas, rendimientos, posiciones a cierre y pérdidas pendientes de compensar. |
 | Activos | Todo lo que sigues, lo tengas o no en cartera: de qué día es cada precio, de dónde sale y qué no se está actualizando. Aquí se añaden activos nuevos. |
-| Cuentas · Ajustes | Cuentas, copias de seguridad, conexiones con servicios de datos y tema. |
+| Cuentas · Ajustes | Cuentas, copias de seguridad, conexiones con servicios de datos, actualización de la app, tema y color de acento. |
 
 **Modo privado.** El ojo de la barra lateral (o la tecla `P`) emborrona importes, saldos y unidades en todas las pantallas, para enseñar la app sin enseñar cuánto hay; porcentajes, precios de mercado y fechas se siguen viendo. Se recuerda entre aperturas. Es solo visual (`src/ui/privacy.ts` y la clase `.priv`): no afecta a los datos ni a lo que se exporta, y lo que se escribe en los formularios no se oculta.
 
-Al abrir, una animación de carga («Marea») acompaña a la actualización de precios y termina convirtiendo una de las ondas del logo en la curva de la cartera. Tiene dos variantes: completa, con el avance activo a activo, cuando hay precios que actualizar; y corta cuando la app se abrió hace poco y están al día. Se salta con un clic y no se muestra si el sistema pide reducir el movimiento. Para verla en `pnpm dev:web`: `?splash=full` enseña la completa con la cartera de ejemplo y `?splash=off` la quita.
+Al abrir, una animación de carga («Marea») acompaña a la actualización de precios y termina con una onda que sale del logo y se convierte en la curva de la cartera. Tiene dos variantes: completa, con el avance activo a activo, cuando hay precios que actualizar; y corta cuando la app se abrió hace poco y están al día. Se salta con un clic y no se muestra si el sistema pide reducir el movimiento. Para verla en `pnpm dev:web`: `?splash=full` enseña la completa con la cartera de ejemplo y `?splash=off` la quita.
+
+## Varios equipos
+
+Para usar Numo App en más de un ordenador (Mac y Windows, por ejemplo): Ajustes → Sincronización entre equipos → «Elegir carpeta…», y elegir **en cada equipo la misma carpeta** de un servicio de nube (Proton Drive, iCloud, OneDrive, Dropbox…). La app crea dentro una carpeta `numo-app`.
+
+- La base de datos no se comparte: cada equipo tiene la suya. En la carpeta hay un archivo JSON por equipo con sus registros (cuentas, activos, operaciones, plan, inmuebles), cuándo cambió cada uno, cuáles se han borrado y el histórico de precios.
+- Al sincronizar se leen los archivos de los demás y, registro a registro, **gana el cambio más reciente** (un borrado es un cambio más). Un equipo recién instalado nunca borra nada en los otros.
+- Se sincroniza al abrir la app, al volver a su ventana, poco después de cada cambio y con «Sincronizar ahora». Lo rápido que llegue al otro equipo depende del servicio de nube.
+- Antes de aplicar borrados o muchos cambios de golpe se guarda una copia en `copias/`.
+- No viajan: las claves de Conexiones (se ponen en cada equipo), los tipos de cambio (cada equipo los descarga) ni los ajustes de apariencia.
+- Conviene marcar la carpeta como «disponible sin conexión» en el servicio de nube, para que los archivos estén siempre en disco.
+
+La lógica está en `src/data/sync.ts` (pura, con pruebas de varios equipos simulados); el núcleo nativo solo lee y escribe esos archivos.
+
+## Datos y copias
+
+- Base de datos: `~/Library/Application Support/app.numo.desktop/numo.db` en macOS; `%APPDATA%\app.numo.desktop\numo.db` en Windows.
+- Copia diaria automática (las 14 últimas) en la carpeta `copias/` de al lado.
+- Ajustes → «Guardar una copia…» y «Exportar todas las operaciones» (CSV que la propia app vuelve a importar).
+- `NUMO_DATA_DIR=/otra/carpeta` usa otra carpeta de datos (pruebas).
+
+Hasta la versión 0.3 la app tenía otro nombre y guardaba sus datos en otra carpeta. La primera vez que se abre Numo App copia esa base de datos a la suya; la antigua no se toca.
 
 ## Cómo está hecha
 
@@ -42,7 +116,7 @@ Una idea manda sobre todo lo demás: **solo se guarda lo que tú registras** (cu
 | `shared/` | Modelo de datos, validación y el **motor de cálculo** (funciones puras, con tests): libro de operaciones y lotes FIFO, serie diaria y rentabilidad, informe anual, plan, hipoteca, formato CSV. |
 | `src/data/` | Almacén de estado, datos de mercado y la frontera con el núcleo nativo. La interfaz describe cambios (`Op`); nunca escribe SQL. |
 | `src/charts/`, `src/ui/`, `src/features/`, `src/pages/` | Interfaz (React). Gráficos propios en HTML/SVG; tokens visuales en `src/styles.css`. |
-| `src-tauri/` | Núcleo nativo en Rust. Hace tres cosas: SQLite (lecturas y lotes de escritura en una transacción), HTTPS limitado a los servidores de datos (Deutsche Börse, BME, Nasdaq, fundinfo, Binance, Indexa Capital, Yahoo Finance, Financial Times y el BCE), y guardar archivos. |
+| `src-tauri/` | Núcleo nativo en Rust. Hace lo que la interfaz no puede: SQLite (lecturas y lotes de escritura en una transacción), HTTPS limitado a los servidores de datos (Deutsche Börse, BME, Nasdaq, fundinfo, Binance, Indexa Capital, Yahoo Finance, Financial Times y el BCE), leer y escribir los archivos de sincronización, guardar archivos y actualizar la app. |
 
 Decisiones de cálculo que conviene conocer:
 
@@ -56,47 +130,33 @@ Decisiones de cálculo que conviene conocer:
 - **Token de Indexa**: se pone en Ajustes → Conexiones. Se guarda en la base de datos local y lo añade el núcleo nativo a cada petición; la interfaz solo sabe si existe. Va dentro de las copias de seguridad.
 - **Plan**: la aportación va entera al bloque más retrasado (al que hoy le faltan más euros), en una sola operación para ahorrar comisiones, aunque lo deje por encima de su objetivo. Nunca propone vender.
 - **Hipoteca**: amortización francesa; el cuadro se deriva de las condiciones y de los eventos (revisión del tipo, cuota real).
-- Caudal **no calcula impuestos**. El informe anual entrega los datos y avisa de pérdidas con recompra cercana, sin decidir nada.
+- Numo App **no calcula impuestos**. El informe anual entrega los datos, avisa de pérdidas con recompra cercana y lleva una cuenta orientativa de las pérdidas pendientes de compensar, sin decidir nada.
 
-## Datos y copias
-
-- Base de datos: `~/Library/Application Support/app.caudal.desktop/caudal.db` en macOS; `%APPDATA%\app.caudal.desktop\caudal.db` en Windows.
-- Copia diaria automática (las 14 últimas) en la carpeta `copias/` de al lado.
-- Ajustes → «Guardar una copia…» y «Exportar todas las operaciones» (CSV que la propia app vuelve a importar).
-- `CAUDAL_DATA_DIR=/otra/carpeta` usa otra carpeta de datos (pruebas).
-
-## Varios equipos
-
-Para usar Caudal en más de un ordenador (Mac y Windows, por ejemplo): Ajustes → Sincronización entre equipos → «Elegir carpeta…», y elegir **en cada equipo la misma carpeta** de un servicio de nube (Proton Drive, iCloud, OneDrive, Dropbox…). La app crea dentro una carpeta `numo-app`.
-
-- La base de datos no se comparte: cada equipo tiene la suya. En la carpeta hay un archivo JSON por equipo con sus registros (cuentas, activos, operaciones, plan, inmuebles), cuándo cambió cada uno, cuáles se han borrado y el histórico de precios.
-- Al sincronizar se leen los archivos de los demás y, registro a registro, **gana el cambio más reciente** (un borrado es un cambio más). Un equipo recién instalado nunca borra nada en los otros.
-- Se sincroniza al abrir la app, al volver a su ventana, poco después de cada cambio y con «Sincronizar ahora». Lo rápido que llegue al otro equipo depende del servicio de nube.
-- Antes de aplicar borrados o muchos cambios de golpe se guarda una copia en `copias/`.
-- No viajan: las claves de Conexiones (se ponen en cada equipo), los tipos de cambio (cada equipo los descarga) ni los ajustes de apariencia.
-- Conviene marcar la carpeta como «disponible sin conexión» en el servicio de nube, para que los archivos estén siempre en disco.
-
-La lógica está en `src/data/sync.ts` (pura, con pruebas de varios equipos simulados); el núcleo nativo solo lee y escribe esos archivos.
-
-## Versiones y descargas
-
-Los instaladores para **macOS** (un `.dmg` que sirve para Apple Silicon e Intel) y **Windows** (`-setup.exe`, 64 bits) están en la página de versiones del repositorio (Releases). Los compila GitHub; no hace falta tener nada instalado.
-
-Para publicar una versión nueva, con todos los cambios ya subidos a `main`:
+## Desarrollo
 
 ```
-pnpm publicar            # parche: 0.1.0 → 0.1.1 (arreglos)
-pnpm publicar minor      # 0.1.4 → 0.2.0 (funciones nuevas)
-pnpm publicar major      # 0.9.2 → 1.0.0 (la versión redonda)
+pnpm install
+pnpm dev            # abre la app en modo desarrollo
+pnpm build          # genera Numo App.app en src-tauri/target/release/bundle/macos/
+pnpm test           # tests del motor de cálculo y de los lectores de datos de mercado
+pnpm test:native    # tests del núcleo nativo (Rust)
+pnpm typecheck
+pnpm dev:web        # solo la interfaz en un navegador, con la cartera de ejemplo
 ```
 
-También desde la web de GitHub: Actions → «Publicar versión» → Run workflow. El flujo (`.github/workflows/release.yml`) sube el número en `package.json` (el único sitio donde está escrito; la app lo lee de ahí), pasa los tipos y los tests, crea la etiqueta `vX.Y.Z`, compila para los dos sistemas y publica la versión con sus instaladores y la lista de cambios. Si una compilación falla, la versión se queda en borrador: se relanza el trabajo fallido desde Actions. Al terminar, `git pull` trae el commit «Versión X.Y.Z».
+Requisitos para compilar en local: Node 22+, pnpm, Rust y, en macOS, las herramientas de línea de comandos de Xcode.
 
-Cada cambio que se sube a `main` pasa además las comprobaciones de `.github/workflows/ci.yml` (tipos, tests del motor y tests del núcleo nativo).
+Cada cambio que se sube a `main` pasa las comprobaciones de `.github/workflows/ci.yml` (tipos, tests del motor y tests del núcleo nativo).
 
-Los instaladores no están firmados con certificados de pago: la primera vez, macOS pide abrir la app desde Ajustes del Sistema → Privacidad y seguridad → «Abrir igualmente», y Windows muestra «Windows protegió su PC» → «Más información» → «Ejecutar de todas formas». Cada instalación guarda sus datos en su ordenador (en Windows, `%APPDATA%\app.caudal.desktop\caudal.db`); instalar una versión nueva encima los conserva.
+### Pruebas de la app real
 
-## Importar desde Numo
+```
+NUMO_SMOKE=1 NUMO_DATA_DIR=$(mktemp -d) <ruta a Numo App.app>/Contents/MacOS/numo-app
+```
+
+Abre la app contra una carpeta temporal, escribe y relee de SQLite, importa un CSV, consulta el BCE, imprime el resultado y se cierra. `NUMO_DEBUG=1` muestra cada petición de red.
+
+### Importar desde la Numo anterior
 
 ```
 node tools/numo-a-csv.mjs            # lee la base de datos de Numo en solo lectura
@@ -105,12 +165,18 @@ node tools/numo-a-csv.mjs            # lee la base de datos de Numo en solo lect
 Genera en `importar/` (ignorada por git) las operaciones, el histórico de precios, los splits y un `numo-extra.json` con el plan y los inmuebles. Para cargarlos hay dos caminos:
 
 - En la app: Operaciones → Importar, y elegir los archivos a la vez.
-- Sin interfaz, sobre una base de datos vacía: `CAUDAL_IMPORT_DIR=$PWD/importar <ruta a Caudal.app>/Contents/MacOS/caudal`.
+- Sin interfaz, sobre una base de datos vacía: `NUMO_IMPORT_DIR=$PWD/importar <ruta a Numo App.app>/Contents/MacOS/numo-app`.
 
-## Pruebas de la app real
+## Publicar una versión
+
+Con todos los cambios ya subidos a `main`:
 
 ```
-CAUDAL_SMOKE=1 CAUDAL_DATA_DIR=$(mktemp -d) <ruta a Caudal.app>/Contents/MacOS/caudal
+pnpm publicar            # parche: 0.1.0 → 0.1.1 (arreglos)
+pnpm publicar minor      # 0.1.4 → 0.2.0 (funciones nuevas)
+pnpm publicar major      # 0.9.2 → 1.0.0 (la versión redonda)
 ```
 
-Abre la app contra una carpeta temporal, escribe y relee de SQLite, importa un CSV, consulta el BCE, imprime el resultado y se cierra. `CAUDAL_DEBUG=1` muestra cada petición de red.
+También desde la web de GitHub: Actions → «Publicar versión» → Run workflow. El flujo (`.github/workflows/release.yml`) sube el número en `package.json` (el único sitio donde está escrito; la app lo lee de ahí), pasa los tipos y los tests, crea la etiqueta `vX.Y.Z`, compila para los dos sistemas y publica la versión con sus instaladores, sus firmas y el `latest.json` que consultan las apps instaladas para actualizarse. Si una compilación falla, la versión se queda en borrador: se relanza el trabajo fallido desde Actions. Al terminar, `git pull` trae el commit «Versión X.Y.Z».
+
+Las actualizaciones se firman con una clave propia (no es un certificado de Apple ni de Microsoft): la mitad pública está en `src-tauri/tauri.conf.json` y la privada, en el secreto `TAURI_SIGNING_PRIVATE_KEY` del repositorio. Si esa clave se pierde, las apps ya instaladas no aceptarán más actualizaciones y habrá que reinstalarlas a mano.
