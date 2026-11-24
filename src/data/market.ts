@@ -8,8 +8,6 @@ import type { Meta, Op } from "./backend.ts";
 type Get = (url: string) => Promise<string>;
 
 const FRESH_MS = 6 * 3600_000;
-const PAUSE_MS = 250;
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 // Algunas bolsas cotizan en céntimos de su divisa.
@@ -229,14 +227,16 @@ export async function syncMarket(
     }
   }
 
-  // ── Cotizaciones (en serie y con pausa: Yahoo limita las ráfagas) ──
+  // ── Cotizaciones ──
+  // En serie; el núcleo nativo deja un hueco entre peticiones porque Yahoo
+  // bloquea las ráfagas. (Aquí no se usan temporizadores: la interfaz los
+  // congela cuando la ventana no está a la vista.)
   const firstByAsset = new Map<string, string>();
   for (const t of state.txs) {
     for (const id of [t.assetId, t.toAssetId]) {
       if (id && (!firstByAsset.has(id) || t.date < firstByAsset.get(id)!)) firstByAsset.set(id, t.date);
     }
   }
-  let requests = 0;
   for (const a of state.assets) {
     if (a.priceSource !== "yahoo" || !a.symbol) continue;
     const first = firstByAsset.get(a.id) ?? today;
@@ -245,14 +245,12 @@ export async function syncMarket(
     const covers = !!have && have.min <= addDays(need, 10);
     if (covers && fresh(meta, `fetched:asset:${a.id}`, force)) continue;
     try {
-      if (requests++) await sleep(PAUSE_MS);
       let q = await yahooChart(get, a.symbol, covers ? addDays(have!.max, -7) : need, today);
       let full = !covers;
       if (covers && q.splits.length) {
         // Split nuevo: Yahoo reajusta todo el histórico, así que se baja entero otra vez.
         const known = state.splits[a.id] ?? [];
         if (mergeSplits(known, q.splits).length > known.length) {
-          await sleep(PAUSE_MS);
           q = await yahooChart(get, a.symbol, need, today);
           full = true;
         }

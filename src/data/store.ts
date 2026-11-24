@@ -135,7 +135,7 @@ export async function boot(): Promise<void> {
   try {
     const [info, loaded] = await Promise.all([backend.info(), backend.load()]);
     set({ status: "ready", info, loaded });
-    if (!info.smoke) void sync(false);
+    if (!info.smoke && !info.import) void sync(false);
   } catch (e) {
     set({ status: "error", error: message(e) });
   }
@@ -155,8 +155,23 @@ export function setDemo(on: boolean): void {
 
 // ── Mercado ────────────────────────────────────────────────────────────────
 
-export async function sync(force: boolean): Promise<void> {
-  if (s.syncing || isExample()) return;
+let running: Promise<void> | null = null;
+
+/**
+ * Actualiza precios y tipos de cambio. Nunca hay dos actualizaciones a la vez:
+ * si ya hay una en marcha se espera a que termine (y, si se pidió forzada, se
+ * lanza otra después para no quedarse con datos a medias).
+ */
+export function sync(force: boolean): Promise<void> {
+  if (isExample()) return Promise.resolve();
+  if (running) return force ? running.then(() => sync(true)) : running;
+  running = doSync(force).finally(() => {
+    running = null;
+  });
+  return running;
+}
+
+async function doSync(force: boolean): Promise<void> {
   set({ syncing: true });
   try {
     const { state, meta } = s.loaded;
@@ -169,6 +184,11 @@ export async function sync(force: boolean): Promise<void> {
     set({ syncing: false });
   }
 }
+
+/** Actualización en segundo plano tras un cambio; no se lanza en los modos sin interfaz. */
+const syncSoon = () => {
+  if (!s.info?.smoke && !s.info?.import) void sync(false);
+};
 
 /** Tipo de cambio del BCE para rellenar el formulario; lo guarda si hubo que descargarlo. */
 export async function ecbRate(currency: string, date: string): Promise<{ rate: number; date: string } | null> {
@@ -289,7 +309,7 @@ export function saveTx(input: unknown, id?: string): Promise<Result<Tx>> {
   };
   return attempt(async () => {
     await commit([{ op: "putTx", row }]);
-    void sync(false);
+    syncSoon();
     return row;
   });
 }
@@ -380,9 +400,9 @@ export async function importPlan(plan: ImportPlan): Promise<Result<number>> {
       row: { ...parsed.data, id: newId(), createdAt: new Date(now + n++).toISOString() },
     });
   }
+  // Quien importa decide cuándo actualizar precios (normalmente al terminar todos los archivos).
   return attempt(async () => {
     await commit(ops);
-    void sync(false);
     return n;
   });
 }

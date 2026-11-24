@@ -72,6 +72,8 @@ function priceSymbol(a, provider) {
   return a.provider_symbol?.trim() || a.symbol?.trim() || a.ticker?.trim() || null;
 }
 
+const MAJOR_COINS = new Set(["BTC", "ETH", "SOL", "DOGE", "ADA", "XRP", "DOT", "LTC", "LINK", "AVAX", "BNB"]);
+
 /**
  * Lee Numo y devuelve todo lo exportable. No escribe nada.
  * @param {DatabaseSync} db base de datos de Numo abierta en solo lectura
@@ -96,11 +98,14 @@ export function convert(db) {
     const fromYahoo = counts.filter((c) => c.source.startsWith("yahoo")).reduce((s, c) => s + c.n, 0);
     // Solo se da por bueno el símbolo de Yahoo si Numo cotiza de verdad el activo con Yahoo.
     const yahoo = provider === "yahoo" && !!symbol && (fromYahoo > 0 || total === 0);
+    // Las cripto grandes cotizan en Yahoo como «TICKER-EUR»: así Caudal las mantiene al día.
+    const coin = (a.ticker || a.symbol || a.name || "").trim().toUpperCase();
+    const cryptoYahoo = provider === "coingecko" && MAJOR_COINS.has(coin) ? `${coin}-EUR` : "";
     pricing.set(a.id, {
       provider,
       symbol,
       yahoo,
-      yahooSymbol: yahoo ? symbol : "",
+      yahooSymbol: yahoo ? symbol : cryptoYahoo,
       // CoinGecko cotiza en EUR; el resto, en la divisa del activo.
       priceCurrency: provider === "coingecko" ? "EUR" : (a.currency ?? "EUR").toUpperCase(),
       total,
@@ -266,13 +271,18 @@ export function convert(db) {
 
   rows.sort((x, y) => x.cells.fecha.localeCompare(y.cells.fecha) || x.order - y.order || x.when - y.when || String(x.numoId).localeCompare(String(y.numoId)));
 
-  // ── Precios de lo que Caudal no puede pedir a Yahoo ──
+  // ── Histórico de precios de Numo ──
+  // Se exporta para todos los activos: Caudal queda valorado desde el primer
+  // momento y después solo pide a Yahoo los días que falten. La excepción son
+  // los activos con split, porque los precios antiguos de Numo están en las
+  // unidades de antes y Caudal los espera ya ajustados.
+  const splitAssets = new Set(splits.map((sp) => sp.asset.id));
   const priceRows = [];
   const positions = new Map(all("SELECT * FROM asset_positions").map((p) => [p.asset_id, p]));
   for (const id of usedAssets) {
     const a = assets.get(id);
     const p = pricing.get(id);
-    if (p.yahoo) continue;
+    if (splitAssets.has(id)) continue;
     const pts = new Map();
     if (p.symbol) {
       for (const r of all("SELECT priced_date_utc d, price FROM price_history WHERE symbol = ? ORDER BY priced_date_utc", p.symbol)) {
@@ -282,11 +292,63 @@ export function convert(db) {
     const pos = positions.get(id);
     if (pos?.manual_price > 0 && pos.manual_price_as_of) pts.set(isoDay(pos.manual_price_as_of), pos.manual_price);
     for (const [d, price] of [...pts.entries()].sort((x, y) => x[0].localeCompare(y[0]))) {
-      priceRows.push([a.isin ?? "", "", a.name, p.priceCurrency, d, price]);
+      priceRows.push([a.isin ?? "", p.yahooSymbol, a.name, p.priceCurrency, d, price]);
     }
   }
 
-  return { accounts, assets, pricing, rows, skipped, splits, priceRows, usedAssets, usedAccounts, derivedMoves, openings, positions };
+  // ── Extras: plan (objetivos y asignaciones) e inmuebles con su hipoteca ──
+  const has = (table) => all("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", table).length > 0;
+  const objectives = has("objectives") ? all("SELECT * FROM objectives ORDER BY sort_order, name") : [];
+  const objectiveName = new Map(objectives.map((o) => [o.id, o.name]));
+  const extras = {
+    objetivos: objectives.map((o, i) => ({ nombre: o.name, objetivoPct: o.target_pct, orden: o.sort_order ?? i })),
+    asignaciones: [...usedAssets]
+      .map((id) => assets.get(id))
+      .filter((a) => a.objective_id || a.exclude_from_objectives)
+      .map((a) => ({
+        isin: a.isin ?? "",
+        simbolo: pricing.get(a.id).yahooSymbol,
+        activo: a.name,
+        objetivo: a.objective_id ? (objectiveName.get(a.objective_id) ?? null) : null,
+        excluido: !!a.exclude_from_objectives,
+      })),
+    inmuebles: (has("properties") ? all("SELECT * FROM properties ORDER BY purchase_date") : []).map((p) => {
+      const m = has("mortgages") ? all("SELECT * FROM mortgages WHERE property_id = ?", p.id)[0] : null;
+      return {
+        nombre: p.name,
+        direccion: p.address ?? "",
+        fechaCompra: p.purchase_date,
+        precio: p.purchase_price_eur,
+        gastos: p.purchase_costs_eur ?? 0,
+        nota: p.notes ?? "",
+        hipoteca: m
+          ? {
+              entidad: m.lender ?? "",
+              principal: m.principal_eur,
+              tipo: ["fixed", "variable", "mixed"].includes(m.rate_type) ? m.rate_type : "fixed",
+              tin: m.nominal_rate_pct,
+              plazoMeses: m.term_months,
+              primeraCuota: m.first_payment_date,
+              eventos: (has("mortgage_events") ? all("SELECT * FROM mortgage_events WHERE mortgage_id = ? ORDER BY event_date", m.id) : []).map((e) => ({
+                fecha: e.event_date,
+                tipo: e.type,
+                importe: e.amount_eur ?? null,
+                modo: e.mode ?? null,
+                tin: e.new_rate_pct ?? null,
+                nota: e.note ?? "",
+              })),
+            }
+          : null,
+        valoraciones: (has("property_valuations") ? all("SELECT * FROM property_valuations WHERE property_id = ? ORDER BY valuation_date", p.id) : []).map((v) => ({
+          fecha: v.valuation_date,
+          valor: v.value_eur,
+          nota: v.note ?? "",
+        })),
+      };
+    }),
+  };
+
+  return { accounts, assets, pricing, rows, skipped, splits, priceRows, usedAssets, usedAccounts, derivedMoves, openings, positions, extras };
 }
 
 function pickDb(arg) {
@@ -337,7 +399,7 @@ function main() {
       ...[...r.usedAssets].map((id) => {
         const a = r.assets.get(id);
         const p = r.pricing.get(id);
-        return [a.name, a.isin ?? "", p.yahooSymbol, (a.currency ?? "EUR").toUpperCase(), assetKind(a), p.provider, p.yahoo ? "yahoo" : "manual"];
+        return [a.name, a.isin ?? "", p.yahooSymbol, (a.currency ?? "EUR").toUpperCase(), assetKind(a), p.provider, p.yahooSymbol ? "yahoo" : "manual"];
       }),
     ]),
   );
@@ -352,6 +414,8 @@ function main() {
     ]),
   );
 
+  writeFileSync(join(outDir, "numo-extra.json"), `${JSON.stringify(r.extras, null, 2)}\n`);
+
   const byType = {};
   for (const x of r.rows) byType[x.cells.tipo] = (byType[x.cells.tipo] ?? 0) + 1;
   console.log(`Numo:   ${dbPath}`);
@@ -359,10 +423,11 @@ function main() {
   console.log(`\nnumo-operaciones.csv  ${r.rows.length} operaciones`);
   for (const [t, n] of Object.entries(byType).sort()) console.log(`  ${t.padEnd(10)} ${n}`);
   if (r.openings) console.log(`  (incluye ${r.openings} saldo(s) inicial(es) como Ingreso/Retirada)`);
-  const manual = new Set(r.priceRows.map((p) => p[2])).size;
-  console.log(`numo-precios.csv      ${r.priceRows.length} cierres de ${manual} activos sin cotización de Yahoo`);
+  const priced = new Set(r.priceRows.map((p) => p[2])).size;
+  console.log(`numo-precios.csv      ${r.priceRows.length} cierres de ${priced} activos`);
   console.log(`numo-splits.csv       ${r.splits.length} split(s)`);
   console.log(`numo-activos.csv      ${r.usedAssets.size} activos  ·  numo-cuentas.csv  ${r.usedAccounts.size} cuentas`);
+  console.log(`numo-extra.json       ${r.extras.objetivos.length} objetivos, ${r.extras.asignaciones.length} activos asignados, ${r.extras.inmuebles.length} inmueble(s) (${r.extras.inmuebles.filter((p) => p.hipoteca).length} con hipoteca)`);
   if (r.derivedMoves) console.log(`\n${r.derivedMoves} movimientos de efectivo omitidos por ser la contrapartida automática de una operación.`);
   if (r.splits.length) {
     console.log("\nSplits: no van en numo-operaciones.csv (Caudal no tiene esa operación). Las compras anteriores");

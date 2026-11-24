@@ -2,7 +2,7 @@ import { useState } from "react";
 import { detectCsv, matchSeries, parseNumber, parseSeriesCsv, parseTxCsv, planImport, type ImportPlan } from "../../shared/csv.ts";
 import { todayIso } from "../../shared/dates.ts";
 import { ACCOUNT_KINDS, ACCOUNT_KIND_LABEL, ASSET_KINDS, ASSET_KIND_LABEL, type Account, type Asset } from "../../shared/types.ts";
-import { getApp, importPlan, importSeries, removeAccount, removeAsset, saveAccount, saveAsset, setPrice, useDerived } from "../data/store.ts";
+import { getApp, importPlan, importSeries, sync, removeAccount, removeAsset, saveAccount, saveAsset, setPrice, useDerived } from "../data/store.ts";
 import { dateShort, num } from "../lib/format.ts";
 import { closeDialog, useDialog } from "../ui/dialogs.ts";
 import { Button, Dialog, Field, toast } from "../ui/kit.tsx";
@@ -346,6 +346,7 @@ function ImportDialog() {
         }
       }
       toast(`Importado: ${done.join(", ") || "nada"}`);
+      void sync(false);
       closeDialog();
     } finally {
       setBusy(false);

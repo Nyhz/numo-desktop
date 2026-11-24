@@ -224,10 +224,35 @@ fn check_url(url: &str) -> Result<reqwest::Url, String> {
     Ok(parsed)
 }
 
+/// Hueco mínimo entre peticiones a Yahoo, que bloquea las ráfagas (HTTP 429).
+const YAHOO_GAP: Duration = Duration::from_millis(350);
+static NEXT_YAHOO_SLOT: Mutex<Option<std::time::Instant>> = Mutex::new(None);
+
+/// Reserva el siguiente hueco libre y devuelve cuánto hay que esperar hasta él.
+/// La espera se hace aquí, en nativo: los temporizadores de la interfaz se
+/// congelan cuando la ventana no está a la vista.
+fn reserve_yahoo_slot() -> Duration {
+    let now = std::time::Instant::now();
+    let mut next = NEXT_YAHOO_SLOT.lock().unwrap_or_else(|e| e.into_inner());
+    let slot = match *next {
+        Some(t) if t > now => t,
+        _ => now,
+    };
+    *next = Some(slot + YAHOO_GAP);
+    slot - now
+}
+
 /// GET por HTTPS limitado a los servidores de datos de mercado.
 #[tauri::command]
 async fn http_get(url: String) -> CmdResult<String> {
     let parsed = check_url(&url)?;
+    if parsed.host_str().is_some_and(|h| h.ends_with("finance.yahoo.com")) {
+        tokio::time::sleep(reserve_yahoo_slot()).await;
+    }
+    let debug = std::env::var_os("CAUDAL_DEBUG").is_some();
+    if debug {
+        eprintln!("[caudal] GET {}{}", parsed.host_str().unwrap_or_default(), parsed.path());
+    }
     let client = reqwest::Client::builder()
         .user_agent(USER_AGENT)
         .timeout(Duration::from_secs(25))
@@ -240,6 +265,9 @@ async fn http_get(url: String) -> CmdResult<String> {
         .await
         .map_err(|e| format!("Sin conexión: {e}"))?;
     let status = res.status();
+    if debug {
+        eprintln!("[caudal]   -> {}", status.as_u16());
+    }
     if !status.is_success() {
         return Err(format!("HTTP {}", status.as_u16()));
     }
@@ -469,6 +497,16 @@ mod tests {
         assert!(check_url("http://query1.finance.yahoo.com/").is_err());
         assert!(check_url("https://example.com/").is_err());
         assert!(check_url("https://query1.finance.yahoo.com.evil.test/").is_err());
+    }
+
+    #[test]
+    fn yahoo_requests_are_spaced() {
+        let first = reserve_yahoo_slot();
+        let second = reserve_yahoo_slot();
+        let third = reserve_yahoo_slot();
+        assert!(first < Duration::from_millis(50));
+        assert!(second > Duration::from_millis(250) && second <= YAHOO_GAP);
+        assert!(third > second);
     }
 
     #[test]
