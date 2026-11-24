@@ -1,0 +1,93 @@
+import { invoke } from "@tauri-apps/api/core";
+import { parseTxCsv, planImport, txsToCsv } from "../../shared/csv.ts";
+import { todayIso } from "../../shared/dates.ts";
+import { makeDemo } from "./demo.ts";
+import { ecbRates } from "./market.ts";
+import { backend, derive, getApp, importPlan, removeTx, saveAccount, saveAsset, saveTx, setPrice } from "./store.ts";
+
+/**
+ * Prueba de humo de la app real (CAUDAL_SMOKE=1 con CAUDAL_DATA_DIR apuntando a
+ * una carpeta temporal): escribe en SQLite a través del núcleo nativo, vuelve a
+ * leer del disco y comprueba que lo guardado es lo que se ve. Después cierra la app.
+ */
+export async function runSmoke(): Promise<void> {
+  const log: string[] = [];
+  const check = (name: string, cond: boolean, detail = "") => {
+    log.push(`${cond ? "ok  " : "FAIL"} ${name}${detail ? ` — ${detail}` : ""}`);
+    if (!cond) throw new Error(name);
+  };
+  let ok = true;
+  try {
+    const fresh = await backend.load();
+    check("base de datos nueva y vacía", fresh.state.accounts.length === 0 && fresh.state.txs.length === 0);
+
+    const acct = await saveAccount({ name: "Prueba", institution: "", kind: "broker", currency: "EUR", trackCash: true, archived: false });
+    check("crear cuenta", acct.ok);
+    const asset = await saveAsset({ name: "Activo de prueba", kind: "stock", symbol: null, isin: null, currency: "USD", priceSource: "manual" });
+    check("crear activo", asset.ok);
+    if (!acct.ok || !asset.ok) return;
+
+    const dep = await saveTx({ date: "2024-01-02", type: "deposit", accountId: acct.value.id, amount: 5000, currency: "EUR" });
+    const buy = await saveTx({ date: "2024-01-03", type: "buy", accountId: acct.value.id, assetId: asset.value.id, quantity: 10, price: 110, currency: "USD", fxRate: 1.1, fee: 1.5, feeCurrency: "EUR" });
+    const bad = await saveTx({ date: "2024-01-03", type: "buy", accountId: acct.value.id, assetId: asset.value.id, quantity: 1, currency: "USD" });
+    check("guardar ingreso y compra", dep.ok && buy.ok);
+    check("rechazar una compra sin precio", !bad.ok);
+    check("guardar precio manual", (await setPrice(asset.value.id, "2024-06-03", 121)).ok);
+
+    // Lo importante: releer del disco, no de la memoria.
+    const disk = await backend.load();
+    check("releer del disco", disk.state.accounts.length === 1 && disk.state.assets.length === 1 && disk.state.txs.length === 2, `${disk.state.txs.length} operaciones`);
+    const saved = disk.state.txs.find((t) => t.type === "buy");
+    check("los campos sobreviven al viaje", saved?.quantity === 10 && saved.price === 110 && saved.fxRate === 1.1 && saved.fee === 1.5 && saved.feeCurrency === "EUR" && saved.assetId === asset.value.id);
+    check("los booleanos vuelven como booleanos", disk.state.accounts[0]!.trackCash === true && disk.state.accounts[0]!.archived === false);
+    check("el precio manual está guardado", disk.state.prices[asset.value.id]?.[0]?.[1] === 121);
+
+    const d = derive(disk.state, null);
+    check("coste FIFO en EUR", d.positions[0]?.costEur === 1001.5, String(d.positions[0]?.costEur));
+    check("efectivo tras la compra", Math.abs((d.timeline.cash.get(acct.value.id)?.at(-1) ?? 0) - 3998.5) < 1e-6);
+
+    // Lote todo-o-nada: una operación que apunta a una cuenta inexistente no deja nada a medias.
+    let rejected = false;
+    try {
+      await backend.apply([
+        { op: "meta", key: "smoke", value: "1" },
+        { op: "putTx", row: { ...saved!, id: "huérfana", accountId: "no-existe" } },
+      ]);
+    } catch {
+      rejected = true;
+    }
+    const after = await backend.load();
+    check("un lote con un error no guarda nada", rejected && after.meta.smoke === undefined && after.state.txs.length === 2);
+
+    // Importación de 100+ operaciones de una vez, y vuelta a exportar.
+    const demo = makeDemo(todayIso());
+    const parsed = parseTxCsv(txsToCsv(demo));
+    check("el CSV de ejemplo se analiza sin errores", parsed.errors.length === 0, `${parsed.rows.length} filas`);
+    const imported = await importPlan(planImport(parsed.rows, getApp().loaded.state));
+    check("importar el CSV", imported.ok, imported.ok ? `${imported.value} operaciones` : imported.error);
+    const big = await backend.load();
+    check("todo lo importado está en disco", big.state.txs.length === 2 + demo.txs.length && big.state.accounts.length === 1 + demo.accounts.length);
+
+    const removed = await removeTx(buy.ok ? buy.value.id : "");
+    check("borrar una operación", removed.ok && (await backend.load()).state.txs.length === 1 + demo.txs.length);
+
+    // Red: tipos de cambio del BCE a través del núcleo nativo.
+    try {
+      const usd = (await ecbRates(backend.httpGet, ["USD"], "2024-01-02")).get("USD") ?? [];
+      check("tipos de cambio del BCE", usd.length > 100 && usd[0]![0] === "2024-01-02", `${usd.length} días`);
+    } catch (e) {
+      log.push(`aviso tipos de cambio del BCE no disponibles: ${e instanceof Error ? e.message : e}`);
+    }
+    let blocked = false;
+    try {
+      await backend.httpGet("https://example.com/");
+    } catch {
+      blocked = true;
+    }
+    check("la red está limitada a los servidores de mercado", blocked);
+  } catch (e) {
+    ok = false;
+    log.push(`excepción: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  await invoke("smoke_done", { ok, report: log.join("\n") });
+}

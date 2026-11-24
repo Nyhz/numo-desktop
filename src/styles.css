@@ -1,0 +1,303 @@
+@import "tailwindcss";
+@import "@fontsource-variable/archivo/wdth.css";
+
+/*
+  Sistema visual de Caudal.
+  La interfaz es monocroma: tinta sobre papel frío, separada por líneas finas y
+  espacio, sin tarjetas ni sombras. El color se reserva para los datos (series de
+  los gráficos) y para el signo de un resultado. Una sola familia tipográfica,
+  Archivo, cuya anchura variable marca la jerarquía.
+*/
+
+:root {
+  color-scheme: light;
+  --page: #f0f3f2;
+  --surface: #fbfcfc;
+  --raised: #ffffff;
+  --ink: #0e2321;
+  --ink-2: #44575a;
+  --muted: #7b8a89;
+  --line: #e2e8e6;
+  --line-strong: #c6d0ce;
+  --wash: rgba(14, 35, 33, 0.045);
+  --wash-strong: rgba(14, 35, 33, 0.08);
+  --focus: #2a78d6;
+  --up: #0a6b2d;
+  --down: #b3302d;
+  --up-fill: #1f9d4d;
+  --down-fill: #d9534f;
+  --warn: #8a5a00;
+  /* Series categóricas: orden fijo validado para daltonismo; no se reordena. */
+  --s1: #2a78d6;
+  --s2: #eb6834;
+  --s3: #1baf7a;
+  --s4: #eda100;
+  --s5: #e87ba4;
+  --s6: #008300;
+  --s7: #6250d6;
+  --s8: #e34948;
+  --s0: #a7b3b1;
+  --shadow: 0 18px 50px -12px rgba(14, 35, 33, 0.28), 0 0 0 1px rgba(14, 35, 33, 0.08);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page: #0b1211;
+    --surface: #131c1b;
+    --raised: #1a2524;
+    --ink: #e8efed;
+    --ink-2: #b2bfbc;
+    --muted: #7d8a88;
+    --line: #232f2d;
+    --line-strong: #364341;
+    --wash: rgba(232, 239, 237, 0.055);
+    --wash-strong: rgba(232, 239, 237, 0.1);
+    --focus: #5b9bea;
+    --up: #45c074;
+    --down: #f27a76;
+    --up-fill: #2ea65a;
+    --down-fill: #e0605c;
+    --warn: #e0a83a;
+    --s1: #3987e5;
+    --s2: #d95926;
+    --s3: #199e70;
+    --s4: #c98500;
+    --s5: #d55181;
+    --s6: #0ca30c;
+    --s7: #9085e9;
+    --s8: #e66767;
+    --s0: #5a6664;
+    --shadow: 0 18px 50px -12px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0b1211;
+  --surface: #131c1b;
+  --raised: #1a2524;
+  --ink: #e8efed;
+  --ink-2: #b2bfbc;
+  --muted: #7d8a88;
+  --line: #232f2d;
+  --line-strong: #364341;
+  --wash: rgba(232, 239, 237, 0.055);
+  --wash-strong: rgba(232, 239, 237, 0.1);
+  --focus: #5b9bea;
+  --up: #45c074;
+  --down: #f27a76;
+  --up-fill: #2ea65a;
+  --down-fill: #e0605c;
+  --warn: #e0a83a;
+  --s1: #3987e5;
+  --s2: #d95926;
+  --s3: #199e70;
+  --s4: #c98500;
+  --s5: #d55181;
+  --s6: #0ca30c;
+  --s7: #9085e9;
+  --s8: #e66767;
+  --s0: #5a6664;
+  --shadow: 0 18px 50px -12px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+@theme inline {
+  --font-sans: "Archivo Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --color-page: var(--page);
+  --color-surface: var(--surface);
+  --color-raised: var(--raised);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-wash: var(--wash);
+  --color-wash-strong: var(--wash-strong);
+  --color-focus: var(--focus);
+  --color-up: var(--up);
+  --color-down: var(--down);
+  --color-warn: var(--warn);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow: hidden;
+  cursor: default;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Los datos sí se pueden seleccionar y copiar. */
+table,
+input,
+textarea,
+.selectable {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+@layer components {
+/* La anchura de Archivo como herramienta: títulos anchos, etiquetas densas estrechas. */
+.wide {
+  font-stretch: 112%;
+}
+.narrow {
+  font-stretch: 88%;
+}
+.num {
+  font-variant-numeric: tabular-nums;
+}
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--focus) 28%, transparent);
+}
+
+/* Barras de desplazamiento discretas. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+/* En la capa de componentes para que las utilidades de Tailwind (w-44, pl-8…) puedan ajustarlos. */
+@layer components {
+/* ── Controles ─────────────────────────────────────────────────────────── */
+
+.field {
+  width: 100%;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--raised);
+  color: var(--ink);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  transition: border-color 0.12s;
+}
+.field:hover {
+  border-color: var(--muted);
+}
+.field:focus {
+  outline: 2px solid var(--focus);
+  outline-offset: -1px;
+  border-color: transparent;
+}
+.field::placeholder {
+  color: var(--muted);
+}
+.field[aria-invalid="true"] {
+  border-color: var(--down);
+}
+select.field {
+  appearance: none;
+  padding-right: 26px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none' stroke='%237b8a89' stroke-width='1.6' stroke-linecap='round'%3E%3Cpath d='M1 1l4 4 4-4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 9px center;
+}
+textarea.field {
+  height: auto;
+  padding: 7px 10px;
+  resize: vertical;
+}
+
+/* ── Tablas ────────────────────────────────────────────────────────────── */
+
+.tbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.tbl th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 7px 10px;
+  background: var(--surface);
+  color: var(--muted);
+  font-weight: 500;
+  font-size: 12px;
+  font-stretch: 92%;
+  text-align: left;
+  white-space: nowrap;
+  box-shadow: inset 0 -1px 0 var(--line-strong);
+}
+.tbl td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+.tbl th.r,
+.tbl td.r {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.tbl tbody tr.click:hover td {
+  background: var(--wash);
+}
+.tbl tfoot td {
+  border-bottom: 0;
+  border-top: 1px solid var(--line-strong);
+  font-weight: 600;
+}
+.tbl th button {
+  font: inherit;
+  color: inherit;
+}
+}
+
+/* ── Diálogos ──────────────────────────────────────────────────────────── */
+
+dialog {
+  margin: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  background: var(--raised);
+  color: var(--ink);
+  box-shadow: var(--shadow);
+  max-height: calc(100vh - 64px);
+  overflow: visible;
+}
+dialog::backdrop {
+  background: color-mix(in srgb, var(--page) 55%, transparent);
+  backdrop-filter: blur(2px);
+}
+dialog[open] {
+  animation: dialog-in 0.14s ease-out;
+}
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.985);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
