@@ -4,7 +4,7 @@ import { txsToCsv } from "../../shared/csv.ts";
 import { todayIso } from "../../shared/dates.ts";
 import { fxHealth } from "../../shared/engine/health.ts";
 import { ACCENTS, useAccent, useTheme } from "../App.tsx";
-import { backend, checkUpdate, chooseSyncFolder, connectionStatus, deviceOf, isExample, installUpdate, renameDevice, saveSecret, setDemo, stopSync, sync, syncDevices, syncFolder, useApp, type Service } from "../data/store.ts";
+import { backend, checkUpdate, chooseSyncFolder, connectionStatus, deviceOf, isExample, installUpdate, renameDevice, saveSecret, setDemo, setSyncPassword, stopSync, sync, syncDevices, syncFolder, syncSealed, useApp, type Service } from "../data/store.ts";
 import { saveText } from "../lib/export.ts";
 import { ago, dateBrief, num } from "../lib/format.ts";
 import { openDialog } from "../ui/dialogs.ts";
@@ -99,6 +99,14 @@ function Devices() {
   const device = deviceOf();
   const [name, setName] = useState(device?.name ?? "");
   useEffect(() => setName(deviceOf()?.name ?? ""), [deviceJson]);
+  const sealed = useApp((s) => syncSealed(s));
+  const [password, setPassword] = useState("");
+  const seal = async (next: string) => {
+    const res = await setSyncPassword(next);
+    if (res.ok || !/al menos 8/.test(res.error)) setPassword("");
+    if (!res.ok) return toast(res.error, { tone: "error" });
+    toast(next ? "Cifrado activo: pon la misma contraseña en tus otros equipos" : "Cifrado quitado: los archivos vuelven a ir sin cifrar");
+  };
 
   const choose = async () => {
     const res = await chooseSyncFolder();
@@ -179,9 +187,37 @@ function Devices() {
       >
         Así lo verán tus otros equipos.
       </Row>
+      <Row
+        title={sealed ? "Cifrado · activo" : "Cifrado"}
+        action={
+          <form
+            className="flex gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void seal(password);
+            }}
+          >
+            <input className="field w-52" type="password" autoComplete="new-password" placeholder={sealed ? "Nueva contraseña" : "Contraseña"} value={password} onChange={(e) => setPassword(e.target.value)} aria-label="Contraseña de la sincronización" />
+            <Btn type="submit" disabled={!password || devices.busy}>
+              {sealed ? "Cambiar" : "Cifrar"}
+            </Btn>
+            {sealed && (
+              <Btn onClick={() => void seal("")} disabled={devices.busy}>
+                Quitar
+              </Btn>
+            )}
+          </form>
+        }
+      >
+        {sealed
+          ? "Lo que este equipo deja en la carpeta no se puede leer sin la contraseña, que tiene que ser la misma en todos tus equipos."
+          : "Los archivos de la carpeta van sin cifrar: quien pueda leer tu nube puede leer tu cartera. Pon una contraseña y repítela en cada equipo."}{" "}
+        Si la olvidas no pierdes nada: pones otra en todos y se vuelve a publicar.
+      </Row>
       <div className="border-t border-line px-5 py-3 text-[12px] text-pretty text-mute">
         Se sincroniza al abrir la app, al volver a su ventana y poco después de cada cambio. Si el mismo registro se cambia en dos equipos, gana el cambio más reciente. Marca la carpeta
-        como «disponible sin conexión» en tu servicio de nube. Las claves de Conexiones no viajan: se ponen en cada equipo.
+        como «disponible sin conexión» en tu servicio de nube. Las claves de Conexiones no viajan: se ponen en cada equipo. La contraseña del cifrado se guarda en este equipo, dentro de la base de datos
+        y de sus copias.
       </div>
     </>
   );

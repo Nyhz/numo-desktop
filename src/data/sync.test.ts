@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Account, Asset, Goal, Mortgage, Property, PropertyValuation, Tx } from "../../shared/types.ts";
 import { EMPTY_STATE, reduce, type Loaded, type Op, type Stamp } from "./backend.ts";
-import { buildSnapshot, mergeSnapshots, parseSnapshot, snapshotBody, stampOps, SYNC_FORMAT, type Snapshot } from "./sync.ts";
+import { buildSnapshot, mergeSnapshots, parseSnapshot, sealedDevice, snapshotBody, stampOps, SYNC_FORMAT, type Snapshot } from "./sync.ts";
 
 // Dos (o tres) equipos de mentira: cada uno con su estado y sus marcas de tiempo,
 // que solo se comunican publicando y leyendo archivos, como en la app.
@@ -183,6 +183,11 @@ describe("sincronización entre equipos", () => {
     // Un registro al que le falta un campo se descarta en vez de romper la base de datos.
     const roto = { ...snap, records: { ...snap.records, accounts: [{ id: "x", _at: t(1), name: "sin el resto" }] } };
     expect(parseSnapshot(JSON.stringify(roto))!.records.accounts).toEqual([]);
+    // De un archivo cifrado solo se sabe de qué equipo es; una versión que no sepa descifrar pide actualizar.
+    const cifrado = JSON.stringify({ format: SYNC_FORMAT + 1, device: snap.device, records: {}, cipher: { data: "…" } });
+    expect(sealedDevice(cifrado)).toBe("Mac");
+    expect(sealedDevice("no es json")).toBe("Otro equipo");
+    expect(() => parseSnapshot(cifrado)).toThrow(/versión más nueva/);
     // La hora de escritura no cuenta para decidir si hay que volver a publicar.
     expect(snapshotBody({ ...snap, writtenAt: t(20) })).toBe(snapshotBody(snap));
   });

@@ -66,7 +66,8 @@ export interface Backend {
   stamps(): Promise<Stamp[]>;
   /** Pide al usuario la carpeta compartida; devuelve la que se usará (o null si cancela). */
   syncPick(): Promise<string | null>;
-  syncRead(dir: string): Promise<Array<{ name: string; text: string }>>;
+  /** `sealed`: estaba cifrado en la carpeta. `locked`: lo está y aquí no hay contraseña, o no es la misma (el texto no se puede leer). */
+  syncRead(dir: string): Promise<Array<{ name: string; text: string; sealed?: boolean; locked?: boolean }>>;
   syncWrite(dir: string, name: string, text: string): Promise<void>;
   /** Copia de seguridad inmediata de la base de datos, con una etiqueta en el nombre. */
   backupNow(label: string): Promise<void>;

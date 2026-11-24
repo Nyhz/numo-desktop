@@ -7,8 +7,15 @@
 use std::{
     fs,
     path::{Path, PathBuf},
-    sync::Mutex,
+    sync::{Mutex, OnceLock},
     time::Duration,
+};
+
+use argon2::Argon2;
+use base64::{engine::general_purpose::STANDARD as B64, Engine};
+use chacha20poly1305::{
+    aead::{rand_core::RngCore, Aead, AeadCore, KeyInit, OsRng},
+    XChaCha20Poly1305, XNonce,
 };
 
 use rusqlite::{
@@ -423,9 +430,102 @@ async fn sync_pick_dir(app: AppHandle) -> CmdResult<Option<String>> {
     Ok(Some(dir.display().to_string()))
 }
 
-#[tauri::command]
-fn sync_read(dir: String) -> CmdResult<Vec<SourceFile>> {
-    let entries = fs::read_dir(&dir).map_err(|e| format!("No se puede leer la carpeta compartida ({dir}): {e}"))?;
+// Cifrado de los archivos compartidos. Con una contraseña (la misma en cada
+// equipo; Ajustes → Sincronización) lo que llega a la nube es ilegible sin ella:
+// la clave sale de la contraseña con Argon2id y el contenido se cifra con
+// XChaCha20-Poly1305, que además detecta cualquier manipulación. La contraseña
+// vive en la base de datos local, como las demás claves; nunca en la carpeta.
+
+/// Los archivos cifrados se anuncian como formato 2: una versión de la app que no
+/// sepa descifrar avisa de que hay que actualizar, en vez de ignorarlos.
+const SEALED_FORMAT: u64 = 2;
+
+/// Claves ya calculadas en esta sesión (contraseña, sal → clave): derivarla cuesta a propósito.
+static KEYS: Mutex<Vec<(String, Vec<u8>, [u8; 32])>> = Mutex::new(Vec::new());
+/// La sal de lo que escribe este equipo: una por sesión. El nonce sí es nuevo en cada escritura.
+static OWN_SALT: OnceLock<[u8; 16]> = OnceLock::new();
+
+fn derive_key(password: &str, salt: &[u8]) -> Result<[u8; 32], String> {
+    let mut cache = KEYS.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((_, _, key)) = cache.iter().find(|(p, s, _)| p == password && s == salt) {
+        return Ok(*key);
+    }
+    let mut key = [0u8; 32];
+    Argon2::default().hash_password_into(password.as_bytes(), salt, &mut key).map_err(err)?;
+    if cache.len() >= 16 {
+        cache.remove(0);
+    }
+    cache.push((password.to_owned(), salt.to_vec(), key));
+    Ok(key)
+}
+
+/// Envuelve el archivo de un equipo en su versión cifrada. El nombre del equipo va
+/// fuera, en claro, para poder decir de quién es un archivo que no se puede abrir.
+fn seal(text: &str, password: &str) -> Result<String, String> {
+    let salt = OWN_SALT.get_or_init(|| {
+        let mut salt = [0u8; 16];
+        OsRng.fill_bytes(&mut salt);
+        salt
+    });
+    let key = derive_key(password, salt)?;
+    let nonce = XChaCha20Poly1305::generate_nonce(&mut OsRng);
+    let data = XChaCha20Poly1305::new(&key.into()).encrypt(&nonce, text.as_bytes()).map_err(|_| "No se pudo cifrar el archivo".to_string())?;
+    let device = serde_json::from_str::<Value>(text).ok().and_then(|v| v.get("device").cloned()).unwrap_or(Value::Null);
+    Ok(serde_json::json!({
+        "format": SEALED_FORMAT,
+        "device": device,
+        "records": {},
+        "cipher": { "alg": "xchacha20poly1305", "kdf": "argon2id", "salt": B64.encode(salt), "nonce": B64.encode(nonce), "data": B64.encode(data) },
+    })
+    .to_string())
+}
+
+enum Unsealed {
+    /// No estaba cifrado: el texto tal cual.
+    Plain,
+    Opened(String),
+    /// Cifrado y sin contraseña aquí, o con otra distinta.
+    Locked,
+}
+
+fn unseal(text: &str, password: Option<&str>) -> Unsealed {
+    let Some(cipher) = serde_json::from_str::<Value>(text).ok().and_then(|v| v.get("cipher").cloned()).filter(Value::is_object) else {
+        return Unsealed::Plain;
+    };
+    let part = |name: &str| cipher.get(name).and_then(Value::as_str).and_then(|b| B64.decode(b).ok());
+    let (Some(password), Some(salt), Some(nonce), Some(data)) = (password, part("salt"), part("nonce"), part("data")) else {
+        return Unsealed::Locked;
+    };
+    if nonce.len() != 24 {
+        return Unsealed::Locked;
+    }
+    let Ok(key) = derive_key(password, &salt) else {
+        return Unsealed::Locked;
+    };
+    match XChaCha20Poly1305::new(&key.into()).decrypt(XNonce::from_slice(&nonce), data.as_ref()) {
+        Ok(plain) => String::from_utf8(plain).map_or(Unsealed::Locked, Unsealed::Opened),
+        Err(_) => Unsealed::Locked,
+    }
+}
+
+/// Contraseña de la sincronización, si se ha puesto una.
+fn sync_password(conn: &Connection) -> Option<String> {
+    secret(conn, "sync", "").ok()
+}
+
+#[derive(Serialize)]
+struct SyncFile {
+    name: String,
+    /// El contenido ya descifrado; si `locked`, el envoltorio tal cual (lleva el nombre del equipo).
+    text: String,
+    /// Estaba cifrado en la carpeta.
+    sealed: bool,
+    /// Está cifrado y aquí no hay contraseña, o no es la misma.
+    locked: bool,
+}
+
+fn read_sync_dir(dir: &str, password: Option<&str>) -> CmdResult<Vec<SyncFile>> {
+    let entries = fs::read_dir(dir).map_err(|e| format!("No se puede leer la carpeta compartida ({dir}): {e}"))?;
     let mut out = Vec::new();
     for entry in entries.filter_map(Result::ok) {
         let name = entry.file_name().to_string_lossy().into_owned();
@@ -434,21 +534,49 @@ fn sync_read(dir: String) -> CmdResult<Vec<SourceFile>> {
         }
         // Un archivo que aún no ha terminado de bajar de la nube se salta: ya llegará.
         if let Ok(text) = fs::read_to_string(entry.path()) {
-            out.push(SourceFile { name, text });
+            out.push(match unseal(&text, password) {
+                Unsealed::Plain => SyncFile { name, text, sealed: false, locked: false },
+                Unsealed::Opened(plain) => SyncFile { name, text: plain, sealed: true, locked: false },
+                Unsealed::Locked => SyncFile { name, text, sealed: true, locked: true },
+            });
         }
     }
     out.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(out)
 }
 
-#[tauri::command]
-fn sync_write(dir: String, name: String, text: String) -> CmdResult<()> {
-    if !is_sync_name(&name) {
+fn write_sync_file(dir: &str, name: &str, text: &str, password: Option<&str>) -> CmdResult<()> {
+    if !is_sync_name(name) {
         return Err(format!("Nombre de archivo no válido: {name}"));
     }
+    let content = match password {
+        Some(p) => seal(text, p)?,
+        None => text.to_owned(),
+    };
     let dir = PathBuf::from(dir);
     fs::create_dir_all(&dir).map_err(err)?;
-    fs::write(dir.join(name), text).map_err(|e| format!("No se pudo escribir en la carpeta compartida: {e}"))
+    fs::write(dir.join(name), content).map_err(|e| format!("No se pudo escribir en la carpeta compartida: {e}"))
+}
+
+// Fuera del hilo principal: derivar la clave tarda un instante a propósito.
+#[tauri::command(async)]
+fn sync_read(db: State<'_, Db>, dir: String) -> CmdResult<Vec<SyncFile>> {
+    // La base de datos se suelta antes de cifrar o descifrar.
+    let password = {
+        let conn = db.conn.lock().map_err(err)?;
+        sync_password(&conn)
+    };
+    read_sync_dir(&dir, password.as_deref())
+}
+
+#[tauri::command(async)]
+fn sync_write(db: State<'_, Db>, dir: String, name: String, text: String) -> CmdResult<()> {
+    // La base de datos se suelta antes de cifrar o descifrar.
+    let password = {
+        let conn = db.conn.lock().map_err(err)?;
+        sync_password(&conn)
+    };
+    write_sync_file(&dir, &name, &text, password.as_deref())
 }
 
 /// Copia de seguridad inmediata (antes de aplicar cambios venidos de otro equipo).
@@ -785,12 +913,49 @@ mod tests {
         fs::create_dir_all(&own).unwrap();
         assert_eq!(sync_target(&own), own);
         let dir = base.to_string_lossy().into_owned();
-        sync_write(dir.clone(), "equipo-1.json".into(), "{}".into()).unwrap();
+        write_sync_file(&dir, "equipo-1.json", "{}", None).unwrap();
         assert_eq!(sync_target(&base), base);
-        assert!(sync_write(dir.clone(), "../x.json".into(), "{}".into()).is_err());
+        assert!(write_sync_file(&dir, "../x.json", "{}", None).is_err());
         fs::write(base.join("ajeno.txt"), "no es de Numo App").unwrap();
-        let files = sync_read(dir).unwrap();
+        let files = read_sync_dir(&dir, None).unwrap();
         assert_eq!(files.iter().map(|f| f.name.as_str()).collect::<Vec<_>>(), vec!["equipo-1.json"]);
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn sync_files_are_unreadable_without_the_password() {
+        let base = std::env::temp_dir().join(format!("numo-seal-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let dir = base.to_string_lossy().into_owned();
+        let snapshot = r#"{"format":1,"device":{"id":"mac","name":"Mac"},"records":{"accounts":[{"id":"a1","name":"Bróker secreto"}]}}"#;
+        write_sync_file(&dir, "mac.json", snapshot, Some("correcta caballo batería")).unwrap();
+        write_sync_file(&dir, "pc.json", snapshot, None).unwrap();
+
+        // En la carpeta no queda nada legible, salvo de qué equipo es.
+        let on_disk = fs::read_to_string(base.join("mac.json")).unwrap();
+        assert!(!on_disk.contains("Bróker secreto"));
+        let envelope: Value = serde_json::from_str(&on_disk).unwrap();
+        assert_eq!(envelope["format"], json!(SEALED_FORMAT));
+        assert_eq!(envelope["device"]["name"], json!("Mac"));
+
+        // Con la contraseña se lee igual que uno sin cifrar; cada escritura cifra distinto.
+        let files = read_sync_dir(&dir, Some("correcta caballo batería")).unwrap();
+        assert_eq!(files.iter().map(|f| (f.name.as_str(), f.sealed, f.locked, f.text == snapshot)).collect::<Vec<_>>(), vec![("mac.json", true, false, true), ("pc.json", false, false, true)]);
+        write_sync_file(&dir, "mac.json", snapshot, Some("correcta caballo batería")).unwrap();
+        assert_ne!(on_disk, fs::read_to_string(base.join("mac.json")).unwrap());
+
+        // Sin contraseña, o con otra, el cifrado queda cerrado (y el que no lo está se sigue leyendo).
+        for wrong in [None, Some("otra distinta")] {
+            let files = read_sync_dir(&dir, wrong).unwrap();
+            assert!(files[0].locked && files[0].sealed && !files[0].text.contains("Bróker secreto"));
+            assert!(!files[1].locked);
+        }
+        // Un archivo manipulado no se abre aunque la contraseña sea la buena.
+        let mut tampered: Value = serde_json::from_str(&fs::read_to_string(base.join("mac.json")).unwrap()).unwrap();
+        let data = tampered["cipher"]["data"].as_str().unwrap().to_owned();
+        tampered["cipher"]["data"] = json!(format!("{}{}", if data.starts_with('A') { "B" } else { "A" }, &data[1..]));
+        fs::write(base.join("mac.json"), tampered.to_string()).unwrap();
+        assert!(read_sync_dir(&dir, Some("correcta caballo batería")).unwrap()[0].locked);
         let _ = fs::remove_dir_all(&base);
     }
 

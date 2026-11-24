@@ -34,7 +34,7 @@ Numo App lleva la cuenta de lo que tienes y de cómo te va, con los datos guarda
 - **Tu vivienda y su hipoteca.** Cuánto es ya tuyo, cuánto llevas pagado y en qué, y el cuadro año a año con revisiones del tipo.
 - **Los papeles de Hacienda.** Ventas emparejadas por FIFO, dividendos e intereses con sus retenciones, posiciones a cierre de ejercicio y pérdidas pendientes de compensar; todo exportable a Excel y CSV.
 - **Modo privado.** Un clic (o la tecla `P`) emborrona importes y unidades para enseñar la app sin enseñar cuánto hay.
-- **En varios equipos.** Mac y Windows se sincronizan a través de una carpeta de tu nube, sin servidor de por medio.
+- **En varios equipos.** Mac y Windows se sincronizan a través de una carpeta de tu nube, sin servidor de por medio y, si quieres, cifrada con tu contraseña.
 - **Se actualiza sola.** Avisa cuando hay una versión nueva y la instala con un botón.
 
 La app está en español y pensada para un inversor particular con residencia fiscal en España. La moneda de referencia es el euro.
@@ -93,6 +93,7 @@ Para usar Numo App en más de un ordenador (Mac y Windows, por ejemplo): Ajustes
 - Al sincronizar se leen los archivos de los demás y, registro a registro, **gana el cambio más reciente** (un borrado es un cambio más). Un equipo recién instalado nunca borra nada en los otros.
 - Se sincroniza al abrir la app, al volver a su ventana, poco después de cada cambio y con «Sincronizar ahora». Lo rápido que llegue al otro equipo depende del servicio de nube.
 - Antes de aplicar borrados o muchos cambios de golpe se guarda una copia en `copias/`.
+- **Cifrado opcional.** En Ajustes → Sincronización entre equipos → Cifrado se pone una contraseña, la misma en cada equipo: desde entonces lo que llega a la nube es ilegible sin ella (clave derivada con Argon2id, contenido cifrado y autenticado con XChaCha20-Poly1305). La contraseña se guarda solo en cada equipo, nunca en la carpeta. Un equipo sin contraseña no publica nada mientras haya en la carpeta archivos cifrados de otro. Si se olvida no se pierde nada: se pone otra en todos y se vuelve a publicar.
 - No viajan: las claves de Conexiones (se ponen en cada equipo), los tipos de cambio (cada equipo los descarga) ni los ajustes de apariencia.
 - Conviene marcar la carpeta como «disponible sin conexión» en el servicio de nube, para que los archivos estén siempre en disco.
 
@@ -180,3 +181,7 @@ pnpm publicar major      # 0.9.2 → 1.0.0 (la versión redonda)
 También desde la web de GitHub: Actions → «Publicar versión» → Run workflow. El flujo (`.github/workflows/release.yml`) sube el número en `package.json` (el único sitio donde está escrito; la app lo lee de ahí), pasa los tipos y los tests, crea la etiqueta `vX.Y.Z`, compila para los dos sistemas y publica la versión con sus instaladores, sus firmas y el `latest.json` que consultan las apps instaladas para actualizarse. Si una compilación falla, la versión se queda en borrador: se relanza el trabajo fallido desde Actions. Al terminar, `git pull` trae el commit «Versión X.Y.Z».
 
 Las actualizaciones se firman con una clave propia (no es un certificado de Apple ni de Microsoft): la mitad pública está en `src-tauri/tauri.conf.json` y la privada, en el secreto `TAURI_SIGNING_PRIVATE_KEY` del repositorio. Si esa clave se pierde, las apps ya instaladas no aceptarán más actualizaciones y habrá que reinstalarlas a mano.
+
+## Licencia
+
+[MIT](LICENSE). Puedes usar, modificar y redistribuir el código; se entrega tal cual, sin garantía. Numo App no es asesoramiento financiero ni fiscal.

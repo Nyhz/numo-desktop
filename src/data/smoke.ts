@@ -3,7 +3,7 @@ import { parseTxCsv, planImport, txsToCsv } from "../../shared/csv.ts";
 import { todayIso } from "../../shared/dates.ts";
 import { makeDemo } from "./demo.ts";
 import { ecbRates } from "./market.ts";
-import { backend, derive, getApp, importPlan, removeAccount, removeTx, saveAccount, saveAsset, saveTx, setLoaded, setPrice, syncDevices } from "./store.ts";
+import { backend, derive, getApp, importPlan, removeAccount, removeTx, saveAccount, saveAsset, saveTx, setLoaded, setPrice, setSyncPassword, syncDevices } from "./store.ts";
 import { buildSnapshot, parseSnapshot } from "./sync.ts";
 
 /**
@@ -105,6 +105,20 @@ export async function runSmoke(): Promise<void> {
     await removeAccount(victim.accountId);
     const marks = await backend.stamps();
     check("un borrado en cascada queda anotado", marks.some((x) => x.entity === "txs" && x.id === victim.id && x.deleted) && marks.some((x) => x.entity === "accounts" && x.id === victim.accountId && x.deleted));
+
+    // Cifrado: con contraseña, el archivo de este equipo queda cifrado en la carpeta y se sigue leyendo.
+    const sealedSync = await setSyncPassword("contraseña de prueba");
+    const sealedOwn = (await backend.syncRead(dir)).find((f) => f.name === "equipo-prueba.json");
+    check("con contraseña, el archivo propio se cifra y se sigue leyendo", sealedSync.ok && !!sealedOwn?.sealed && !sealedOwn.locked && !!parseSnapshot(sealedOwn.text), sealedSync.ok ? "" : sealedSync.error);
+    // Con otra contraseña ya no se abre. Un tercer equipo publica con esa otra.
+    await backend.apply([{ op: "meta", key: "secret:sync", value: "otra distinta" }]);
+    const closed = (await backend.syncRead(dir)).find((f) => f.name === "equipo-prueba.json");
+    check("con otra contraseña el archivo no se abre", !!closed?.locked && !closed.text.includes("Renombrada"));
+    await backend.syncWrite(dir, "tercero.json", JSON.stringify({ ...other, device: { id: "tercero", name: "Tercero" } }));
+    // Sin contraseña aquí, no se publica en claro junto a un archivo cifrado: se pide la contraseña.
+    const refused = await setSyncPassword("");
+    const kept = (await backend.syncRead(dir)).find((f) => f.name === "equipo-prueba.json");
+    check("sin contraseña no se publica junto a archivos cifrados", !refused.ok && /Tercero/.test(refused.error) && !!kept?.sealed, refused.ok ? "sincronizó" : refused.error);
 
     // Red: tipos de cambio del BCE a través del núcleo nativo.
     try {

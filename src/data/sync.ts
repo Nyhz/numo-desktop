@@ -99,6 +99,16 @@ export function parseSnapshot(text: string): Snapshot | null {
   return { format: raw.format, device: { id: String(raw.device.id), name: String(raw.device.name ?? "") }, writtenAt: String(raw.writtenAt ?? ""), records, tombstones, prices: series(raw.prices), splits: series(raw.splits) };
 }
 
+/** De qué equipo es un archivo cifrado que aquí no se puede abrir: su nombre va fuera del cifrado. */
+export function sealedDevice(text: string): string {
+  try {
+    const name = (JSON.parse(text) as { device?: { name?: unknown } } | null)?.device?.name;
+    return typeof name === "string" && name ? name : "Otro equipo";
+  } catch {
+    return "Otro equipo";
+  }
+}
+
 export type MergeResult = {
   ops: Op[];
   /** Registros creados o actualizados con lo de otros equipos. */

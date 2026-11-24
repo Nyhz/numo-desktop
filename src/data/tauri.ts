@@ -303,7 +303,7 @@ export const tauriBackend: Backend = {
     return rows.map(([entity, id, at, deleted]) => ({ entity: entity as Entity, id: id as string, at: at as string, deleted: !!deleted }));
   },
   syncPick: () => invoke<string | null>("sync_pick_dir"),
-  syncRead: (dir) => invoke<Array<{ name: string; text: string }>>("sync_read", { dir }),
+  syncRead: (dir) => invoke<Array<{ name: string; text: string; sealed: boolean; locked: boolean }>>("sync_read", { dir }),
   syncWrite: (dir, name, text) => invoke<void>("sync_write", { dir, name, text }),
   backupNow: (label) => invoke<void>("backup_now", { label }),
   openReleases: () => invoke<void>("open_releases"),

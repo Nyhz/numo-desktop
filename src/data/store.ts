@@ -31,7 +31,7 @@ import { BENCH_KEY, exampleBenchmark, parseBenchmark, syncBenchmark } from "./be
 import { browserBackend } from "./browser.ts";
 import { makeDemo } from "./demo.ts";
 import { dueAssets, fxOn, indexaStatus, syncMarket, type SyncIssue, type SyncProgress } from "./market.ts";
-import { buildSnapshot, mergeSnapshots, parseSnapshot, snapshotBody, stampOf, type Snapshot } from "./sync.ts";
+import { buildSnapshot, mergeSnapshots, parseSnapshot, sealedDevice, snapshotBody, stampOf, type Snapshot } from "./sync.ts";
 import { tauriBackend } from "./tauri.ts";
 
 export const backend: Backend = "__TAURI_INTERNALS__" in window ? tauriBackend : browserBackend;
@@ -330,9 +330,14 @@ async function doSyncDevices(): Promise<Result<{ pulled: number; deleted: number
   try {
     const files = await backend.syncRead(dir);
     const own = `${device.id}.json`;
+    // Archivos de otros equipos que están cifrados y aquí no se pueden abrir.
+    const sealed = syncSealed();
+    const locked = files.filter((f) => f.locked && f.name !== own).map((f) => `«${sealedDevice(f.text)}»`);
+    // Sin contraseña aquí no se publica nada: sería dejar en claro lo que el otro equipo cifra.
+    if (locked.length && !sealed) throw new Error(`${locked.join(", ")} cifra sus archivos. Pon aquí la misma contraseña para sincronizar (Ajustes → Sincronización entre equipos → Cifrado).`);
     const remotes: Snapshot[] = [];
     for (const f of files) {
-      if (f.name === own) continue;
+      if (f.name === own || f.locked) continue;
       const snap = parseSnapshot(f.text);
       if (snap) remotes.push(snap);
     }
@@ -349,13 +354,13 @@ async function doSyncDevices(): Promise<Result<{ pulled: number; deleted: number
       }
       stamps = await backend.stamps();
     }
-    // Solo se reescribe el archivo propio si su contenido ha cambiado.
+    // Solo se reescribe el archivo propio si su contenido ha cambiado, o si hay que cifrarlo o descifrarlo.
     const now = new Date().toISOString();
     const snapshot = buildSnapshot(s.loaded.state, stamps, device, now);
     const previous = files.find((f) => f.name === own);
     let same = false;
     try {
-      same = !!previous && snapshotBody(JSON.parse(previous.text) as Snapshot) === snapshotBody(snapshot);
+      same = !!previous && !previous.locked && !!previous.sealed === sealed && snapshotBody(JSON.parse(previous.text) as Snapshot) === snapshotBody(snapshot);
     } catch {
       same = false;
     }
@@ -364,6 +369,7 @@ async function doSyncDevices(): Promise<Result<{ pulled: number; deleted: number
     set({ devices: { busy: false, error: null, peers: remotes.map((r) => ({ name: r.device.name || "Otro equipo", writtenAt: r.writtenAt })), notes: merge.skipped } });
     // Si han llegado activos nuevos, sus precios.
     if (merge.pulled) syncSoon();
+    if (locked.length) throw new Error(`La contraseña de este equipo no abre los archivos de ${locked.join(", ")}: tiene que ser la misma en todos.`);
     return ok({ pulled: merge.pulled, deleted: merge.deleted });
   } catch (e) {
     set({ devices: { ...s.devices, busy: false, error: message(e) } });
@@ -388,6 +394,26 @@ export async function chooseSyncFolder(): Promise<Result<{ dir: string; pulled: 
   } catch (e) {
     return fail(message(e));
   }
+}
+
+/** true si este equipo cifra lo que deja en la carpeta compartida. */
+export const syncSealed = (state: S = s): boolean => !!state.loaded.meta["connected:sync"];
+
+/**
+ * Pone, cambia o quita (con cadena vacía) la contraseña que cifra los archivos de
+ * la carpeta compartida, y vuelve a publicar el de este equipo. Como las demás
+ * claves, no se queda en la interfaz: la usa el núcleo nativo al leer y escribir.
+ */
+export async function setSyncPassword(password: string): Promise<Result<{ pulled: number; deleted: number } | null>> {
+  if (isExample()) return fail("La cartera de ejemplo no se sincroniza");
+  if (password && password.length < 8) return fail("La contraseña debe tener al menos 8 caracteres");
+  try {
+    await backend.apply([{ op: "meta", key: "secret:sync", value: password }]);
+    set({ loaded: { ...s.loaded, meta: { ...s.loaded.meta, "connected:sync": password ? "1" : "" } } });
+  } catch (e) {
+    return fail(`No se pudo guardar: ${message(e)}`);
+  }
+  return syncDevices();
 }
 
 /** Deja de sincronizar este equipo. No borra nada: ni aquí ni en la carpeta. */
