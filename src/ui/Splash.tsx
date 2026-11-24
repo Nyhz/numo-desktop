@@ -194,7 +194,7 @@ export function Splash() {
 
       {full && rip < 1 && (
         <svg viewBox="0 0 148 148" className="absolute size-[148px]" style={{ left: cx - 74, top: cy - 74, opacity: 1 - rip, transform: `scale(${1 + 0.9 * rip})` }}>
-          {/* El anillo rodea la ficha del logo (92 px, con sus esquinas) sin tocarla. */}
+          {/* El anillo rodea el logo (92 px, con sus esquinas) sin tocarlo. */}
           <g transform="rotate(-90 74 74)" fill="none" strokeWidth="2">
             <circle cx="74" cy="74" r="70" stroke="var(--line)" />
             <circle

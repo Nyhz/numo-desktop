@@ -305,7 +305,7 @@ dialog[open] {
 
 /* El logo sigue al acento elegido. De serie es dorado y se enseña tal cual; con
    otro acento la imagen pasa a grises y se multiplica por ese color: las luces
-   de la «N» quedan del acento y la ficha, igual de oscura. */
+   de la «N» quedan del acento y sus sombras, más oscuras. */
 .logo {
   position: relative;
   display: inline-block;
