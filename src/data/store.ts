@@ -12,7 +12,6 @@ import {
   type Scope,
   type Timeline,
 } from "../../shared/engine/timeline.ts";
-import { extrasSchema, type Extras } from "../../shared/extras.ts";
 import {
   accountInput,
   assetInput,
@@ -724,25 +723,6 @@ export async function importPlan(plan: ImportPlan): Promise<Result<number>> {
   });
 }
 
-/** Importa precios históricos o splits ya emparejados con sus activos. */
-export function importSeries(kind: "prices" | "splits", byAsset: Map<string, Point[]>): Promise<Result<number>> {
-  const { splits } = current().state;
-  const ops: Op[] = [];
-  let n = 0;
-  for (const [assetId, points] of byAsset) {
-    n += points.length;
-    if (kind === "prices") ops.push({ op: "prices", assetId, points });
-    else {
-      const merged = new Map([...(splits[assetId] ?? []), ...points]);
-      ops.push({ op: "splits", assetId, points: [...merged.entries()].sort((a, b) => a[0].localeCompare(b[0])) });
-    }
-  }
-  return attempt(async () => {
-    await commit(ops);
-    return n;
-  });
-}
-
 // ── Plan ───────────────────────────────────────────────────────────────────
 
 export function saveGoal(input: unknown, id?: string): Promise<Result<Goal>> {
@@ -839,72 +819,6 @@ export function saveValuation(propertyId: string, input: unknown, id?: string): 
   });
 }
 export const removeValuation = (id: string): Promise<Result> => attempt(() => commit([{ op: "delValuation", id }]));
-
-/** Importa el plan y los inmuebles desde un JSON de extras. No duplica lo que ya exista por nombre. */
-export function importExtras(json: unknown): Promise<Result<{ goals: number; assigned: number; properties: number; unmatched: string[] }>> {
-  const parsed = extrasSchema.safeParse(json);
-  if (!parsed.success) return Promise.resolve(fail(`El archivo de extras no es válido: ${firstIssue(parsed.error)}`));
-  const x: Extras = parsed.data;
-  const state = current().state;
-  const ops: Op[] = [];
-  const now = new Date().toISOString();
-  const fold = (t: string) => t.trim().toLowerCase();
-
-  const goalIds = new Map(state.goals.map((g) => [fold(g.name), g.id]));
-  const used = new Set(state.goals.map((g) => g.color));
-  let goals = 0;
-  x.objetivos.forEach((o, i) => {
-    if (goalIds.has(fold(o.nombre))) return;
-    const color = [1, 2, 3, 4, 5, 6, 7, 8].find((c) => !used.has(c)) ?? 0;
-    used.add(color);
-    const row: Goal = { id: newId(), name: o.nombre.trim(), targetPct: o.objetivoPct, color, sortOrder: o.orden ?? state.goals.length + i, createdAt: now };
-    goalIds.set(fold(o.nombre), row.id);
-    ops.push({ op: "putGoal", row });
-    goals++;
-  });
-
-  const byKey = new Map<string, Asset>();
-  for (const a of state.assets) {
-    if (a.isin) byKey.set(`isin:${a.isin.toUpperCase()}`, a);
-    if (a.symbol) byKey.set(`sym:${a.symbol.toUpperCase()}`, a);
-    byKey.set(`name:${accountKey(a.name)}`, a);
-  }
-  const unmatched: string[] = [];
-  let assigned = 0;
-  for (const a of x.asignaciones) {
-    const asset =
-      (a.isin && byKey.get(`isin:${a.isin.toUpperCase()}`)) || (a.simbolo && byKey.get(`sym:${a.simbolo.toUpperCase()}`)) || (a.activo && byKey.get(`name:${accountKey(a.activo)}`)) || null;
-    if (!asset) {
-      unmatched.push(a.activo || a.isin || a.simbolo);
-      continue;
-    }
-    const goalId = a.objetivo ? (goalIds.get(fold(a.objetivo)) ?? null) : null;
-    ops.push({ op: "putAsset", row: { ...asset, goalId: a.excluido ? null : goalId, planExcluded: a.excluido } });
-    assigned++;
-  }
-
-  let properties = 0;
-  for (const p of x.inmuebles) {
-    if (state.properties.some((q) => fold(q.name) === fold(p.nombre))) continue;
-    const prop: Property = { id: newId(), name: p.nombre.trim(), address: p.direccion, purchaseDate: p.fechaCompra, purchasePrice: p.precio, purchaseCosts: p.gastos, note: p.nota, createdAt: now };
-    ops.push({ op: "putProperty", row: prop });
-    properties++;
-    if (p.hipoteca) {
-      const h = p.hipoteca;
-      const m: Mortgage = { id: newId(), propertyId: prop.id, lender: h.entidad, principal: h.principal, rateType: h.tipo, ratePct: h.tin, termMonths: h.plazoMeses, firstPaymentDate: h.primeraCuota, createdAt: now };
-      ops.push({ op: "putMortgage", row: m });
-      for (const e of h.eventos) {
-        ops.push({ op: "putMortgageEvent", row: { id: newId(), mortgageId: m.id, date: e.fecha, type: e.tipo, amount: e.importe, mode: e.modo, ratePct: e.tin, note: e.nota, createdAt: now } });
-      }
-    }
-    for (const v of p.valoraciones) ops.push({ op: "putValuation", row: { id: newId(), propertyId: prop.id, date: v.fecha, value: v.valor, note: v.nota } });
-  }
-
-  return attempt(async () => {
-    await commit(ops);
-    return { goals, assigned, properties, unmatched };
-  });
-}
 
 // ── Datos derivados ────────────────────────────────────────────────────────
 

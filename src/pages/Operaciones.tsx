@@ -1,4 +1,4 @@
-import { Download, Search, Upload } from "lucide-react";
+import { Download, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 import { txsToCsv } from "../../shared/csv.ts";
 import { isoOf } from "../../shared/dates.ts";
@@ -116,10 +116,7 @@ export function Operaciones() {
           {rows.length} {rows.length === 1 ? "operación" : "operaciones"}
         </span>
         <div className="flex-1" />
-        <Btn onClick={() => openDialog({ kind: "import" })}>
-          <Upload size={13} /> Importar
-        </Btn>
-        <Btn onClick={exportCsv} disabled={!rows.length} title="El mismo formato que entiende «Importar»">
+        <Btn onClick={exportCsv} disabled={!rows.length} title="Un CSV legible, para una hoja de cálculo">
           <Download size={13} /> CSV
         </Btn>
         <Btn onClick={exportXlsx} disabled={!rows.length} title="Con todos los importes convertidos a EUR">

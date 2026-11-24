@@ -1,11 +1,10 @@
 import { Check, Search } from "lucide-react";
 import { useEffect, useState } from "react";
-import { detectCsv, matchSeries, parseNumber, parseSeriesCsv, parseTxCsv, planImport, type ImportPlan } from "../../shared/csv.ts";
+import { isTxCsv, parseNumber, parseTxCsv, planImport, type ImportPlan } from "../../shared/csv.ts";
 import { todayIso } from "../../shared/dates.ts";
-import { looksLikeExtras } from "../../shared/extras.ts";
 import { ACCOUNT_KINDS, ACCOUNT_KIND_LABEL, ASSET_KINDS, ASSET_KIND_LABEL, PRICE_SOURCES, PRICE_SOURCE_LABEL, PRICE_SOURCE_SHORT, SOURCE_BY_ISIN, SOURCE_CODE, type Account, type Asset, type PriceSource } from "../../shared/types.ts";
 import { probeSource, searchMarket, type Probe, type ProbeInput, type SearchHit } from "../data/market.ts";
-import { backend, getApp, importExtras, importPlan, importSeries, isExample, sync, syncSoon, removeAccount, removeAsset, saveAccount, saveAsset, setPrice, useApp, useDerived } from "../data/store.ts";
+import { backend, importPlan, isExample, sync, syncSoon, removeAccount, removeAsset, saveAccount, saveAsset, setPrice, useApp, useDerived } from "../data/store.ts";
 import { dateBrief, dateShort, money, num, priceDigits } from "../lib/format.ts";
 import { closeDialog, useDialog } from "../ui/dialogs.ts";
 import { Btn, Dialog, ErrorLine, Field, toast } from "../ui/kit.tsx";
@@ -478,14 +477,13 @@ function PriceDialog({ asset }: { asset: Asset }) {
 // ── Importar CSV ───────────────────────────────────────────────────────────
 
 type Issue = { line: number; message: string };
-type Loaded =
-  | { kind: "extras"; file: string; text: string }
-  | { kind: "operations"; file: string; plan: ImportPlan; errors: Issue[] }
-  | { kind: "prices" | "splits"; file: string; text: string; rows: number; errors: Issue[] }
-  | { kind: "unknown"; file: string };
+/** Un archivo elegido: su plan de importación, o nulo si no es un CSV de operaciones. */
+type Loaded = { file: string; plan: ImportPlan | null; errors: Issue[] };
 
-const column = (kind: "prices" | "splits") => (kind === "prices" ? "cierre" : "ratio");
-
+/**
+ * Carga inicial de operaciones desde un CSV con el formato que la propia app
+ * exporta: para quien llega con su historia en una hoja de cálculo.
+ */
 function ImportDialog() {
   const d = useDerived();
   const [files, setFiles] = useState<Loaded[]>([]);
@@ -497,60 +495,28 @@ function ImportDialog() {
     const out: Loaded[] = [];
     for (const file of Array.from(list ?? [])) {
       const text = await file.text();
-      if (looksLikeExtras(text)) {
-        out.push({ kind: "extras", file: file.name, text });
+      if (!isTxCsv(text)) {
+        out.push({ file: file.name, plan: null, errors: [] });
         continue;
       }
-      const kind = detectCsv(text);
-      if (kind === "operations") {
-        const parsed = parseTxCsv(text);
-        out.push({ kind, file: file.name, plan: planImport(parsed.rows, d.state), errors: parsed.errors });
-      } else if (kind === "prices" || kind === "splits") {
-        const parsed = parseSeriesCsv(text, column(kind));
-        out.push({ kind, file: file.name, text, rows: parsed.rows.length, errors: parsed.errors });
-      } else out.push({ kind: "unknown", file: file.name });
+      const parsed = parseTxCsv(text);
+      out.push({ file: file.name, plan: planImport(parsed.rows, d.state), errors: parsed.errors });
     }
-    // Las operaciones primero (crean los activos); el plan y los inmuebles al final.
-    const order = ["operations", "prices", "splits", "extras", "unknown"];
-    out.sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind));
     setFiles(out);
   };
 
   const run = async () => {
     setBusy(true);
     setError(null);
-    const done: string[] = [];
+    let total = 0;
     try {
       for (const f of files) {
-        if (f.kind === "operations") {
-          if (!f.plan.rows.length) continue;
-          const res = await importPlan(f.plan);
-          if (!res.ok) return setError(`${f.file}: ${res.error}`);
-          done.push(`${res.value} operaciones`);
-        } else if (f.kind === "extras") {
-          let json: unknown;
-          try {
-            json = JSON.parse(f.text);
-          } catch {
-            return setError(`${f.file}: no es un JSON válido`);
-          }
-          const res = await importExtras(json);
-          if (!res.ok) return setError(`${f.file}: ${res.error}`);
-          done.push(`${res.value.goals} bloques, ${res.value.assigned} activos asignados, ${res.value.properties} inmuebles`);
-          if (res.value.unmatched.length) toast(`${f.file}: ${res.value.unmatched.length} asignaciones sin emparejar`, { tone: "error" });
-        } else if (f.kind === "prices" || f.kind === "splits") {
-          // Se empareja ahora, cuando los activos del archivo de operaciones ya existen.
-          const app = getApp();
-          const { byAsset, unknown } = matchSeries(parseSeriesCsv(f.text, column(f.kind)).rows, (app.demo ?? app.loaded).state);
-          const res = await importSeries(f.kind, byAsset);
-          if (!res.ok) return setError(`${f.file}: ${res.error}`);
-          done.push(`${res.value} ${f.kind === "prices" ? "precios" : "splits"}`);
-          if (unknown.length) {
-            toast(`${f.file}: sin emparejar ${unknown.slice(0, 3).join(", ")}${unknown.length > 3 ? ` y ${unknown.length - 3} más` : ""}`, { tone: "error" });
-          }
-        }
+        if (!f.plan?.rows.length) continue;
+        const res = await importPlan(f.plan);
+        if (!res.ok) return setError(`${f.file}: ${res.error}`);
+        total += res.value;
       }
-      toast(`Importado: ${done.join(", ") || "nada"}`);
+      toast(`Importadas ${total} operaciones`);
       void sync(false);
       closeDialog();
     } finally {
@@ -558,14 +524,14 @@ function ImportDialog() {
     }
   };
 
-  const blocking = files.some((f) => f.kind === "operations" && f.errors.length > 0);
-  const anything = files.some((f) => f.kind !== "unknown");
+  const blocking = files.some((f) => f.errors.length > 0);
+  const anything = files.some((f) => f.plan?.rows.length);
 
   return (
     <Dialog
       open
       onClose={closeDialog}
-      title="Importar"
+      title="Importar operaciones"
       width={600}
       footer={
         <>
@@ -578,16 +544,17 @@ function ImportDialog() {
     >
       <div className="grid gap-4">
         <p className="text-ink2">
-          Elige uno o varios archivos. Numo App reconoce si son <strong>operaciones</strong>, <strong>precios históricos</strong>, <strong>splits</strong> o el <strong>plan e
-          inmuebles</strong>, y crea las cuentas y los activos que falten. Se importa todo o nada: si una línea falla no se guarda ninguna.
+          Elige un CSV de operaciones con el mismo formato que exporta Numo App (Operaciones → CSV sirve de plantilla). Se crean las cuentas y los activos que falten, y se importa todo o nada: si una
+          línea falla no se guarda ninguna.
         </p>
-        <input type="file" accept=".csv,.json,text/csv,text/plain,application/json" multiple className="field h-auto py-2" onChange={(e) => void read(e.target.files)} />
+        <input type="file" accept=".csv,text/csv,text/plain" multiple className="field h-auto py-2" onChange={(e) => void read(e.target.files)} />
 
         {files.map((f) => (
           <div key={f.file} className="border-t border-line pt-3">
             <div className="mb-1 font-semibold">{f.file}</div>
-            {f.kind === "unknown" && <div className="text-down">No se reconoce la cabecera. Una exportación de operaciones de Numo App sirve de plantilla.</div>}
-            {f.kind === "operations" && (
+            {!f.plan ? (
+              <div className="text-down">No se reconoce la cabecera: tiene que llevar al menos las columnas fecha, tipo y cuenta.</div>
+            ) : (
               <>
                 <div className="text-ink2">
                   {f.plan.rows.length} operaciones
@@ -604,13 +571,6 @@ function ImportDialog() {
                   </ul>
                 )}
               </>
-            )}
-            {f.kind === "extras" && <div className="text-ink2">Plan e inmuebles</div>}
-            {(f.kind === "prices" || f.kind === "splits") && (
-              <div className="text-ink2">
-                {f.rows} {f.kind === "prices" ? "precios" : "splits"}
-                {f.errors.length > 0 && <span className="text-acc"> · {f.errors.length} líneas ilegibles que se omitirán</span>}
-              </div>
             )}
           </div>
         ))}

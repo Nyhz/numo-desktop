@@ -356,67 +356,8 @@ export function planImport(rows: ImportRow[], state: AppState): ImportPlan {
   return { newAccounts: [...newAccounts.values()], newAssets: [...newAssets.values()], rows };
 }
 
-// ── Precios y splits ───────────────────────────────────────────────────────
-
-export type CsvKind = "operations" | "prices" | "splits" | "unknown";
-
-/** Reconoce el tipo de archivo por su cabecera. */
-export function detectCsv(text: string): CsvKind {
+/** true si el archivo tiene la cabecera del CSV de operaciones (el que la propia app exporta). */
+export function isTxCsv(text: string): boolean {
   const header = (csvParse(text.slice(0, 2000))[0] ?? []).map(fold);
-  const has = (c: string) => header.includes(c);
-  if (has("fecha") && has("tipo") && has("cuenta")) return "operations";
-  if (has("fecha") && has("cierre")) return "prices";
-  if (has("fecha") && has("ratio")) return "splits";
-  return "unknown";
-}
-
-export type SeriesRow = { line: number; ref: { isin: string; symbol: string; name: string }; date: string; value: number };
-export type ParsedSeries = { rows: SeriesRow[]; errors: Array<{ line: number; message: string }> };
-
-/** Archivo de precios (columna `cierre`) o de splits (columna `ratio`), una fila por activo y fecha. */
-export function parseSeriesCsv(text: string, valueColumn: "cierre" | "ratio"): ParsedSeries {
-  const table = csvParse(text);
-  const header = (table[0] ?? []).map(fold);
-  const col = (name: string) => header.indexOf(name);
-  const rows: SeriesRow[] = [];
-  const errors: ParsedSeries["errors"] = [];
-  table.slice(1).forEach((cells, k) => {
-    const line = k + 2;
-    const get = (name: string) => (col(name) < 0 ? "" : (cells[col(name)] ?? "").trim());
-    const date = parseDate(get("fecha"));
-    const value = parseNumber(get(valueColumn));
-    const ref = { isin: get("isin").toUpperCase(), symbol: get("simbolo"), name: get("activo") };
-    if (!date) return void errors.push({ line, message: `Fecha no reconocida: «${get("fecha")}»` });
-    if (value == null || !(value > 0)) return void errors.push({ line, message: `Valor no válido en «${valueColumn}»` });
-    if (!ref.isin && !ref.symbol && !ref.name) return void errors.push({ line, message: "Falta identificar el activo (isin, simbolo o activo)" });
-    rows.push({ line, ref, date, value });
-  });
-  return { rows, errors };
-}
-
-/** Agrupa las filas por activo existente. Devuelve también los activos que no se han reconocido. */
-export function matchSeries(rows: SeriesRow[], state: AppState): { byAsset: Map<string, Point[]>; unknown: string[] } {
-  const index = new Map<string, string>();
-  for (const a of state.assets) {
-    if (a.isin) index.set(`isin:${a.isin.toUpperCase()}`, a.id);
-    if (a.symbol) index.set(`sym:${a.symbol.toUpperCase()}`, a.id);
-    index.set(`name:${fold(a.name)}`, a.id);
-  }
-  const byAsset = new Map<string, Point[]>();
-  const unknown = new Set<string>();
-  for (const r of rows) {
-    const id =
-      (r.ref.isin && index.get(`isin:${r.ref.isin}`)) ||
-      (r.ref.symbol && index.get(`sym:${r.ref.symbol.toUpperCase()}`)) ||
-      (r.ref.name && index.get(`name:${fold(r.ref.name)}`)) ||
-      null;
-    if (!id) {
-      unknown.add(r.ref.name || r.ref.isin || r.ref.symbol);
-      continue;
-    }
-    let arr = byAsset.get(id);
-    if (!arr) byAsset.set(id, (arr = []));
-    arr.push([r.date, r.value]);
-  }
-  return { byAsset, unknown: [...unknown] };
+  return ["fecha", "tipo", "cuenta"].every((c) => header.includes(c));
 }

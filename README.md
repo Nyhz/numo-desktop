@@ -115,7 +115,7 @@ Para usar Numo App en más de un ordenador (Mac y Windows, por ejemplo): Ajustes
 
 - Base de datos: `~/Library/Application Support/app.numo.desktop/numo.db` en macOS; `%APPDATA%\app.numo.desktop\numo.db` en Windows.
 - Copia diaria automática (las 14 últimas) en la carpeta `copias/` de al lado.
-- Ajustes → «Guardar una copia…» y «Exportar todas las operaciones» (CSV que la propia app vuelve a importar).
+- Ajustes → «Guardar una copia…» y «Exportar todas las operaciones» (un CSV legible). Una app recién instalada y vacía puede importar un CSV con ese formato desde su pantalla de bienvenida.
 
 ## Licencia
 

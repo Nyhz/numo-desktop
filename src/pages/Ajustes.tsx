@@ -311,10 +311,7 @@ export function Ajustes() {
             </Btn>
           }
         >
-          Un CSV legible con todo el libro de operaciones. Es el mismo formato que entiende «Importar», así que también sirve para mover tus datos.
-        </Row>
-        <Row title="Importar" action={<Btn onClick={() => openDialog({ kind: "import" })}>Importar…</Btn>}>
-          Operaciones desde un CSV con el mismo formato que exporta la app (sirve de plantilla), y también precios históricos y splits.
+          Un CSV legible con todo el libro de operaciones, para abrirlo en una hoja de cálculo o guardarlo aparte.
         </Row>
       </Group>
 
