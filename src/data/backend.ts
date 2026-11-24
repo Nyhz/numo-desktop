@@ -41,7 +41,7 @@ export type Loaded = { state: AppState; meta: Meta };
 export const ENTITIES = ["accounts", "goals", "assets", "properties", "mortgages", "txs", "mortgageEvents", "valuations"] as const;
 export type Entity = (typeof ENTITIES)[number];
 export type Stamp = { entity: Entity; id: string; at: string; deleted: boolean };
-export type AppInfo = { version: string; dbPath: string; smoke: boolean; import: boolean };
+export type AppInfo = { version: string; dbPath: string; smoke: boolean };
 
 export interface Backend {
   /** true dentro de la app de escritorio; false en la vista previa del navegador. */
@@ -53,8 +53,6 @@ export interface Backend {
   saveFile(name: string, data: string | Uint8Array): Promise<string | null>;
   exportBackup(name: string): Promise<string | null>;
   info(): Promise<AppInfo>;
-  /** Archivos de la carga inicial sin interfaz; vacío en uso normal. */
-  importSource(): Promise<Array<{ name: string; text: string }>>;
   /** Abre en el navegador la página de la que se descargan las versiones. */
   openReleases(): Promise<void>;
   /** La versión más nueva publicada, o null si ya se tiene. */

@@ -297,7 +297,6 @@ export const tauriBackend: Backend = {
 
   exportBackup: (name) => invoke<string | null>("export_backup", { name }),
   info: () => invoke<AppInfo>("app_info"),
-  importSource: () => invoke<Array<{ name: string; text: string }>>("import_source"),
   async stamps() {
     const rows = await query("SELECT entity, id, at, deleted FROM sync_stamps");
     return rows.map(([entity, id, at, deleted]) => ({ entity: entity as Entity, id: id as string, at: at as string, deleted: !!deleted }));

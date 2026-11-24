@@ -314,7 +314,7 @@ export function Ajustes() {
           Un CSV legible con todo el libro de operaciones. Es el mismo formato que entiende «Importar», así que también sirve para mover tus datos.
         </Row>
         <Row title="Importar" action={<Btn onClick={() => openDialog({ kind: "import" })}>Importar…</Btn>}>
-          Operaciones, precios históricos, splits, plan e inmuebles desde archivos CSV o JSON, por ejemplo los que genera el conversor de la Numo anterior (tools/numo-a-csv.mjs).
+          Operaciones desde un CSV con el mismo formato que exporta la app (sirve de plantilla), y también precios históricos y splits.
         </Row>
       </Group>
 

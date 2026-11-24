@@ -174,12 +174,12 @@ export async function boot(): Promise<void> {
   try {
     const [info, loaded] = await Promise.all([backend.info(), backend.load()]);
     // Con precios por actualizar, la carga se enseña entera; si la app se abrió hace poco, en corto.
-    const visible = !info.smoke && !info.import;
+    const visible = !info.smoke;
     const stale = backend.native && dueAssets(loaded.state, loaded.meta).length > 0;
     const tl = derive(loaded.state, null).timeline;
     set({ status: "ready", info, loaded, splash: visible ? { mode: stale ? "full" : "short", phase: "load", from: tl.n ? tl.total[tl.n - 1]! : null } : null });
     // Primero lo de los otros equipos (puede traer activos nuevos) y después los precios.
-    if (!info.smoke && !info.import) {
+    if (!info.smoke) {
       void syncDevices().finally(() => sync(false));
       void checkUpdate();
     }
@@ -232,9 +232,9 @@ async function doSync(force: boolean): Promise<void> {
   }
 }
 
-/** Actualización en segundo plano tras un cambio; no se lanza en los modos sin interfaz. */
+/** Actualización en segundo plano tras un cambio; no se lanza en la prueba de humo. */
 export const syncSoon = () => {
-  if (!s.info?.smoke && !s.info?.import) void sync(false);
+  if (!s.info?.smoke) void sync(false);
 };
 
 /** Tipo de cambio del BCE para rellenar el formulario; lo guarda si hubo que descargarlo. */
@@ -256,7 +256,7 @@ let benchFailedAt = 0;
 export function ensureBenchmark(): void {
   const { state, meta } = s.loaded;
   // Tras un fallo (sin red, la bolsa caída) no se insiste hasta pasados diez minutos.
-  if (isExample() || benching || s.info?.smoke || s.info?.import || !state.txs.length || Date.now() - benchFailedAt < 600_000) return;
+  if (isExample() || benching || s.info?.smoke || !state.txs.length || Date.now() - benchFailedAt < 600_000) return;
   const today = todayIso();
   const first = state.txs.reduce((m, t) => (t.date < m ? t.date : m), today);
   benching = true;
@@ -457,7 +457,7 @@ export async function checkUpdate(manual = false): Promise<void> {
 /** Al volver a la ventana se vuelve a mirar, si la última vez fue hace rato. */
 export function updateOnFocus(): void {
   const last = s.update.checkedAt ? Date.parse(s.update.checkedAt) : 0;
-  if (!s.info?.smoke && !s.info?.import && Date.now() - last > UPDATE_EVERY_MS) void checkUpdate();
+  if (!s.info?.smoke && Date.now() - last > UPDATE_EVERY_MS) void checkUpdate();
 }
 
 /** Descarga e instala la versión nueva. Si todo va bien la app se reinicia y esto no vuelve. */

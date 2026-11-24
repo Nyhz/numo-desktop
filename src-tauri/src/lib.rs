@@ -665,36 +665,6 @@ struct AppInfo {
     version: String,
     db_path: String,
     smoke: bool,
-    /// Hay una carga inicial pendiente (NUMO_IMPORT_DIR).
-    import: bool,
-}
-
-#[derive(Serialize)]
-struct SourceFile {
-    name: String,
-    text: String,
-}
-
-/// Archivos de la carga inicial sin interfaz: solo los .csv y .json de la
-/// carpeta indicada en NUMO_IMPORT_DIR. Sin esa variable no devuelve nada.
-#[tauri::command]
-fn import_source() -> CmdResult<Vec<SourceFile>> {
-    let Some(dir) = std::env::var_os("NUMO_IMPORT_DIR") else {
-        return Ok(Vec::new());
-    };
-    let mut out = Vec::new();
-    for entry in fs::read_dir(PathBuf::from(dir)).map_err(err)? {
-        let path = entry.map_err(err)?.path();
-        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or_default();
-        if path.is_file() && (ext == "csv" || ext == "json") {
-            out.push(SourceFile {
-                name: path.file_name().unwrap_or_default().to_string_lossy().into_owned(),
-                text: fs::read_to_string(&path).map_err(err)?,
-            });
-        }
-    }
-    out.sort_by(|a, b| a.name.cmp(&b.name));
-    Ok(out)
 }
 
 #[tauri::command]
@@ -703,15 +673,13 @@ fn app_info(app: AppHandle, db: State<'_, Db>) -> AppInfo {
         version: app.package_info().version.to_string(),
         db_path: db.path.display().to_string(),
         smoke: std::env::var_os("NUMO_SMOKE").is_some(),
-        import: std::env::var_os("NUMO_IMPORT_DIR").is_some(),
     }
 }
 
-/// Solo para los modos sin interfaz (prueba de humo y carga inicial):
-/// imprime el resultado y cierra la app.
+/// Solo para la prueba de humo: imprime el resultado y cierra la app.
 #[tauri::command]
 fn smoke_done(app: AppHandle, ok: bool, report: String) {
-    if std::env::var_os("NUMO_SMOKE").is_none() && std::env::var_os("NUMO_IMPORT_DIR").is_none() {
+    if std::env::var_os("NUMO_SMOKE").is_none() {
         return;
     }
     println!("[numo-smoke] {}\n{report}", if ok { "OK" } else { "FALLO" });
@@ -744,7 +712,6 @@ pub fn run() {
             save_file,
             export_backup,
             app_info,
-            import_source,
             sync_pick_dir,
             sync_read,
             sync_write,
