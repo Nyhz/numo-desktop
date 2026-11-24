@@ -9,11 +9,11 @@ import { contributionSpan, offAfter } from "../charts/plan-math.ts";
 import { NO_BLOCK, PlanBars, PlanCurve, PlanSplit, type PlanHot } from "../charts/plan.tsx";
 import { Projection } from "../charts/projection.tsx";
 import { assignAsset, derive, removeGoal, reserveIds, saveGoal, useApp } from "../data/store.ts";
-import { eur, num, pct, seriesColor } from "../lib/format.ts";
+import { eur, num, pct, pctOf, seriesColor } from "../lib/format.ts";
 import { Btn, Card, Dot, Empty, IconBtn, Kpi, Kpis, Priv, toast } from "../ui/kit.tsx";
 import { L, THead, TRow, Table, Welcome } from "./common.tsx";
 
-const pp = (v: number, d = 1) => `${num(v, d, d)} %`;
+const pp = (v: number) => pctOf(v);
 /** Atajos de importe para la próxima aportación. */
 const SHORTCUTS = [500, 1000, 2500, 5000];
 const AMOUNT_KEY = "numo.aportacion";
@@ -161,7 +161,7 @@ export function Plan() {
     );
   }
 
-  const [offInt, offDec = "0"] = num(plan.offPct, 1, 1).split(",");
+  const [offInt, offDec = "0"] = num(plan.offPct, 2, 2).split(",");
   const offEur = (plan.offPct / 100) * plan.totalEur;
   const sumOff = Math.abs(plan.targetSum - 100) > 0.005;
   const held = new Set(d.positions.map((p) => p.asset.id));
@@ -190,7 +190,7 @@ export function Plan() {
               <span className="text-ink2">
                 <Priv>{eur(offEur, 0)}</Priv> habría que mover para cumplirlo exactamente
               </span>
-              {sumOff && <span className="font-[550] text-acc">· los objetivos suman {pp(plan.targetSum, 0)}, no 100 %</span>}
+              {sumOff && <span className="font-[550] text-acc">· los objetivos suman {pp(plan.targetSum)}, no 100 %</span>}
             </div>
           </div>
 
@@ -267,7 +267,7 @@ export function Plan() {
           label="Bloques"
           note={
             <>
-              <span className={sumOff ? "font-[550] text-acc" : ""}>suman {pp(plan.targetSum, 0)}</span> · en el plan <Priv>{eur(plan.totalEur, 0)}</Priv>
+              <span className={sumOff ? "font-[550] text-acc" : ""}>suman {pp(plan.targetSum)}</span> · en el plan <Priv>{eur(plan.totalEur, 0)}</Priv>
             </>
           }
         >
@@ -303,7 +303,7 @@ export function Plan() {
       </div>
 
       <div className="flex flex-wrap items-start gap-5">
-        <Card title="Bloques del plan" pad={false} className="flex-[1_1_340px]" aside={<span className={sumOff ? "font-[550] text-acc" : "text-mute"}>suman {pp(plan.targetSum, 0)}</span>}>
+        <Card title="Bloques del plan" pad={false} className="flex-[1_1_340px]" aside={<span className={sumOff ? "font-[550] text-acc" : "text-mute"}>suman {pp(plan.targetSum)}</span>}>
           {[...goals]
             .sort((a, b) => a.sortOrder - b.sortOrder)
             .map((g) => (

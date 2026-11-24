@@ -5,7 +5,7 @@ import { todayIso } from "../../shared/dates.ts";
 import { ACCOUNT_KINDS, ACCOUNT_KIND_LABEL, ASSET_KINDS, ASSET_KIND_LABEL, PRICE_SOURCES, PRICE_SOURCE_LABEL, PRICE_SOURCE_SHORT, SOURCE_BY_ISIN, SOURCE_CODE, type Account, type Asset, type PriceSource } from "../../shared/types.ts";
 import { probeSource, searchMarket, type Probe, type ProbeInput, type SearchHit } from "../data/market.ts";
 import { backend, importPlan, isExample, sync, syncSoon, removeAccount, removeAsset, saveAccount, saveAsset, setPrice, useApp, useDerived } from "../data/store.ts";
-import { dateBrief, dateShort, money, num, priceDigits } from "../lib/format.ts";
+import { dateBrief, dateShort, money, num, price } from "../lib/format.ts";
 import { closeDialog, useDialog } from "../ui/dialogs.ts";
 import { Btn, Dialog, ErrorLine, Field, toast } from "../ui/kit.tsx";
 import { MortgageEventDialog, PropertyDialog, ValuationDialog } from "./property-dialogs.tsx";
@@ -262,7 +262,7 @@ function AssetDialog({ asset, stay }: { asset?: Asset; stay?: boolean }) {
     if (!res.ok) return setError(res.error);
     // Uno recién dado de alta no se tiene todavía: queda archivado hasta su primera compra.
     const done = asset ? "Activo guardado" : "Activo añadido: aparecerá en la lista al registrar su primera compra";
-    toast(probe ? `${done} · ${money(probe.price, probe.currency, priceDigits(probe.price))} a ${dateBrief(probe.date, todayIso())}` : done);
+    toast(probe ? `${done} · ${price(probe.price, probe.currency)} a ${dateBrief(probe.date, todayIso())}` : done);
     closeDialog();
     if (changed) syncSoon();
   };
@@ -384,7 +384,7 @@ function AssetDialog({ asset, stay }: { asset?: Asset; stay?: boolean }) {
           <p className="flex items-center gap-2 text-[12.5px] text-ink2">
             <Check size={14} strokeWidth={2.4} className="shrink-0 text-up" />
             <span>
-              {PRICE_SOURCE_SHORT[f.priceSource]} lo cotiza a <span className="font-medium text-ink">{money(verified.price, verified.currency, priceDigits(verified.price))}</span>, precio del{" "}
+              {PRICE_SOURCE_SHORT[f.priceSource]} lo cotiza a <span className="font-medium text-ink">{price(verified.price, verified.currency)}</span>, precio del{" "}
               {dateBrief(verified.date, todayIso())}.
             </span>
           </p>

@@ -38,6 +38,13 @@ export const assetInput = z.object({
 });
 export type AssetInput = z.infer<typeof assetInput>;
 
+/** Decimales con los que se guarda un tipo de cambio: de sobra para no mover ni un céntimo. */
+export const FX_DIGITS = 8;
+const fxDigits = (rate: number): number => {
+  const r = Math.round(rate * 10 ** FX_DIGITS) / 10 ** FX_DIGITS;
+  return r > 0 ? r : rate;
+};
+
 export const txInput = z
   .object({
     date: z.string().refine(isIsoDate, "Fecha no válida"),
@@ -79,7 +86,7 @@ export const txInput = z
   .transform((t) => ({
     ...t,
     feeCurrency: t.feeCurrency ?? t.currency,
-    fxRate: t.currency === "EUR" ? 1 : t.fxRate,
+    fxRate: t.currency === "EUR" ? 1 : fxDigits(t.fxRate),
     // Limpia campos que no aplican al tipo para que el libro no acumule restos.
     assetId: needsAsset(t.type) ? t.assetId : null,
     quantity: t.type === "buy" || t.type === "sell" || t.type === "transfer" ? t.quantity : null,

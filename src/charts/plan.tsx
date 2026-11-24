@@ -1,7 +1,7 @@
 import { useMemo, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import type { Allocation, Plan, PlanBucket } from "../../shared/engine/plan.ts";
 import type { Goal } from "../../shared/types.ts";
-import { eur, num } from "../lib/format.ts";
+import { eur, num, pctOf } from "../lib/format.ts";
 import { usePrivate } from "../ui/privacy.ts";
 import { barScale, deviationCurve, offAfter, scaleTicks } from "./plan-math.ts";
 
@@ -9,9 +9,9 @@ import { barScale, deviationCurve, offAfter, scaleTicks } from "./plan-math.ts";
 // común, la curva de cuánto corrige cada euro y el reparto de la aportación.
 // HTML/CSS con medidas en porcentajes; las cifras llegan del motor (`shared/engine/plan.ts`).
 
-const pp = (v: number, d = 1) => `${num(v, d, d)} %`;
+const pp = (v: number) => pctOf(v);
 /** Objetivo tal como se escribió: 35 %, 12,5 %. */
-const target = (v: number) => `${num(v, 2)} %`;
+const target = (v: number) => pctOf(v);
 const pos = (v: number) => `${Math.max(0, v)}%`;
 
 export const NO_BLOCK = "__none";

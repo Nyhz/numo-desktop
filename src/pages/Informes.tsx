@@ -6,7 +6,7 @@ import { ASSET_KIND_LABEL, TX_LABEL } from "../../shared/types.ts";
 import { LotsTimeline, SplitBar } from "../charts/viz.tsx";
 import { useApp, useDerived } from "../data/store.ts";
 import { cashSheet, gainsSheet, holdingsSheet, incomeSheet, operationsSheet, saveCsv, saveXlsx, summarySheet, txsOfYear, type Sheet } from "../lib/export.ts";
-import { dateNumeric, dateShort, eur, eurSigned, money, num, priceDigits, units } from "../lib/format.ts";
+import { dateNumeric, dateShort, eur, eurSigned, fxRate, money, num, price, units } from "../lib/format.ts";
 import { Btn, Card, HeaderSlot, Kpi, Kpis, Money, Pills, Priv, Tag, toast, toneOf } from "../ui/kit.tsx";
 import { L, TFoot, THead, TRow, Table, Welcome } from "./common.tsx";
 
@@ -275,7 +275,7 @@ export function Informes() {
                     </L>
                     <L className="text-ink2">{r.country || "—"}</L>
                     <span className="priv">{r.currency === "EUR" ? "" : money(r.grossNative, r.currency)}</span>
-                    <span className="text-mute">{r.currency === "EUR" ? "" : num(r.fxRate, 4, 4)}</span>
+                    <span className="text-mute">{r.currency === "EUR" ? "" : fxRate(r.fxRate)}</span>
                     <span className="priv">{eur(r.grossEur)}</span>
                     <span className="priv text-mute">{r.taxSourceEur ? eur(r.taxSourceEur) : ""}</span>
                     <span className="priv text-mute">{r.taxHomeEur ? eur(r.taxHomeEur) : ""}</span>
@@ -324,8 +324,8 @@ export function Informes() {
                     </L>
                     <L className="text-ink2">{h.country || "—"}</L>
                     <span className="priv">{units(h.qty)}</span>
-                    <span className="text-ink2">{h.price == null ? <span className="text-acc">sin precio</span> : money(h.price, h.currency, priceDigits(h.price))}</span>
-                    <span className="text-mute">{h.currency === "EUR" ? "" : num(h.fxRate, 4, 4)}</span>
+                    <span className="text-ink2">{h.price == null ? <span className="text-acc">sin precio</span> : price(h.price, h.currency)}</span>
+                    <span className="text-mute">{h.currency === "EUR" ? "" : fxRate(h.fxRate)}</span>
                     <span className="priv font-semibold">{eur(h.valueEur)}</span>
                   </TRow>
                 ))}

@@ -154,7 +154,7 @@ const heatBg = (r: number): string => {
   const k = Math.min(1, Math.abs(r) / 0.06);
   return `color-mix(in oklab, var(${r > 0 ? "--up" : "--down"}) ${Math.round(10 + k * 55)}%, var(--card))`;
 };
-const heatText = (r: number) => (Math.abs(r) < 0.0005 ? "0,0" : (r > 0 ? "+" : "−") + (Math.abs(r) * 100).toFixed(1).replace(".", ","));
+const heatText = (r: number) => (Math.abs(r) < 0.00005 ? "0,00" : (r > 0 ? "+" : "−") + (Math.abs(r) * 100).toFixed(2).replace(".", ","));
 
 /** Una fila por año con doce columnas que salen de una línea cero; la cifra va en el lado libre. */
 export function MonthColumns({ months }: { months: Array<{ month: string; ret: number }> }) {

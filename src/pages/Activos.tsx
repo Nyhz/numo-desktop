@@ -4,7 +4,7 @@ import { useLocation } from "wouter";
 import { fxHealth, needsAttention, parseFailure, type Failure, type HealthStatus, type PriceHealth } from "../../shared/engine/health.ts";
 import { ASSET_KIND_LABEL, PRICE_SOURCE_SHORT, SOURCE_BY_ISIN, type Asset } from "../../shared/types.ts";
 import { derive, isExample, sync, useApp, useHealth } from "../data/store.ts";
-import { ago, dateBrief, eur, money, num, priceDigits, units } from "../lib/format.ts";
+import { ago, dateBrief, eur, money, num, price, units } from "../lib/format.ts";
 import { openDialog } from "../ui/dialogs.ts";
 import { Btn, Dot, Empty, HeaderSlot, IconBtn, Kpi, Kpis, Pills } from "../ui/kit.tsx";
 import { L, THead, TRow, Table } from "./common.tsx";
@@ -197,7 +197,7 @@ export function Activos() {
                   <div className={a.priceSource === "manual" ? "text-mute" : "text-ink2"}>{PRICE_SOURCE_SHORT[a.priceSource]}</div>
                   <div className="selectable truncate text-[11.5px] text-mute">{a.priceSource === "manual" ? "sin fuente automática" : ((SOURCE_BY_ISIN[a.priceSource] ? a.isin : a.symbol) ?? "—")}</div>
                 </L>
-                <span className={h.status === "ok" ? "" : "text-ink2"}>{h.price == null ? "—" : money(h.price, a.currency, priceDigits(h.price))}</span>
+                <span className={h.status === "ok" ? "" : "text-ink2"}>{h.price == null ? "—" : price(h.price, a.currency)}</span>
                 <div>
                   <div className={h.status === "ok" ? "text-ink2" : ""}>{h.priceDate ? dateBrief(h.priceDate, d.today) : "—"}</div>
                   <div className="text-[11.5px] text-mute">{daysAgo(h.ageDays)}</div>
@@ -254,7 +254,7 @@ export function Activos() {
                   <div className="truncate text-[11.5px] text-mute">{[ASSET_KIND_LABEL[a.kind], a.isin ?? a.symbol].filter(Boolean).join(" · ")}</div>
                 </div>
                 <span className="text-right text-[12px] whitespace-nowrap text-mute">
-                  {h.price == null ? "sin precio guardado" : `último precio ${money(h.price, a.currency, priceDigits(h.price))}`}
+                  {h.price == null ? "sin precio guardado" : `último precio ${price(h.price, a.currency)}`}
                   {h.priceDate ? ` · ${dateBrief(h.priceDate, d.today)}` : ""}
                 </span>
                 <span onClick={(e) => e.stopPropagation()}>

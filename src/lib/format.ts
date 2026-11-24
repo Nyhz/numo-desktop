@@ -26,8 +26,17 @@ export const money = (n: number, currency: string, digits = 2): string => {
   }
 };
 
-/** Decimales para un precio unitario: más cuanto más pequeño (hay criptomonedas que valen millonésimas). */
-export const priceDigits = (p: number): number => (Math.abs(p) >= 10 ? 2 : Math.abs(p) >= 0.01 ? 4 : 8);
+/**
+ * Precio unitario: todos los decimales que tenga, hasta 8, y nunca menos de 2
+ * (222,641936 €, 10,50 €; hay criptomonedas que valen millonésimas).
+ */
+export const price = (n: number, currency: string): string => {
+  try {
+    return nf(`pr${currency}`, { style: "currency", currency, minimumFractionDigits: 2, maximumFractionDigits: 8 }).format(safe(n));
+  } catch {
+    return `${num(n, 8, 2)} ${currency}`;
+  }
+};
 
 /** Número con hasta `max` decimales (sin ceros de relleno salvo `min`). */
 export const num = (n: number, max = 4, min = 0): string =>
@@ -36,12 +45,26 @@ export const num = (n: number, max = 4, min = 0): string =>
 /** Unidades de un activo: todos los decimales que tengan, hasta 8 (fondos y cripto vienen así). */
 export const units = (n: number): string => num(n, 8);
 
-/** Ratio → porcentaje: 0,1234 → 12,3 % */
-export const pct = (ratio: number, digits = 1): string =>
-  nf(`p${digits}`, { style: "percent", minimumFractionDigits: digits, maximumFractionDigits: digits }).format(safe(ratio));
+// Los porcentajes llevan siempre al menos dos decimales: en una app de finanzas,
+// 5,04 % no es «5,0 %».
+const PCT_MIN = 2;
 
-export const pctSigned = (ratio: number, digits = 1): string =>
-  nf(`ps${digits}`, { style: "percent", minimumFractionDigits: digits, maximumFractionDigits: digits, signDisplay: "exceptZero" }).format(safe(ratio));
+/** Tipo de cambio (divisa por 1 EUR): hasta 8 decimales, los mismos con los que se guarda. */
+export const fxRate = (n: number): string => num(n, 8);
+
+/** Ratio → porcentaje: 0,1234 → 12,34 % */
+export const pct = (ratio: number, digits = PCT_MIN): string => {
+  const d = Math.max(PCT_MIN, digits);
+  return nf(`p${d}`, { style: "percent", minimumFractionDigits: d, maximumFractionDigits: d }).format(safe(ratio));
+};
+
+export const pctSigned = (ratio: number, digits = PCT_MIN): string => {
+  const d = Math.max(PCT_MIN, digits);
+  return nf(`ps${d}`, { style: "percent", minimumFractionDigits: d, maximumFractionDigits: d, signDisplay: "exceptZero" }).format(safe(ratio));
+};
+
+/** Un número que ya está en tanto por ciento: 12,3456 → 12,35 % */
+export const pctOf = (value: number): string => `${num(value, PCT_MIN, PCT_MIN)} %`;
 
 /** Para ejes: 950 € · 12 k € · 1,2 M € */
 export const eurAxis = (n: number): string => {

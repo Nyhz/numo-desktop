@@ -4,7 +4,7 @@ import { dayNum, isIsoDate, todayIso } from "../../shared/dates.ts";
 import { holdingsAt } from "../../shared/engine/ledger.ts";
 import { TX_LABEL, TX_TYPES, cashOnly, needsAsset, type Tx, type TxType } from "../../shared/types.ts";
 import { ecbRate, removeTx, restoreTx, saveTx, useDerived } from "../data/store.ts";
-import { dateShort, eur, money, num, units } from "../lib/format.ts";
+import { dateShort, eur, fxRate, money, num, units } from "../lib/format.ts";
 import { closeDialog } from "../ui/dialogs.ts";
 import { Btn, Dialog, Field, Pills, toast } from "../ui/kit.tsx";
 import { AssetPicker } from "./AssetPicker.tsx";
@@ -146,7 +146,8 @@ export function TxDialog({ tx, preset }: { tx?: Tx; preset?: { type?: TxType; as
   const fromEur = foreign && eurTotal != null && eurTotal > 0 && gross > 0;
   const ecbRateNow = ecb && ecb !== "none" ? ecb.rate : null;
   const fx = !foreign ? 1 : fromEur ? gross / eurTotal : (n(f.fxRate) ?? ecbRateNow ?? 0);
-  const rateText = (v: number) => String(Math.round(v * 1e6) / 1e6).replace(".", ",");
+  // El cambio se guarda y se enseña con 8 decimales (FX_DIGITS), lo escriba uno o salga del importe en EUR.
+  const rateText = fxRate;
 
   // Cierre del día como ayuda para el precio (en las unidades de la fecha de la operación).
   const closeHint = useMemo(() => {
@@ -190,7 +191,7 @@ export function TxDialog({ tx, preset }: { tx?: Tx; preset?: { type?: TxType; as
       quantity: n(f.quantity),
       price: n(f.price),
       amount: n(f.amount),
-      fxRate: !foreign ? 1 : Number.isNaN(fx) ? Number.NaN : fx > 0 ? Math.round(fx * 1e6) / 1e6 : null,
+      fxRate: !foreign ? 1 : Number.isNaN(fx) ? Number.NaN : fx > 0 ? fx : null,
       fee: n(f.fee) ?? 0,
       taxSource: n(f.taxSource) ?? 0,
       taxHome: n(f.taxHome) ?? 0,
@@ -317,8 +318,8 @@ export function TxDialog({ tx, preset }: { tx?: Tx; preset?: { type?: TxType; as
               label={`Precio${asset ? ` (${currency})` : ""}`}
               hint={
                 closeHint != null && (
-                  <button type="button" tabIndex={-1} className="underline decoration-dotted underline-offset-2 hover:text-ink" onClick={() => set({ price: String(+closeHint.toFixed(4)).replace(".", ",") })}>
-                    cierre {num(closeHint, 4)}
+                  <button type="button" tabIndex={-1} className="underline decoration-dotted underline-offset-2 hover:text-ink" onClick={() => set({ price: String(+closeHint.toFixed(8)).replace(".", ",") })}>
+                    cierre {num(closeHint, 8, 2)}
                   </button>
                 )
               }

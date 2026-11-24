@@ -7,7 +7,7 @@ import { TX_LABEL, type TxType } from "../../shared/types.ts";
 import { FlowColumns, type FlowDot } from "../charts/viz.tsx";
 import { rangeBase, useApp, useDerived } from "../data/store.ts";
 import { operationsSheet, saveText, saveXlsx } from "../lib/export.ts";
-import { dateShort, eur, eurSigned, money, num, priceDigits, seriesColor, units } from "../lib/format.ts";
+import { dateShort, eur, eurSigned, money, num, price, seriesColor, units } from "../lib/format.ts";
 import { openDialog } from "../ui/dialogs.ts";
 import { Btn, Card, Dot, Empty, HeaderSlot, Money, Pills, toast } from "../ui/kit.tsx";
 import { L, PeriodPills, THead, TRow, Table, Welcome } from "./common.tsx";
@@ -179,7 +179,7 @@ export function Operaciones() {
                     {to && <span className="font-normal text-mute"> → {to}</span>}
                   </L>
                   <span className="priv">{tx.quantity != null ? units(tx.quantity) : ""}</span>
-                  <span className="text-ink2">{tx.price != null ? money(tx.price, tx.currency, priceDigits(tx.price)) : ""}</span>
+                  <span className="text-ink2">{tx.price != null ? price(tx.price, tx.currency) : ""}</span>
                   <span className="priv">{tx.type === "transfer" ? "" : money(gross, tx.currency)}</span>
                   <span className="priv text-mute" title={n.taxSourceEur + n.taxHomeEur ? "Comisión y retenciones" : "Comisión"}>
                     {costs ? eur(costs) : ""}
