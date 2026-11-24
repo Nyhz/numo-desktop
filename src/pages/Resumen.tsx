@@ -10,6 +10,7 @@ import { BENCHMARK, benchmarkReturns } from "../data/benchmark.ts";
 import { ensureBenchmark, rangeBase, useApp, useBenchmark, useInvested, type Derived } from "../data/store.ts";
 import { dateShort, eur, eurAxis, eurSigned, num, pct, pctSigned, seriesColor, splitMoney } from "../lib/format.ts";
 import { openDialog } from "../ui/dialogs.ts";
+import { usePrivate } from "../ui/privacy.ts";
 import { Btn, Card, Delta, Empty, HeaderSlot, Kpi, Kpis, Money, Pills, Priv, toneOf } from "../ui/kit.tsx";
 import { KIND_ORDER, PeriodPills, RANGE_PHRASE, Welcome, kindColor, kindLabel } from "./common.tsx";
 
@@ -75,6 +76,7 @@ export function Resumen() {
   // La cartera (sin el fondo de emergencia, que no se invierte) y, aparte, ese fondo.
   const { d, reserve, filtered } = useInvested();
   const range = useApp((s) => s.range);
+  const hidden = usePrivate();
   const [, go] = useLocation();
   const [picked, setMode] = useState<Mode>("valor");
   const [group, setGroup] = useState<Group>("Tipo");
@@ -281,9 +283,13 @@ export function Resumen() {
                 {eurSigned(stats.gain)}
               </span>
               <span style={{ color: toneOf(stats.twr, 0.00005) }}>{pctSigned(stats.twr, 2)}</span>
-              <span className="text-mute">
-                {RANGE_PHRASE[range]} · rentabilidad {net ? "de la cartera, " : ""}sin contar lo aportado
-                {/* La TIR del periodo solo tiene sentido con tres meses o más. */}
+              {/* Lo justo a la vista; qué mide cada cifra, al pasar el cursor. */}
+              <span
+                className="text-mute"
+                title="Ganancia y rentabilidad de la cartera en el periodo, sin contar lo que has aportado (rentabilidad ponderada por tiempo). La TIR sí tiene en cuenta cuándo entró cada aportación, y solo se calcula con tres meses o más."
+              >
+                {net ? "la cartera, " : ""}
+                {RANGE_PHRASE[range]}
                 {stats.xirr != null && ` · TIR ${pctSigned(stats.xirr)} anual`}
               </span>
             </div>
@@ -299,7 +305,7 @@ export function Resumen() {
       </section>
 
       <Kpis>
-        <Kpi label="Última sesión" note={`${pctSigned(session.pct, 2)} · lo que ha movido el precio de lo que tienes`} tone={session.gainEur}>
+        <Kpi label="Última sesión" note={`${pctSigned(session.pct, 2)} · por los precios`} tone={session.gainEur}>
           <Money value={session.gainEur} signed dim="soft" />
         </Kpi>
         <Kpi priv label="Aportado neto" note="desde el inicio">
@@ -311,7 +317,13 @@ export function Resumen() {
         <Kpi label="Plusvalía latente" note={cost > 0 ? `${pctSigned(unrealized / cost)} sobre el coste` : "sin posiciones"} tone={unrealized}>
           <Money value={unrealized} signed dim="soft" />
         </Kpi>
-        <Kpi label="Realizado y cobrado" note={<>ventas <Priv>{eur(totals.realizedEur, 0)}</Priv> · rentas <Priv>{eur(totals.dividendsEur + totals.interestEur, 0)}</Priv> · desde el inicio</>} tone={totals.realizedEur + totals.dividendsEur + totals.interestEur}>
+        {/* El desglose no cabe en la nota sin partirla en dos líneas: va al pasar el cursor (y no en modo privado). */}
+        <Kpi
+          label="Realizado y cobrado"
+          note="ventas y rentas"
+          hint={hidden ? undefined : `Ventas ${eur(totals.realizedEur, 0)} · dividendos e intereses ${eur(totals.dividendsEur + totals.interestEur, 0)}, desde el inicio`}
+          tone={totals.realizedEur + totals.dividendsEur + totals.interestEur}
+        >
           <Money value={totals.realizedEur + totals.dividendsEur + totals.interestEur} signed dim="soft" />
         </Kpi>
         <Kpi label="TIR anualizada" note={all.xirr == null ? "hace falta más historia" : "desde el inicio"} tone={all.xirr}>

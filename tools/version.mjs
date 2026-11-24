@@ -1,4 +1,4 @@
-// Calcula (y escribe) la siguiente versión de Numo App.
+// Calcula (y escribe) la siguiente versión de Numo.
 //
 //   node tools/version.mjs parche   0.1.0 → 0.1.1   (arreglos)
 //   node tools/version.mjs minor    0.1.4 → 0.2.0   (funciones nuevas)

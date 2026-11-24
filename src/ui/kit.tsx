@@ -129,10 +129,26 @@ export function Kpis({ children }: { children: ReactNode }) {
   return <section className="card flex flex-wrap overflow-hidden">{children}</section>;
 }
 
-export function Kpi({ label, children, note, tone, priv = false }: { label: string; children: ReactNode; note?: ReactNode; tone?: number | null; /** La cifra es un importe o unas unidades del usuario: el modo privado la emborrona. */ priv?: boolean }) {
+export function Kpi({
+  label,
+  children,
+  note,
+  tone,
+  priv = false,
+  hint,
+}: {
+  label: string;
+  children: ReactNode;
+  note?: ReactNode;
+  tone?: number | null;
+  /** La cifra es un importe o unas unidades del usuario: el modo privado la emborrona. */
+  priv?: boolean;
+  /** Detalle que no cabe en la nota: aparece al pasar el cursor. */
+  hint?: string;
+}) {
   const color = tone == null || Math.abs(tone) < 0.005 ? undefined : tone > 0 ? "var(--up)" : "var(--down)";
   return (
-    <div className="min-w-0 flex-[1_1_180px] px-5 py-4 shadow-[0_0_0_.5px_var(--line)]">
+    <div className="min-w-0 flex-[1_1_180px] px-5 py-4 shadow-[0_0_0_.5px_var(--line)]" title={hint}>
       <div className="text-[12px] text-mute">{label}</div>
       <div className={`mt-1 truncate text-[20px] font-[550] ${priv ? "priv" : ""}`} style={{ fontStretch: "106%", color }}>
         {children}

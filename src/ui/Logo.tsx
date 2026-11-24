@@ -1,6 +1,6 @@
 import logo from "../assets/logo.png";
 
-// El logo de Numo App: una «N» cuyo pie es la curva de una cartera que sube.
+// El logo de Numo: una «N» cuyo pie es la curva de una cartera que sube.
 // Dentro de la app (menú y pantalla de carga, donde se va llenando mientras se
 // actualizan los precios) va la marca sola, sin fondo y con aire alrededor (el
 // dibujo ocupa dos tercios del lienzo), para que valga igual en el tema

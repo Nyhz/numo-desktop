@@ -134,7 +134,7 @@ function Devices() {
           </Btn>
         }
       >
-        Para usar Numo App en varios equipos, elige en cada uno la misma carpeta de un servicio de nube (Proton Drive, iCloud, OneDrive, Dropbox…). La app crea dentro una carpeta
+        Para usar Numo en varios equipos, elige en cada uno la misma carpeta de un servicio de nube (Proton Drive, iCloud, OneDrive, Dropbox…). La app crea dentro una carpeta
         «numo-app», donde cada equipo deja sus cambios y lee los de los demás; la base de datos no se comparte.
       </Row>
     );
@@ -231,7 +231,7 @@ function Version() {
   const found = update.version && (update.status === "available" || busy || update.status === "error");
   return (
     <Row
-      title={`Numo App ${version}`}
+      title={`Numo ${version}`}
       action={
         <div className="flex gap-2">
           {found && (
@@ -300,7 +300,7 @@ export function Ajustes() {
             </Btn>
           }
         >
-          Tus datos viven en un único archivo en este ordenador (no es una copia: es la base de datos de la app). Numo App guarda además una copia diaria, las 14 últimas, en la carpeta «copias» que hay a su lado.
+          Tus datos viven en un único archivo en este ordenador (no es una copia: es la base de datos de la app). Numo guarda además una copia diaria, las 14 últimas, en la carpeta «copias» que hay a su lado.
           <div className="selectable mt-1 text-[12px] break-all text-mute">Base de datos: {info?.dbPath}</div>
         </Row>
         <Row
@@ -399,6 +399,23 @@ export function Ajustes() {
         </Row>
       </Group>
 
+      <Group title="Atajos de teclado">
+        <div className="grid gap-x-8 gap-y-2 border-t border-line px-5 py-4 text-[12.5px] text-ink2" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
+          {(
+            [
+              ["N", "Registrar una operación"],
+              ["P", "Poner o quitar el modo privado"],
+              ["Esc", "Cerrar un diálogo o una lista"],
+            ] as const
+          ).map(([key, what]) => (
+            <span key={key} className="flex items-center gap-2.5">
+              <kbd className="grid h-6 min-w-6 place-items-center rounded-md border border-line2 bg-wash px-1.5 font-sans text-[11.5px] font-semibold text-ink">{key}</kbd>
+              {what}
+            </span>
+          ))}
+        </div>
+      </Group>
+
       <Group title="Cartera de ejemplo">
         <Row title={demo ? "Estás viendo la cartera de ejemplo" : "Probar con datos inventados"} action={backend.native ? <Btn onClick={() => setDemo(!demo)}>{demo ? "Volver a mis datos" : "Ver la cartera de ejemplo"}</Btn> : undefined}>
           Una cartera ficticia para explorar la app. Mientras está activa no se guarda nada y tus datos no se tocan.
@@ -406,7 +423,7 @@ export function Ajustes() {
       </Group>
 
       <p className="m-0 px-1 text-[12px] text-pretty text-mute">
-        Numo App {info?.version}. Sin cuentas de usuario ni servidores propios: la app solo se conecta a las fuentes de precios (Deutsche Börse, BME, Nasdaq, fundinfo y Binance, con Yahoo Finance y Financial Times de respaldo), al BCE, a GitHub para saber si hay una versión nueva y, si pones tu token, a Indexa Capital. A las fuentes de precios solo envía símbolos y divisas.
+        Numo {info?.version}. Sin cuentas de usuario ni servidores propios: la app solo se conecta a las fuentes de precios (Deutsche Börse, BME, Nasdaq, fundinfo y Binance, con Yahoo Finance y Financial Times de respaldo), al BCE, a GitHub para saber si hay una versión nueva y, si pones tu token, a Indexa Capital. A las fuentes de precios solo envía símbolos y divisas.
       </p>
     </div>
   );

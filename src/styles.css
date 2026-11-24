@@ -2,7 +2,7 @@
 @import "@fontsource-variable/archivo/wdth.css";
 
 /*
-  Sistema visual de Numo App — dirección «A · Rail».
+  Sistema visual de Numo — dirección «A · Rail».
   Gris oscuro mate con profundidad, un único color de acento (ámbar) y los datos
   como protagonistas. El tema oscuro es el de por defecto; el claro se activa con
   data-theme="light" en <html>. Una sola familia, Archivo, con eje de anchura.

@@ -1,4 +1,4 @@
-//! Núcleo nativo de Numo App.
+//! Núcleo nativo de Numo.
 //!
 //! Hace solo tres cosas que la interfaz no puede hacer por sí misma:
 //! guardar en SQLite, pedir datos de mercado por HTTPS y escribir archivos.
@@ -411,7 +411,7 @@ fn is_sync_name(name: &str) -> bool {
     })
 }
 
-/// La carpeta que se usará dentro de la elegida: ella misma si ya es la de Numo App
+/// La carpeta que se usará dentro de la elegida: ella misma si ya es la de Numo
 /// (se llama así o tiene archivos de otro equipo), o una subcarpeta «numo-app».
 fn sync_target(picked: &Path) -> PathBuf {
     let named = picked.file_name().is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case(SYNC_FOLDER));
@@ -723,7 +723,7 @@ pub fn run() {
             smoke_done
         ])
         .run(tauri::generate_context!())
-        .expect("no se pudo iniciar Numo App");
+        .expect("no se pudo iniciar Numo");
 }
 
 #[cfg(test)]
@@ -905,7 +905,7 @@ mod tests {
         write_sync_file(&dir, "equipo-1.json", "{}", None).unwrap();
         assert_eq!(sync_target(&base), base);
         assert!(write_sync_file(&dir, "../x.json", "{}", None).is_err());
-        fs::write(base.join("ajeno.txt"), "no es de Numo App").unwrap();
+        fs::write(base.join("ajeno.txt"), "no es de Numo").unwrap();
         let files = read_sync_dir(&dir, None).unwrap();
         assert_eq!(files.iter().map(|f| f.name.as_str()).collect::<Vec<_>>(), vec!["equipo-1.json"]);
         let _ = fs::remove_dir_all(&base);

@@ -1,4 +1,4 @@
-# Desarrollo de Numo App
+# Desarrollo de Numo
 
 Notas para quien trabaja en el código. Lo que hace la app y cómo se usa está en el [README](../README.md).
 
@@ -36,6 +36,10 @@ Una idea manda sobre todo lo demás: **solo se guarda lo que tú registras** (cu
 - **Sincronización**: la lógica está en `src/data/sync.ts` (pura, con pruebas de varios equipos simulados); el núcleo nativo solo lee y escribe los archivos, y los cifra si hay contraseña.
 - **Token de Indexa y contraseña de la sincronización**: se guardan en la tabla `meta` con el prefijo `secret:`; el núcleo nativo los usa y la interfaz solo sabe si existen.
 - **Datos de otra carpeta**: `NUMO_DATA_DIR=/otra/carpeta` usa otra carpeta de datos (pruebas). Hasta la 0.3 la app tenía otro nombre y otra carpeta de datos; la primera vez que se abre copia esa base de datos a la nueva y no toca la antigua.
+
+## El nombre
+
+La app se llama **Numo** en todo lo que enseña: ventana, textos, avisos, informes y documentación. El nombre del producto instalado (`productName` en `src-tauri/tauri.conf.json`) sigue siendo «Numo App», y por eso el paquete de macOS es `Numo App.app` y los instaladores llevan ese nombre. No se cambia a la ligera: en Windows el instalador usa ese nombre para decidir dónde instalar, así que una actualización con otro nombre dejaría dos copias, y al desinstalar la antigua se ofrece borrar los datos, que son compartidos.
 
 ## Pruebas de la app real
 

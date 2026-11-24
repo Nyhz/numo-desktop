@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/banner.jpg" alt="Numo App" width="100%">
+  <img src="docs/banner.jpg" alt="Numo" width="100%">
 </p>
 
 <p align="center">
@@ -18,11 +18,11 @@
   <a href="https://github.com/Nyhz/numo-desktop/releases/latest"><strong>Descargar la última versión</strong></a>
 </p>
 
-![El Resumen de Numo App con la cartera de ejemplo](docs/resumen.png)
+![El Resumen de Numo con la cartera de ejemplo](docs/resumen.png)
 
 ## Qué es
 
-Numo App lleva la cuenta de lo que tienes y de cómo te va, con los datos guardados en un archivo de tu ordenador. Tú registras lo que haces (compras, ventas, dividendos, ingresos, tu vivienda y su hipoteca) y la app calcula el resto: posiciones, rentabilidad, plusvalías, reparto, cuadro de amortización y los extractos que pide Hacienda.
+Numo lleva la cuenta de lo que tienes y de cómo te va, con los datos guardados en un archivo de tu ordenador. Tú registras lo que haces (compras, ventas, dividendos, ingresos, tu vivienda y su hipoteca) y la app calcula el resto: posiciones, rentabilidad, plusvalías, reparto, cuadro de amortización y los extractos que pide Hacienda.
 
 - **Todas tus cuentas juntas.** Brókers, bancos, fondos y exchanges, en varias divisas, con el efectivo de cada una.
 - **Patrimonio neto de verdad.** La cartera, tu fondo de emergencia y lo que ya es tuyo de tus inmuebles, y cómo ha evolucionado.
@@ -51,7 +51,7 @@ Todas las capturas son de la cartera de ejemplo que trae la app (Ajustes → Car
 
 Los instaladores están en la [página de versiones](https://github.com/Nyhz/numo-desktop/releases/latest):
 
-- **macOS** (Apple Silicon e Intel): descarga el `.dmg`, ábrelo y arrastra Numo App a Aplicaciones.
+- **macOS** (Apple Silicon e Intel): descarga el `.dmg`, ábrelo y arrastra la app a Aplicaciones.
 - **Windows** (64 bits): descarga el `-setup.exe` y ejecútalo.
 
 No están firmados con certificados de pago, así que la primera vez el sistema avisa: en macOS, Ajustes del Sistema → Privacidad y seguridad → «Abrir igualmente»; en Windows, «Más información» → «Ejecutar de todas formas».
@@ -97,11 +97,11 @@ Una idea manda sobre todo lo demás: **solo se guarda lo que tú registras** (cu
 - **Fondo de emergencia**: una cuenta de ese tipo cuenta para el patrimonio, pero queda fuera de la cartera y de su rentabilidad, porque es dinero que no se invierte. Posiciones enseña su saldo, los intereses del último año y lo que renta de verdad: intereses brutos entre saldo medio, anualizado, comparable con la TAE del banco. En Informes sí entra, porque sus intereses tributan.
 - **Plan**: la aportación va entera al bloque más retrasado (al que hoy le faltan más euros), en una sola operación para ahorrar comisiones, aunque lo deje por encima de su objetivo. Nunca propone vender.
 - **Hipoteca**: amortización francesa; el cuadro se deriva de las condiciones y de los eventos (revisión del tipo, cuota real).
-- Numo App **no calcula impuestos**. El informe anual entrega los datos, avisa de pérdidas con recompra cercana y lleva una cuenta orientativa de las pérdidas pendientes de compensar, sin decidir nada.
+- Numo **no calcula impuestos**. El informe anual entrega los datos, avisa de pérdidas con recompra cercana y lleva una cuenta orientativa de las pérdidas pendientes de compensar, sin decidir nada.
 
 ## Varios equipos
 
-Para usar Numo App en más de un ordenador (Mac y Windows, por ejemplo): Ajustes → Sincronización entre equipos → «Elegir carpeta…», y elegir **en cada equipo la misma carpeta** de un servicio de nube (Proton Drive, iCloud, OneDrive, Dropbox…). La app crea dentro una carpeta `numo-app`.
+Para usar Numo en más de un ordenador (Mac y Windows, por ejemplo): Ajustes → Sincronización entre equipos → «Elegir carpeta…», y elegir **en cada equipo la misma carpeta** de un servicio de nube (Proton Drive, iCloud, OneDrive, Dropbox…). La app crea dentro una carpeta `numo-app`.
 
 - La base de datos no se comparte: cada equipo tiene la suya. En la carpeta hay un archivo JSON por equipo con sus registros (cuentas, activos, operaciones, plan, inmuebles), cuándo cambió cada uno, cuáles se han borrado y el histórico de precios.
 - Al sincronizar se leen los archivos de los demás y, registro a registro, **gana el cambio más reciente** (un borrado es un cambio más). Un equipo recién instalado nunca borra nada en los otros.
@@ -119,4 +119,4 @@ Para usar Numo App en más de un ordenador (Mac y Windows, por ejemplo): Ajustes
 
 ## Licencia
 
-[MIT](LICENSE). Puedes usar, modificar y redistribuir el código; se entrega tal cual, sin garantía. Numo App no es asesoramiento financiero ni fiscal.
+[MIT](LICENSE). Puedes usar, modificar y redistribuir el código; se entrega tal cual, sin garantía. Numo no es asesoramiento financiero ni fiscal.

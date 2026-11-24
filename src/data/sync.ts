@@ -77,7 +77,7 @@ const series = (raw: unknown): Record<string, Point[]> => {
 };
 
 /**
- * Lee el archivo de otro equipo. Devuelve null si no es un archivo de Numo App, y
+ * Lee el archivo de otro equipo. Devuelve null si no es un archivo de Numo, y
  * lanza un error legible si lo escribió una versión más nueva que esta.
  */
 export function parseSnapshot(text: string): Snapshot | null {
@@ -88,7 +88,7 @@ export function parseSnapshot(text: string): Snapshot | null {
     return null;
   }
   if (!raw || typeof raw !== "object" || typeof raw.format !== "number" || !raw.device?.id || !raw.records) return null;
-  if (raw.format > SYNC_FORMAT) throw new Error(`«${raw.device.name || "Otro equipo"}» usa una versión más nueva de Numo App. Actualiza la app en este equipo para sincronizar.`);
+  if (raw.format > SYNC_FORMAT) throw new Error(`«${raw.device.name || "Otro equipo"}» usa una versión más nueva de Numo. Actualiza la app en este equipo para sincronizar.`);
   const records = {} as Record<Entity, Stamped[]>;
   for (const entity of ENTITIES) {
     const list = Array.isArray(raw.records[entity]) ? raw.records[entity] : [];

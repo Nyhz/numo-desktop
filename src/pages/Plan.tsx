@@ -156,7 +156,7 @@ export function Plan() {
           </form>
         }
       >
-        Un plan reparte tu cartera en bloques con un peso objetivo: Global 60 %, Emergentes 15 %, Oro 5 %… Numo App te dice cuánto te alejas de él y dónde poner la próxima aportación.
+        Un plan reparte tu cartera en bloques con un peso objetivo: Global 60 %, Emergentes 15 %, Oro 5 %… Numo te dice cuánto te alejas de él y dónde poner la próxima aportación.
       </Empty>
     );
   }

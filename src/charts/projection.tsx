@@ -102,7 +102,10 @@ export function Projection({
         </label>
         <div>
           <span className="mb-1.5 block text-[12px] text-ink2">Horizonte</span>
-          <Pills label="Horizonte de la proyección" size="sm" value={inputs.years} onChange={(years) => set({ years })} options={[["10", "10 años"], ["20", "20 años"], ["30", "30 años"]]} />
+          {/* A la altura de los campos de al lado, que son algo más altos que las píldoras. */}
+          <div className="flex h-8 items-center">
+            <Pills label="Horizonte de la proyección" size="sm" value={inputs.years} onChange={(years) => set({ years })} options={[["10", "10 años"], ["20", "20 años"], ["30", "30 años"]]} />
+          </div>
         </div>
         <label className="block">
           <span className="mb-1.5 block text-[12px] text-ink2">Objetivo (opcional)</span>

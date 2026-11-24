@@ -155,7 +155,7 @@ export function Operaciones() {
               <span>Unidades</span>
               <span>Precio</span>
               <span>Importe</span>
-              <span>Comisión</span>
+              <span>Costes</span>
               <span>Efecto en EUR</span>
             </THead>
             {rows.slice(0, shown).map((n) => {
@@ -181,7 +181,7 @@ export function Operaciones() {
                   <span className="priv">{tx.quantity != null ? num(tx.quantity, 6) : ""}</span>
                   <span className="text-ink2">{tx.price != null ? money(tx.price, tx.currency, priceDigits(tx.price)) : ""}</span>
                   <span className="priv">{tx.type === "transfer" ? "" : money(gross, tx.currency)}</span>
-                  <span className="priv text-mute" title={n.taxSourceEur + n.taxHomeEur ? "Incluye retenciones" : undefined}>
+                  <span className="priv text-mute" title={n.taxSourceEur + n.taxHomeEur ? "Comisión y retenciones" : "Comisión"}>
                     {costs ? eur(costs) : ""}
                   </span>
                   <span className="font-semibold" style={{ color: n.cashEur > 0.005 ? "var(--up)" : undefined }}>

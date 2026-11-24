@@ -1,4 +1,4 @@
-// Modelo de datos de Numo App. Solo se guarda lo que el usuario registra
+// Modelo de datos de Numo. Solo se guarda lo que el usuario registra
 // (cuentas, activos, operaciones) y los datos de mercado descargados.
 // Posiciones, lotes, plusvalías y series se calculan siempre al vuelo.
 

@@ -91,14 +91,14 @@ export async function positionsPdf(r: PdfReport): Promise<Uint8Array> {
 
   const header = () => {
     if (logoBytes) doc.addImage(logoBytes, "PNG", M - 6, 26, 34, 34);
-    text("Numo App", M + (logoBytes ? 30 : 0), 48, { size: 15, bold: true });
+    text("Numo", M + (logoBytes ? 30 : 0), 48, { size: 15, bold: true });
     text("Posiciones", W - M, 42, { size: 12, bold: true, align: "right" });
     text(`${r.date} · ${r.scope}`, W - M, 55, { size: 8.5, color: MUTE, align: "right", max: 300 });
     rule(68);
   };
   const footer = (page: number, pages: number) => {
     rule(H - 34);
-    text("Generado con Numo App. Valores en EUR al cambio del día; no es asesoramiento financiero ni fiscal.", M, H - 22, { size: 7.5, color: MUTE });
+    text("Generado con Numo. Valores en EUR al cambio del día; no es asesoramiento financiero ni fiscal.", M, H - 22, { size: 7.5, color: MUTE });
     text(`${page} / ${pages}`, W - M, H - 22, { size: 7.5, color: MUTE, align: "right" });
   };
 

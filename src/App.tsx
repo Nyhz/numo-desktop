@@ -162,9 +162,24 @@ function AccountFilter() {
     const cur = new Set(scope ?? []);
     if (cur.has(id)) cur.delete(id);
     else cur.add(id);
-    setScope(cur.size === accounts.length ? null : [...cur]);
+    // Elegir todas las de la cartera, y solo esas, es lo mismo que no filtrar.
+    setScope(cur.size === invested.length && invested.every((a) => cur.has(a.id)) ? null : [...cur]);
   };
   const row = "flex h-8 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-[12.5px] hover:bg-wash";
+  // El fondo de emergencia no entra en «Todas las cuentas»: en la lista va aparte.
+  const invested = accounts.filter((a) => a.kind !== "emergency");
+  const funds = accounts.filter((a) => a.kind === "emergency");
+  const option = (a: (typeof accounts)[number]) => {
+    const on = !!scope?.includes(a.id);
+    return (
+      <button key={a.id} type="button" role="option" aria-selected={on} className={row} onClick={() => toggle(a.id)}>
+        <span className="w-3.5 text-acc">{on && <Check size={14} strokeWidth={2.6} />}</span>
+        <Dot color={seriesColor(a.color)} />
+        <span className="truncate">{a.name}</span>
+        {a.archived && <span className="ml-auto text-[11.5px] text-mute">archivada</span>}
+      </button>
+    );
+  };
 
   return (
     <div ref={box} className="relative flex-none">
@@ -203,17 +218,13 @@ function AccountFilter() {
             Todas las cuentas
           </button>
           <div className="mx-2 my-1 border-t border-line" />
-          {accounts.map((a) => {
-            const on = !!scope?.includes(a.id);
-            return (
-              <button key={a.id} type="button" role="option" aria-selected={on} className={row} onClick={() => toggle(a.id)}>
-                <span className="w-3.5 text-acc">{on && <Check size={14} strokeWidth={2.6} />}</span>
-                <Dot color={seriesColor(a.color)} />
-                <span className="truncate">{a.name}</span>
-                {a.archived && <span className="ml-auto text-[11.5px] text-mute">archivada</span>}
-              </button>
-            );
-          })}
+          {invested.map(option)}
+          {funds.length > 0 && (
+            <>
+              <div className="mx-2 mt-1 border-t border-line pt-1.5 pb-0.5 text-[11px] text-mute">Aparte de la cartera</div>
+              {funds.map(option)}
+            </>
+          )}
         </div>
       )}
     </div>
@@ -261,7 +272,7 @@ function UpdateBanner() {
       <span className="min-w-0 flex-1 truncate">
         {busy ? (
           <>
-            Descargando Numo App {update.version}… <span className="text-ink2">{update.progress} % · la app se reiniciará sola</span>
+            Descargando Numo {update.version}… <span className="text-ink2">{update.progress} % · la app se reiniciará sola</span>
           </>
         ) : update.status === "error" ? (
           <>
@@ -269,7 +280,7 @@ function UpdateBanner() {
           </>
         ) : (
           <>
-            <span className="font-[550]">Numo App {update.version}</span> <span className="text-ink2">ya está disponible. Se instala en un momento y tus datos se conservan.</span>
+            <span className="font-[550]">Numo {update.version}</span> <span className="text-ink2">ya está disponible. Se instala en un momento y tus datos se conservan.</span>
           </>
         )}
       </span>
@@ -338,7 +349,7 @@ function Shell({ children }: { children: ReactNode }) {
         className={`flex flex-none flex-col gap-1.5 overflow-hidden pb-3.5 transition-[width] duration-[320ms] ${wideRail ? "px-[19px] pt-[46px]" : "px-3 pt-3.5"}`}
         style={{ width: menu ? (wideRail ? 226 : 212) : wideRail ? 78 : 64, transitionTimingFunction: MENU_EASE }}
       >
-        <div data-tauri-drag-region className="-mt-1 mb-2.5 -ml-0.5 flex h-11 flex-none items-center gap-1.5" title="Numo App">
+        <div data-tauri-drag-region className="-mt-1 mb-2.5 -ml-0.5 flex h-11 flex-none items-center gap-1.5" title="Numo">
           <div data-splash-logo className="size-11 flex-none">
             <Logo size={44} className="pointer-events-none" />
           </div>
@@ -383,12 +394,9 @@ function Shell({ children }: { children: ReactNode }) {
         style={{ boxShadow: "var(--panel-shadow)" }}
       >
         <header data-tauri-drag-region className="flex items-center gap-3.5 px-7 py-3 whitespace-nowrap @max-[920px]:gap-2 @max-[920px]:px-4">
-          <div data-tauri-drag-region className="flex items-center gap-2 text-[13px] text-mute">
-            {/* Con poco sitio, el nombre de la app cede el suyo a las pestañas. */}
-            <span className="@max-[1100px]:hidden">Numo App</span>
-            <span className="opacity-50 @max-[1100px]:hidden">/</span>
+          <div data-tauri-drag-region className="flex items-center text-[13.5px]">
             <span className="font-semibold text-ink" style={{ fontStretch: "110%" }}>
-              {here?.label ?? "Numo App"}
+              {here?.label ?? "Numo"}
             </span>
           </div>
           <div id="header-slot" className="flex flex-none items-center gap-3" />

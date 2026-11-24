@@ -1,4 +1,4 @@
-# Publica una versión de Numo App: sube el número, etiqueta, compila para macOS y
+# Publica una versión de Numo: sube el número, etiqueta, compila para macOS y
 # Windows y deja los instaladores en la página de versiones del repositorio.
 #
 # Se lanza a mano (pestaña Actions → «Publicar versión», o `pnpm publicar` en el
@@ -83,14 +83,14 @@ jobs:
           body=$(cat <<'NOTAS'
           ## Instalar
 
-          - **macOS** (Apple Silicon e Intel): descarga el `.dmg`, ábrelo y arrastra Numo App a Aplicaciones. La app no está firmada con una cuenta de desarrollador de Apple: la primera vez, macOS la bloquea; ve a Ajustes del Sistema → Privacidad y seguridad y pulsa «Abrir igualmente».
+          - **macOS** (Apple Silicon e Intel): descarga el `.dmg`, ábrelo y arrastra la app a Aplicaciones. La app no está firmada con una cuenta de desarrollador de Apple: la primera vez, macOS la bloquea; ve a Ajustes del Sistema → Privacidad y seguridad y pulsa «Abrir igualmente».
           - **Windows** (64 bits): descarga el `-setup.exe` y ejecútalo. Tampoco está firmada: si Windows muestra «Windows protegió su PC», pulsa «Más información» → «Ejecutar de todas formas».
 
           Instalar una versión nueva encima de la anterior conserva tus datos.
           NOTAS
           )
           id=$(gh api -X POST "repos/${{ github.repository }}/releases" \
-            -f tag_name="$TAG" -f name="Numo App $VERSION" -f body="$body" \
+            -f tag_name="$TAG" -f name="Numo $VERSION" -f body="$body" \
             -F draft=true -F generate_release_notes=true --jq .id)
           echo "id=$id" >> "$GITHUB_OUTPUT"
 

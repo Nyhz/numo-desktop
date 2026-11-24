@@ -222,7 +222,7 @@ export function Informes() {
               </div>
               <p className="mt-3.5 text-[12px] text-pretty text-mute">
                 La pérdida de un año se compensa primero con el 25 % de los dividendos e intereses de ese año, y el resto con las ganancias de los cuatro siguientes, empezando por la más antigua. Solo cuenta lo
-                registrado en Numo App{scopeIds ? " y en las cuentas seleccionadas" : ""}: no conoce pérdidas anteriores ni de otras cuentas, y no sustituye a tu declaración.
+                registrado en Numo{scopeIds ? " y en las cuentas seleccionadas" : ""}: no conoce pérdidas anteriores ni de otras cuentas, y no sustituye a tu declaración.
               </p>
             </Card>
           )}
@@ -231,7 +231,7 @@ export function Informes() {
               <TriangleAlert size={14} className="mt-0.5 shrink-0 text-acc" />
               <span>
                 {review === 1 ? "Una pérdida tiene" : `${review} pérdidas tienen`} una compra del mismo valor dentro del plazo de recompra (2 meses en cotizados, 12 en fondos). Es un aviso
-                orientativo: Numo App no decide si la pérdida es compensable ni ajusta el coste.
+                orientativo: Numo no decide si la pérdida es compensable ni ajusta el coste.
               </span>
             </p>
           )}

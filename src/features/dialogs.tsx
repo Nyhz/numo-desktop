@@ -549,7 +549,7 @@ function ImportDialog() {
     >
       <div className="grid gap-4">
         <p className="text-ink2">
-          Elige un CSV de operaciones con el mismo formato que exporta Numo App (Operaciones → CSV sirve de plantilla). Se crean las cuentas y los activos que falten, y se importa todo o nada: si una
+          Elige un CSV de operaciones con el mismo formato que exporta Numo (Operaciones → CSV sirve de plantilla). Se crean las cuentas y los activos que falten, y se importa todo o nada: si una
           línea falla no se guarda ninguna.
         </p>
         <input type="file" accept=".csv,text/csv,text/plain" multiple className="field h-auto py-2" onChange={(e) => void read(e.target.files)} />

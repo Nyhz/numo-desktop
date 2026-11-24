@@ -1,7 +1,7 @@
 [package]
 name = "numo-app"
 version = "0.1.0"
-description = "Numo App: seguimiento personal de inversiones"
+description = "Numo: seguimiento personal de inversiones"
 license = "MIT"
 edition = "2024"
 rust-version = "1.90"
