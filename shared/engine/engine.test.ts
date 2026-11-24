@@ -410,6 +410,33 @@ describe("fondo de emergencia", () => {
   });
 });
 
+describe("el fondo de emergencia y las compras", () => {
+  it("una compra en otra cuenta no le resta nada, lleve o no efectivo esa cuenta", () => {
+    const s = state({
+      accounts: [acct("E", { kind: "emergency", trackCash: true }), acct("SinEfectivo"), acct("ConEfectivo", { trackCash: true })],
+      assets: [asset("X")],
+      txs: [
+        tx({ date: "2024-01-01", type: "deposit", accountId: "E", amount: 10000 }),
+        tx({ date: "2024-01-01", type: "deposit", accountId: "ConEfectivo", amount: 3000 }),
+        tx({ date: "2024-02-01", type: "buy", accountId: "SinEfectivo", assetId: "X", quantity: 10, price: 100 }),
+        tx({ date: "2024-02-02", type: "buy", accountId: "ConEfectivo", assetId: "X", quantity: 5, price: 100, fee: 2 }),
+      ],
+      prices: { X: [["2024-01-01", 100], ["2024-03-01", 100]] },
+    });
+    const led = buildLedger(s);
+    const all = buildTimeline(led, s, null, "2024-03-01");
+    const last = all.n - 1;
+    // El fondo sigue entero; la única cuenta que baja es la que compró con su propio efectivo.
+    expect(all.cash.get("E")![last]).toBe(10000);
+    expect(all.cash.get("ConEfectivo")![last]).toBe(3000 - 502);
+    expect(all.cash.has("SinEfectivo")).toBe(false);
+    // Visto solo, el fondo vale lo mismo antes y después de las compras.
+    const fund = buildTimeline(led, s, new Set(["E"]), "2024-03-01");
+    expect(fund.total[0]).toBe(10000);
+    expect(fund.total[fund.n - 1]).toBe(10000);
+  });
+});
+
 describe("caída desde máximos", () => {
   it("mide cada día contra el máximo anterior y recuerda el peor momento", () => {
     // +10 %, −20 %, +5 %, +30 % (nuevo máximo), −10 %.
