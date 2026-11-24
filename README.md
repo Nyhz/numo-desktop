@@ -1,8 +1,6 @@
 <p align="center">
-  <img src="src-tauri/icons/128x128@2x.png" width="96" alt="Numo App">
+  <img src="docs/banner.jpg" alt="Numo App" width="100%">
 </p>
-
-<h1 align="center">Numo App</h1>
 
 <p align="center">
   <strong>Tu patrimonio, en tu ordenador.</strong><br>
