@@ -3,7 +3,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { txsToCsv } from "../../shared/csv.ts";
 import { todayIso } from "../../shared/dates.ts";
 import { useTheme } from "../App.tsx";
-import { backend, connectionStatus, isExample, saveSecret, setDemo, sync, useApp, type Service } from "../data/store.ts";
+import { backend, chooseSyncFolder, connectionStatus, deviceOf, isExample, renameDevice, saveSecret, setDemo, stopSync, sync, syncDevices, syncFolder, useApp, type Service } from "../data/store.ts";
 import { saveText } from "../lib/export.ts";
 import { ago } from "../lib/format.ts";
 import { openDialog } from "../ui/dialogs.ts";
@@ -88,6 +88,104 @@ function Connection({ service, title, children, placeholder }: { service: Servic
   );
 }
 
+/** Sincronización con los otros equipos del usuario a través de una carpeta compartida. */
+function Devices() {
+  const example = useApp((s) => isExample(s));
+  const dir = useApp((s) => syncFolder(s));
+  const deviceJson = useApp((s) => s.loaded.meta["sync:device"] ?? "");
+  const last = useApp((s) => s.loaded.meta["sync:last"] ?? null);
+  const devices = useApp((s) => s.devices);
+  const device = deviceOf();
+  const [name, setName] = useState(device?.name ?? "");
+  useEffect(() => setName(deviceOf()?.name ?? ""), [deviceJson]);
+
+  const choose = async () => {
+    const res = await chooseSyncFolder();
+    if (!res.ok) return toast(res.error, { tone: "error" });
+    if (res.value) toast(res.value.pulled ? `Sincronizado: ${res.value.pulled} registros traídos de tus otros equipos` : "Carpeta lista: este equipo ya publica sus cambios");
+  };
+  const now = async () => {
+    const res = await syncDevices();
+    if (!res.ok) return toast(res.error, { tone: "error" });
+    const { pulled = 0, deleted = 0 } = res.value ?? {};
+    toast(pulled || deleted ? `Sincronizado: ${pulled} traídos${deleted ? ` · ${deleted} borrados` : ""}` : "Todo estaba al día");
+  };
+  const stop = async () => {
+    const res = await stopSync();
+    toast(res.ok ? "Este equipo ha dejado de sincronizar" : res.error, res.ok ? {} : { tone: "error" });
+  };
+
+  if (!dir) {
+    return (
+      <Row
+        title="Carpeta compartida"
+        action={
+          <Btn onClick={() => void choose()} disabled={example}>
+            Elegir carpeta…
+          </Btn>
+        }
+      >
+        Para usar Caudal en varios equipos, elige en cada uno la misma carpeta de un servicio de nube (Proton Drive, iCloud, OneDrive, Dropbox…). Cada equipo deja ahí sus cambios y lee
+        los de los demás; la base de datos no se comparte.
+      </Row>
+    );
+  }
+  return (
+    <>
+      <Row
+        title="Carpeta compartida"
+        action={
+          <div className="flex gap-2">
+            <Btn onClick={() => void now()} disabled={devices.busy}>
+              {devices.busy ? "Sincronizando…" : "Sincronizar ahora"}
+            </Btn>
+            <Btn onClick={() => void stop()} disabled={devices.busy}>
+              Dejar de sincronizar
+            </Btn>
+          </div>
+        }
+      >
+        <span className="selectable block break-all">{dir}</span>
+        <span className="mt-1 block">
+          Última sincronización: {ago(last)}.{" "}
+          {devices.peers.length
+            ? `Otros equipos: ${devices.peers.map((p) => `${p.name} (publicó ${ago(p.writtenAt)})`).join(", ")}.`
+            : "Todavía no hay ningún otro equipo en esta carpeta: elige la misma en el siguiente."}
+        </span>
+        {devices.error && <span className="mt-1 block font-medium text-down">{devices.error}</span>}
+        {devices.notes.map((n, i) => (
+          <span key={i} className="mt-1 block text-acc">
+            {n}
+          </span>
+        ))}
+      </Row>
+      <Row
+        title="Nombre de este equipo"
+        action={
+          <form
+            className="flex gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void renameDevice(name).then((r) => toast(r.ok ? "Nombre guardado" : r.error, r.ok ? {} : { tone: "error" }));
+            }}
+          >
+            <input className="field w-52" value={name} onChange={(e) => setName(e.target.value)} aria-label="Nombre de este equipo" />
+            <Btn type="submit" disabled={!name.trim() || name.trim() === device?.name}>
+              Guardar
+            </Btn>
+          </form>
+        }
+      >
+        Así lo verán tus otros equipos.
+      </Row>
+      <div className="border-t border-line px-5 py-3 text-[12px] text-pretty text-mute">
+        Se sincroniza al abrir la app, al volver a su ventana y poco después de cada cambio. Si el mismo registro se cambia en dos equipos, gana el cambio más reciente. Marca la carpeta
+        como «disponible sin conexión» en tu servicio de nube. Las claves de Conexiones no viajan: se ponen en cada equipo.
+      </div>
+    </>
+  );
+}
+
 export function Ajustes() {
   const info = useApp((s) => s.info);
   const state = useApp((s) => (s.demo ?? s.loaded).state);
@@ -162,6 +260,10 @@ export function Ajustes() {
         <div className="border-t border-line px-5 py-3 text-[12px] text-pretty text-mute">
           El token se guarda en tu base de datos, en este ordenador, y solo viaja a Indexa. Va incluido en las copias de seguridad: no compartas una copia sin quitarlo antes.
         </div>
+      </Group>
+
+      <Group title="Sincronización entre equipos">
+        <Devices />
       </Group>
 
       <Group title="Apariencia">

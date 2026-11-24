@@ -26,6 +26,7 @@ use tauri_plugin_dialog::DialogExt;
 const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/001_init.sql"),
     include_str!("../migrations/002_plan_inmuebles.sql"),
+    include_str!("../migrations/003_sync.sql"),
 ];
 
 /// Únicos servidores a los que la app puede conectarse.
@@ -355,6 +356,84 @@ async fn export_backup(app: AppHandle, name: String) -> CmdResult<Option<String>
     Ok(Some(path.display().to_string()))
 }
 
+// ── Sincronización entre equipos ────────────────────────────────────────────
+// La app deja un archivo JSON por equipo en una carpeta que elige el usuario
+// (normalmente la de un servicio de nube). Aquí solo se leen y escriben esos
+// archivos; qué cambios se aplican lo decide la interfaz (src/data/sync.ts).
+
+const SYNC_FOLDER: &str = "Caudal";
+/** Tope por archivo: muy por encima de lo que ocupa una cartera personal. */
+const SYNC_MAX_BYTES: u64 = 64 * 1024 * 1024;
+
+/// Solo archivos `nombre.json` sin rutas ni caracteres raros.
+fn is_sync_name(name: &str) -> bool {
+    name.strip_suffix(".json").is_some_and(|stem| {
+        !stem.is_empty() && stem.len() <= 80 && stem.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+    })
+}
+
+/// La carpeta que se usará dentro de la elegida: ella misma si ya es la de Caudal
+/// (se llama así o tiene archivos de otro equipo), o una subcarpeta «Caudal».
+fn sync_target(picked: &Path) -> PathBuf {
+    let named = picked.file_name().is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case(SYNC_FOLDER));
+    let has_files = fs::read_dir(picked).is_ok_and(|entries| {
+        entries.filter_map(Result::ok).any(|e| is_sync_name(&e.file_name().to_string_lossy()))
+    });
+    if named || has_files { picked.to_path_buf() } else { picked.join(SYNC_FOLDER) }
+}
+
+#[tauri::command]
+async fn sync_pick_dir(app: AppHandle) -> CmdResult<Option<String>> {
+    let Some(picked) = app.dialog().file().blocking_pick_folder() else {
+        return Ok(None);
+    };
+    let dir = sync_target(&picked.into_path().map_err(err)?);
+    fs::create_dir_all(&dir).map_err(|e| format!("No se pudo crear la carpeta: {e}"))?;
+    Ok(Some(dir.display().to_string()))
+}
+
+#[tauri::command]
+fn sync_read(dir: String) -> CmdResult<Vec<SourceFile>> {
+    let entries = fs::read_dir(&dir).map_err(|e| format!("No se puede leer la carpeta compartida ({dir}): {e}"))?;
+    let mut out = Vec::new();
+    for entry in entries.filter_map(Result::ok) {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if !is_sync_name(&name) || entry.metadata().is_ok_and(|m| !m.is_file() || m.len() > SYNC_MAX_BYTES) {
+            continue;
+        }
+        // Un archivo que aún no ha terminado de bajar de la nube se salta: ya llegará.
+        if let Ok(text) = fs::read_to_string(entry.path()) {
+            out.push(SourceFile { name, text });
+        }
+    }
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(out)
+}
+
+#[tauri::command]
+fn sync_write(dir: String, name: String, text: String) -> CmdResult<()> {
+    if !is_sync_name(&name) {
+        return Err(format!("Nombre de archivo no válido: {name}"));
+    }
+    let dir = PathBuf::from(dir);
+    fs::create_dir_all(&dir).map_err(err)?;
+    fs::write(dir.join(name), text).map_err(|e| format!("No se pudo escribir en la carpeta compartida: {e}"))
+}
+
+/// Copia de seguridad inmediata (antes de aplicar cambios venidos de otro equipo).
+#[tauri::command]
+fn backup_now(db: State<'_, Db>, label: String) -> CmdResult<()> {
+    let label: String = label.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-').take(40).collect();
+    let dir = db.path.parent().map(|p| p.join("copias")).ok_or("Sin carpeta de datos")?;
+    fs::create_dir_all(&dir).map_err(err)?;
+    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(err)?.as_secs();
+    // El nombre empieza como las copias diarias para que la limpieza las trate igual.
+    let file = dir.join(format!("caudal-{}-{label}-{secs}.db", today_utc()));
+    let conn = db.conn.lock().map_err(err)?;
+    conn.execute("VACUUM INTO ?1", [file.to_string_lossy().as_ref()]).map_err(err)?;
+    Ok(())
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct AppInfo {
@@ -435,6 +514,10 @@ pub fn run() {
             export_backup,
             app_info,
             import_source,
+            sync_pick_dir,
+            sync_read,
+            sync_write,
+            backup_now,
             smoke_done
         ])
         .run(tauri::generate_context!())
@@ -576,6 +659,33 @@ mod tests {
         let (u, h) = authorize(&conn, url("https://data-api.binance.vision/api/v3/klines?symbol=ETHEUR")).unwrap();
         assert_eq!(u.query(), Some("symbol=ETHEUR"));
         assert!(h.is_none());
+    }
+
+    #[test]
+    fn sync_files_are_plain_json_names_inside_the_shared_folder() {
+        assert!(is_sync_name("a1b2c3d4-e5f6.json"));
+        assert!(!is_sync_name("../fuera.json"));
+        assert!(!is_sync_name("sub/dentro.json"));
+        assert!(!is_sync_name(".json"));
+        assert!(!is_sync_name("notas.txt"));
+
+        let base = std::env::temp_dir().join(format!("caudal-sync-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        fs::create_dir_all(&base).unwrap();
+        // Una carpeta cualquiera: se usa una subcarpeta «Caudal».
+        assert_eq!(sync_target(&base), base.join("Caudal"));
+        // La propia carpeta de Caudal, o una que ya tiene archivos de otro equipo: se usa tal cual.
+        let own = base.join("caudal");
+        fs::create_dir_all(&own).unwrap();
+        assert_eq!(sync_target(&own), own);
+        let dir = base.to_string_lossy().into_owned();
+        sync_write(dir.clone(), "equipo-1.json".into(), "{}".into()).unwrap();
+        assert_eq!(sync_target(&base), base);
+        assert!(sync_write(dir.clone(), "../x.json".into(), "{}".into()).is_err());
+        fs::write(base.join("ajeno.txt"), "no es de Caudal").unwrap();
+        let files = sync_read(dir).unwrap();
+        assert_eq!(files.iter().map(|f| f.name.as_str()).collect::<Vec<_>>(), vec!["equipo-1.json"]);
+        let _ = fs::remove_dir_all(&base);
     }
 
     #[test]

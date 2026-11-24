@@ -2,7 +2,7 @@ import { ArrowLeftRight, Check, ChevronDown, FileText, House, Landmark, Layers, 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, Route, Router, Switch, useLocation } from "wouter";
 import { useHashLocation } from "wouter/use-hash-location";
-import { backend, isExample, setDemo, setScope, sync, useApp, useHealth } from "./data/store.ts";
+import { backend, isExample, setDemo, setScope, sync, syncOnFocus, useApp, useHealth } from "./data/store.ts";
 import { Dialogs } from "./features/dialogs.tsx";
 import { ago, seriesColor } from "./lib/format.ts";
 import { Activo } from "./pages/Activo.tsx";
@@ -169,6 +169,12 @@ function Shell({ children }: { children: ReactNode }) {
   const [light, flipTheme] = useTheme();
   const { attention, fxLate } = useHealth();
   const here = [...NAV_MAIN, ...NAV_SUB].find((n) => matches(n, loc));
+
+  // Al volver a la ventana se mira si otro equipo ha dejado cambios.
+  useEffect(() => {
+    window.addEventListener("focus", syncOnFocus);
+    return () => window.removeEventListener("focus", syncOnFocus);
+  }, []);
 
   // «N» abre una operación nueva desde cualquier pantalla.
   useEffect(() => {

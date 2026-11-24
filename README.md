@@ -63,6 +63,19 @@ Decisiones de cálculo que conviene conocer:
 - Ajustes → «Guardar una copia…» y «Exportar todas las operaciones» (CSV que la propia app vuelve a importar).
 - `CAUDAL_DATA_DIR=/otra/carpeta` usa otra carpeta de datos (pruebas).
 
+## Varios equipos
+
+Para usar Caudal en más de un ordenador (Mac y Windows, por ejemplo): Ajustes → Sincronización entre equipos → «Elegir carpeta…», y elegir **en cada equipo la misma carpeta** de un servicio de nube (Proton Drive, iCloud, OneDrive, Dropbox…). La app crea dentro una carpeta `Caudal`.
+
+- La base de datos no se comparte: cada equipo tiene la suya. En la carpeta hay un archivo JSON por equipo con sus registros (cuentas, activos, operaciones, plan, inmuebles), cuándo cambió cada uno, cuáles se han borrado y el histórico de precios.
+- Al sincronizar se leen los archivos de los demás y, registro a registro, **gana el cambio más reciente** (un borrado es un cambio más). Un equipo recién instalado nunca borra nada en los otros.
+- Se sincroniza al abrir la app, al volver a su ventana, poco después de cada cambio y con «Sincronizar ahora». Lo rápido que llegue al otro equipo depende del servicio de nube.
+- Antes de aplicar borrados o muchos cambios de golpe se guarda una copia en `copias/`.
+- No viajan: las claves de Conexiones (se ponen en cada equipo), los tipos de cambio (cada equipo los descarga) ni los ajustes de apariencia.
+- Conviene marcar la carpeta como «disponible sin conexión» en el servicio de nube, para que los archivos estén siempre en disco.
+
+La lógica está en `src/data/sync.ts` (pura, con pruebas de varios equipos simulados); el núcleo nativo solo lee y escribe esos archivos.
+
 ## Versiones y descargas
 
 Los instaladores para **macOS** (un `.dmg` que sirve para Apple Silicon e Intel) y **Windows** (`-setup.exe`, 64 bits) están en la página de versiones del repositorio (Releases). Los compila GitHub; no hace falta tener nada instalado.

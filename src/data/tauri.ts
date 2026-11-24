@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { Account, AppState, Asset, Goal, Mortgage, MortgageEvent, Point, Property, PropertyValuation, Tx } from "../../shared/types.ts";
-import type { AppInfo, Backend, Loaded, Meta, Op } from "./backend.ts";
+import type { AppInfo, Backend, Entity, Loaded, Meta, Op } from "./backend.ts";
+import { stampOf } from "./sync.ts";
 
 type Statement = { sql: string; params?: unknown[]; many?: unknown[][] };
 type Cell = string | number | null;
@@ -114,9 +115,36 @@ function upsert<T>(table: string, cols: Array<[string, keyof T]>, row: T): State
 // Las claves foráneas (ON DELETE CASCADE / SET NULL) limpian lo que cuelga de la fila.
 const del = (table: string, id: string): Statement => ({ sql: `DELETE FROM ${table} WHERE id = ?1`, params: [id] });
 
+/** Qué registros arrastra cada borrado: [tipo, tabla, condición sobre ?1 = id borrado]. Debe coincidir con `cascadeOf` (sync.ts). */
+const CASCADE: Partial<Record<Op["op"], Array<[Entity, string, string]>>> = {
+  delAccount: [["txs", "txs", "account_id = ?1 OR to_account_id = ?1"]],
+  delMortgage: [["mortgageEvents", "mortgage_events", "mortgage_id = ?1"]],
+  delProperty: [
+    ["mortgageEvents", "mortgage_events", "mortgage_id IN (SELECT id FROM mortgages WHERE property_id = ?1)"],
+    ["mortgages", "mortgages", "property_id = ?1"],
+    ["valuations", "property_valuations", "property_id = ?1"],
+  ],
+};
+
 function toStatements(ops: Op[]): Statement[] {
   const out: Statement[] = [];
+  const now = new Date().toISOString();
   for (const o of ops) {
+    // Cada cambio sobre un registro del usuario deja su marca de tiempo (para sincronizar equipos).
+    const stamp = stampOf(o, now);
+    if (stamp) {
+      // Lo que se borra en cascada también queda anotado como borrado (antes de que desaparezca).
+      for (const [entity, table, where] of CASCADE[o.op] ?? []) {
+        out.push({
+          sql: `INSERT INTO sync_stamps (entity, id, at, deleted) SELECT '${entity}', id, ?2, 1 FROM ${table} WHERE ${where} ON CONFLICT(entity, id) DO UPDATE SET at = excluded.at, deleted = 1`,
+          params: [stamp.id, stamp.at],
+        });
+      }
+      out.push({
+        sql: "INSERT INTO sync_stamps (entity, id, at, deleted) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(entity, id) DO UPDATE SET at = excluded.at, deleted = excluded.deleted",
+        params: [stamp.entity, stamp.id, stamp.at, stamp.deleted ? 1 : 0],
+      });
+    }
     switch (o.op) {
       case "putAccount":
         out.push(upsert("accounts", ACCOUNT, o.row));
@@ -270,4 +298,12 @@ export const tauriBackend: Backend = {
   exportBackup: (name) => invoke<string | null>("export_backup", { name }),
   info: () => invoke<AppInfo>("app_info"),
   importSource: () => invoke<Array<{ name: string; text: string }>>("import_source"),
+  async stamps() {
+    const rows = await query("SELECT entity, id, at, deleted FROM sync_stamps");
+    return rows.map(([entity, id, at, deleted]) => ({ entity: entity as Entity, id: id as string, at: at as string, deleted: !!deleted }));
+  },
+  syncPick: () => invoke<string | null>("sync_pick_dir"),
+  syncRead: (dir) => invoke<Array<{ name: string; text: string }>>("sync_read", { dir }),
+  syncWrite: (dir, name, text) => invoke<void>("sync_write", { dir, name, text }),
+  backupNow: (label) => invoke<void>("backup_now", { label }),
 };

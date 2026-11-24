@@ -3,7 +3,8 @@ import { parseTxCsv, planImport, txsToCsv } from "../../shared/csv.ts";
 import { todayIso } from "../../shared/dates.ts";
 import { makeDemo } from "./demo.ts";
 import { ecbRates } from "./market.ts";
-import { backend, derive, getApp, importPlan, removeTx, saveAccount, saveAsset, saveTx, setPrice } from "./store.ts";
+import { backend, derive, getApp, importPlan, removeAccount, removeTx, saveAccount, saveAsset, saveTx, setLoaded, setPrice, syncDevices } from "./store.ts";
+import { buildSnapshot, parseSnapshot } from "./sync.ts";
 
 /**
  * Prueba de humo de la app real (CAUDAL_SMOKE=1 con CAUDAL_DATA_DIR apuntando a
@@ -70,6 +71,40 @@ export async function runSmoke(): Promise<void> {
 
     const removed = await removeTx(buy.ok ? buy.value.id : "");
     check("borrar una operación", removed.ok && (await backend.load()).state.txs.length === 1 + demo.txs.length);
+
+    // Sincronización entre equipos, contra una carpeta de verdad y con otro equipo de mentira.
+    const stamps = await backend.stamps();
+    check("cada registro guarda cuándo cambió", stamps.some((x) => x.entity === "accounts" && x.id === acct.value.id && !x.deleted) && stamps.some((x) => x.entity === "txs" && x.id === (buy.ok ? buy.value.id : "") && x.deleted));
+    const info = await backend.info();
+    const dir = `${info.dbPath.replace(/[\\/][^\\/]*$/, "")}/sincro-prueba`;
+    const mine = { id: "equipo-prueba", name: "Este" };
+    await backend.apply([
+      { op: "meta", key: "sync:dir", value: dir },
+      { op: "meta", key: "sync:device", value: JSON.stringify(mine) },
+    ]);
+    setLoaded(await backend.load());
+    const before = getApp().loaded.state;
+    // El otro equipo publica una cuenta nueva, renombra la nuestra más tarde y ha borrado el ingreso.
+    const other = buildSnapshot({ ...before, accounts: [{ ...before.accounts.find((a) => a.id === acct.value.id)!, name: "Renombrada en otro equipo" }, { ...before.accounts[0]!, id: "cuenta-del-otro", name: "Cuenta del otro equipo" }], assets: [], txs: [], goals: [], properties: [], mortgages: [], mortgageEvents: [], valuations: [] }, [], { id: "otro-equipo", name: "Otro" }, "2099-01-01T00:00:00.000Z");
+    other.records.accounts.forEach((r) => (r._at = "2099-01-01T00:00:00.000Z"));
+    other.tombstones.push({ entity: "txs", id: dep.ok ? dep.value.id : "", at: "2099-01-01T00:00:00.000Z" });
+    await backend.syncWrite(dir, "otro-equipo.json", JSON.stringify(other));
+    const synced = await syncDevices();
+    check("sincronizar con otro equipo", synced.ok && synced.value?.pulled === 2 && synced.value.deleted === 1, synced.ok ? JSON.stringify(synced.value) : synced.error);
+    const merged = await backend.load();
+    check(
+      "lo sincronizado está en disco",
+      merged.state.accounts.some((a) => a.id === "cuenta-del-otro") && merged.state.accounts.find((a) => a.id === acct.value.id)?.name === "Renombrada en otro equipo" && !merged.state.txs.some((x) => dep.ok && x.id === dep.value.id),
+    );
+    const files = await backend.syncRead(dir);
+    const own = files.find((f) => f.name === "equipo-prueba.json");
+    check("este equipo publica su archivo", files.length === 2 && !!own && parseSnapshot(own.text)?.records.accounts.length === merged.state.accounts.length);
+    check("repetir la sincronización no cambia nada", (await syncDevices()).ok && (await backend.syncRead(dir)).find((f) => f.name === "equipo-prueba.json")?.text === own?.text);
+    // Borrar una cuenta deja anotadas como borradas también sus operaciones.
+    const victim = merged.state.txs.find((x) => x.accountId !== acct.value.id)!;
+    await removeAccount(victim.accountId);
+    const marks = await backend.stamps();
+    check("un borrado en cascada queda anotado", marks.some((x) => x.entity === "txs" && x.id === victim.id && x.deleted) && marks.some((x) => x.entity === "accounts" && x.id === victim.accountId && x.deleted));
 
     // Red: tipos de cambio del BCE a través del núcleo nativo.
     try {

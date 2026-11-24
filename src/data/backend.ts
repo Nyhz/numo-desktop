@@ -6,34 +6,41 @@ import type { Account, AppState, Asset, Goal, Mortgage, MortgageEvent, Point, Pr
  * los traduce a una única transacción de SQLite.
  */
 export type Op =
-  | { op: "putAccount"; row: Account }
+  // Los cambios sobre registros del usuario pueden llevar `at`: el momento del cambio
+  // cuando viene de otro equipo (sincronización). Sin él, cuenta el momento de guardarlo.
+  | { op: "putAccount"; row: Account; at?: string }
   /** Borra la cuenta y todas sus operaciones. */
-  | { op: "delAccount"; id: string }
-  | { op: "putAsset"; row: Asset }
-  | { op: "delAsset"; id: string }
-  | { op: "putTx"; row: Tx }
-  | { op: "delTx"; id: string }
+  | { op: "delAccount"; id: string; at?: string }
+  | { op: "putAsset"; row: Asset; at?: string }
+  | { op: "delAsset"; id: string; at?: string }
+  | { op: "putTx"; row: Tx; at?: string }
+  | { op: "delTx"; id: string; at?: string }
   /** Con `replace` se sustituye el histórico entero del activo. */
   | { op: "prices"; assetId: string; points: Point[]; replace?: boolean }
   | { op: "delPrice"; assetId: string; date: string }
   | { op: "splits"; assetId: string; points: Point[] }
   | { op: "fx"; currency: string; points: Point[] }
   | { op: "meta"; key: string; value: string }
-  | { op: "putGoal"; row: Goal }
+  | { op: "putGoal"; row: Goal; at?: string }
   /** Los activos del bloque quedan sin asignar. */
-  | { op: "delGoal"; id: string }
-  | { op: "putProperty"; row: Property }
+  | { op: "delGoal"; id: string; at?: string }
+  | { op: "putProperty"; row: Property; at?: string }
   /** Borra también su hipoteca, eventos y valoraciones. */
-  | { op: "delProperty"; id: string }
-  | { op: "putMortgage"; row: Mortgage }
-  | { op: "delMortgage"; id: string }
-  | { op: "putMortgageEvent"; row: MortgageEvent }
-  | { op: "delMortgageEvent"; id: string }
-  | { op: "putValuation"; row: PropertyValuation }
-  | { op: "delValuation"; id: string };
+  | { op: "delProperty"; id: string; at?: string }
+  | { op: "putMortgage"; row: Mortgage; at?: string }
+  | { op: "delMortgage"; id: string; at?: string }
+  | { op: "putMortgageEvent"; row: MortgageEvent; at?: string }
+  | { op: "delMortgageEvent"; id: string; at?: string }
+  | { op: "putValuation"; row: PropertyValuation; at?: string }
+  | { op: "delValuation"; id: string; at?: string };
 
 export type Meta = Record<string, string>;
 export type Loaded = { state: AppState; meta: Meta };
+
+/** Registros del usuario que se sincronizan entre equipos, en orden de dependencia. */
+export const ENTITIES = ["accounts", "goals", "assets", "properties", "mortgages", "txs", "mortgageEvents", "valuations"] as const;
+export type Entity = (typeof ENTITIES)[number];
+export type Stamp = { entity: Entity; id: string; at: string; deleted: boolean };
 export type AppInfo = { version: string; dbPath: string; smoke: boolean; import: boolean };
 
 export interface Backend {
@@ -48,6 +55,15 @@ export interface Backend {
   info(): Promise<AppInfo>;
   /** Archivos de la carga inicial sin interfaz; vacío en uso normal. */
   importSource(): Promise<Array<{ name: string; text: string }>>;
+  // ── Sincronización entre equipos (solo en la app de escritorio) ──
+  /** Cuándo cambió por última vez cada registro, y cuáles se han borrado. */
+  stamps(): Promise<Stamp[]>;
+  /** Pide al usuario la carpeta compartida; devuelve la que se usará (o null si cancela). */
+  syncPick(): Promise<string | null>;
+  syncRead(dir: string): Promise<Array<{ name: string; text: string }>>;
+  syncWrite(dir: string, name: string, text: string): Promise<void>;
+  /** Copia de seguridad inmediata de la base de datos, con una etiqueta en el nombre. */
+  backupNow(label: string): Promise<void>;
 }
 
 const mergePoints = (cur: Point[] | undefined, add: Point[]): Point[] => {

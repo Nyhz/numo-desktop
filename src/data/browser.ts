@@ -28,4 +28,10 @@ export const browserBackend: Backend = {
   exportBackup: async () => null,
   info: async () => ({ version: "vista previa", dbPath: "(sin base de datos)", smoke: false, import: false }),
   importSource: async () => [],
+  // La vista previa no sincroniza: no tiene base de datos ni acceso a carpetas.
+  stamps: async () => [],
+  syncPick: async () => null,
+  syncRead: async () => [],
+  syncWrite: async () => {},
+  backupNow: async () => {},
 };

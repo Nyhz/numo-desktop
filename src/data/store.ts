@@ -30,6 +30,7 @@ import { EMPTY_STATE, reduce, type AppInfo, type Backend, type Loaded, type Op }
 import { browserBackend } from "./browser.ts";
 import { makeDemo } from "./demo.ts";
 import { dueAssets, fxOn, indexaStatus, syncMarket, type SyncIssue, type SyncProgress } from "./market.ts";
+import { buildSnapshot, mergeSnapshots, parseSnapshot, snapshotBody, stampOf, type Snapshot } from "./sync.ts";
 import { tauriBackend } from "./tauri.ts";
 
 export const backend: Backend = "__TAURI_INTERNALS__" in window ? tauriBackend : browserBackend;
@@ -57,6 +58,8 @@ type S = {
   syncing: boolean;
   /** Qué activo se está actualizando y cuántos van, mientras dura la descarga. */
   progress: SyncProgress | null;
+  /** Sincronización con otros equipos a través de una carpeta compartida. */
+  devices: { busy: boolean; error: string | null; peers: Array<{ name: string; writtenAt: string }>; notes: string[] };
   /** Animación de arranque: completa si hay precios que actualizar, corta si están al día. */
   splash: { mode: "full" | "short"; phase: SplashPhase; from: number | null } | null;
   issues: SyncIssue[];
@@ -81,6 +84,7 @@ let s: S = {
   range: saved<RangeKey>("caudal.range", "1A"),
   syncing: false,
   progress: null,
+  devices: { busy: false, error: null, peers: [], notes: [] },
   splash: null,
   issues: [],
   info: null,
@@ -96,6 +100,8 @@ const subscribe = (l: () => void) => {
 };
 
 export const getApp = () => s;
+/** Sustituye lo cargado por lo que hay en disco (solo para la prueba de humo). */
+export const setLoaded = (loaded: Loaded): void => set({ loaded });
 export function useApp<T>(select: (state: S) => T): T {
   return useSyncExternalStore(subscribe, () => select(s));
 }
@@ -133,6 +139,8 @@ async function commit(ops: Op[]): Promise<void> {
   if (s.demo) return set({ demo: reduce(s.demo, ops) });
   await backend.apply(ops);
   set({ loaded: reduce(s.loaded, ops) });
+  // Lo que cambia el usuario se publica para sus otros equipos (lo que llega de ellos, no).
+  if (!applyingRemote && ops.some((o) => stampOf(o, "") != null || o.op === "delPrice")) publishSoon();
 }
 
 async function attempt<T>(fn: () => Promise<T>): Promise<Result<T>> {
@@ -153,7 +161,8 @@ export async function boot(): Promise<void> {
     const stale = backend.native && dueAssets(loaded.state, loaded.meta).length > 0;
     const tl = derive(loaded.state, null).timeline;
     set({ status: "ready", info, loaded, splash: visible ? { mode: stale ? "full" : "short", phase: "load", from: tl.n ? tl.total[tl.n - 1]! : null } : null });
-    if (!info.smoke && !info.import) void sync(false);
+    // Primero lo de los otros equipos (puede traer activos nuevos) y después los precios.
+    if (!info.smoke && !info.import) void syncDevices().finally(() => sync(false));
   } catch (e) {
     set({ status: "error", error: message(e) });
   }
@@ -214,6 +223,132 @@ export async function ecbRate(currency: string, date: string): Promise<{ rate: n
   if (!hit) return null;
   if (hit.ops.length) await commit(hit.ops).catch(() => {});
   return { rate: hit.rate, date: hit.date };
+}
+
+// ── Sincronización entre equipos ───────────────────────────────────────────
+// Cada equipo deja en una carpeta compartida un archivo con sus registros; al
+// sincronizar se leen los de los demás y gana el cambio más reciente de cada
+// registro (ver sync.ts). La carpeta y el nombre del equipo son de cada equipo.
+
+let applyingRemote = false;
+let syncingDevices: Promise<Result<{ pulled: number; deleted: number } | null>> | null = null;
+let publishTimer: ReturnType<typeof setTimeout> | undefined;
+let lastFocusSync = 0;
+
+export const syncFolder = (state: S = s): string | null => state.loaded.meta["sync:dir"] || null;
+export function deviceOf(state: S = s): { id: string; name: string } | null {
+  try {
+    const d = JSON.parse(state.loaded.meta["sync:device"] ?? "null") as { id?: string; name?: string } | null;
+    return d?.id ? { id: d.id, name: d.name ?? "" } : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Publica los cambios poco después de hacerlos, juntando los que van seguidos. */
+function publishSoon(): void {
+  if (!syncFolder()) return;
+  clearTimeout(publishTimer);
+  publishTimer = setTimeout(() => void syncDevices(), 1500);
+}
+/** Al volver a la ventana se mira si otro equipo ha dejado algo (como mucho una vez por minuto). */
+export function syncOnFocus(): void {
+  if (!syncFolder() || Date.now() - lastFocusSync < 60_000) return;
+  lastFocusSync = Date.now();
+  void syncDevices();
+}
+
+/** Trae lo de los demás equipos y publica lo de este. Nunca hay dos a la vez. */
+export function syncDevices(): Promise<Result<{ pulled: number; deleted: number } | null>> {
+  if (syncingDevices) return syncingDevices;
+  syncingDevices = doSyncDevices().finally(() => {
+    syncingDevices = null;
+  });
+  return syncingDevices;
+}
+
+async function doSyncDevices(): Promise<Result<{ pulled: number; deleted: number } | null>> {
+  const dir = syncFolder();
+  const device = deviceOf();
+  if (!backend.native || s.demo || !dir || !device) return ok(null);
+  set({ devices: { ...s.devices, busy: true } });
+  try {
+    const files = await backend.syncRead(dir);
+    const own = `${device.id}.json`;
+    const remotes: Snapshot[] = [];
+    for (const f of files) {
+      if (f.name === own) continue;
+      const snap = parseSnapshot(f.text);
+      if (snap) remotes.push(snap);
+    }
+    let stamps = await backend.stamps();
+    const merge = mergeSnapshots(s.loaded.state, stamps, remotes);
+    if (merge.ops.length) {
+      // Antes de aplicar borrados o muchos cambios de golpe se guarda una copia.
+      if (merge.deleted > 0 || merge.pulled > 25) await backend.backupNow("antes-de-sincronizar");
+      applyingRemote = true;
+      try {
+        await commit(merge.ops);
+      } finally {
+        applyingRemote = false;
+      }
+      stamps = await backend.stamps();
+    }
+    // Solo se reescribe el archivo propio si su contenido ha cambiado.
+    const now = new Date().toISOString();
+    const snapshot = buildSnapshot(s.loaded.state, stamps, device, now);
+    const previous = files.find((f) => f.name === own);
+    let same = false;
+    try {
+      same = !!previous && snapshotBody(JSON.parse(previous.text) as Snapshot) === snapshotBody(snapshot);
+    } catch {
+      same = false;
+    }
+    if (!same) await backend.syncWrite(dir, own, JSON.stringify(snapshot));
+    await commit([{ op: "meta", key: "sync:last", value: now }]);
+    set({ devices: { busy: false, error: null, peers: remotes.map((r) => ({ name: r.device.name || "Otro equipo", writtenAt: r.writtenAt })), notes: merge.skipped } });
+    // Si han llegado activos nuevos, sus precios.
+    if (merge.pulled) syncSoon();
+    return ok({ pulled: merge.pulled, deleted: merge.deleted });
+  } catch (e) {
+    set({ devices: { ...s.devices, busy: false, error: message(e) } });
+    return fail(message(e));
+  }
+}
+
+/** Elige la carpeta compartida y sincroniza por primera vez. Devuelve null si se cancela. */
+export async function chooseSyncFolder(): Promise<Result<{ dir: string; pulled: number } | null>> {
+  if (isExample()) return fail("La cartera de ejemplo no se sincroniza");
+  try {
+    const dir = await backend.syncPick();
+    if (!dir) return ok(null);
+    const device = deviceOf() ?? { id: newId(), name: /Mac/i.test(navigator.platform) ? "Mac" : /Win/i.test(navigator.platform) ? "PC con Windows" : "Equipo" };
+    await commit([
+      { op: "meta", key: "sync:dir", value: dir },
+      { op: "meta", key: "sync:device", value: JSON.stringify(device) },
+    ]);
+    const res = await syncDevices();
+    if (!res.ok) return fail(res.error);
+    return ok({ dir, pulled: res.value?.pulled ?? 0 });
+  } catch (e) {
+    return fail(message(e));
+  }
+}
+
+/** Deja de sincronizar este equipo. No borra nada: ni aquí ni en la carpeta. */
+export const stopSync = (): Promise<Result> =>
+  attempt(async () => {
+    await commit([{ op: "meta", key: "sync:dir", value: "" }]);
+    set({ devices: { busy: false, error: null, peers: [], notes: [] } });
+  });
+
+export function renameDevice(name: string): Promise<Result> {
+  const device = deviceOf();
+  if (!device || !name.trim()) return Promise.resolve(fail("Pon un nombre al equipo"));
+  return attempt(async () => {
+    await commit([{ op: "meta", key: "sync:device", value: JSON.stringify({ ...device, name: name.trim() }) }]);
+    void syncDevices();
+  });
 }
 
 // ── Conexiones (claves de servicios) ───────────────────────────────────────
