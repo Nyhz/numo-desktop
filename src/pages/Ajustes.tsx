@@ -125,8 +125,8 @@ function Devices() {
           </Btn>
         }
       >
-        Para usar Caudal en varios equipos, elige en cada uno la misma carpeta de un servicio de nube (Proton Drive, iCloud, OneDrive, Dropbox…). Cada equipo deja ahí sus cambios y lee
-        los de los demás; la base de datos no se comparte.
+        Para usar Caudal en varios equipos, elige en cada uno la misma carpeta de un servicio de nube (Proton Drive, iCloud, OneDrive, Dropbox…). La app crea dentro una carpeta
+        «numo-app», donde cada equipo deja sus cambios y lee los de los demás; la base de datos no se comparte.
       </Row>
     );
   }

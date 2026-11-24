@@ -65,7 +65,7 @@ Decisiones de cálculo que conviene conocer:
 
 ## Varios equipos
 
-Para usar Caudal en más de un ordenador (Mac y Windows, por ejemplo): Ajustes → Sincronización entre equipos → «Elegir carpeta…», y elegir **en cada equipo la misma carpeta** de un servicio de nube (Proton Drive, iCloud, OneDrive, Dropbox…). La app crea dentro una carpeta `Caudal`.
+Para usar Caudal en más de un ordenador (Mac y Windows, por ejemplo): Ajustes → Sincronización entre equipos → «Elegir carpeta…», y elegir **en cada equipo la misma carpeta** de un servicio de nube (Proton Drive, iCloud, OneDrive, Dropbox…). La app crea dentro una carpeta `numo-app`.
 
 - La base de datos no se comparte: cada equipo tiene la suya. En la carpeta hay un archivo JSON por equipo con sus registros (cuentas, activos, operaciones, plan, inmuebles), cuándo cambió cada uno, cuáles se han borrado y el histórico de precios.
 - Al sincronizar se leen los archivos de los demás y, registro a registro, **gana el cambio más reciente** (un borrado es un cambio más). Un equipo recién instalado nunca borra nada en los otros.

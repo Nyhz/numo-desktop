@@ -361,7 +361,8 @@ async fn export_backup(app: AppHandle, name: String) -> CmdResult<Option<String>
 // (normalmente la de un servicio de nube). Aquí solo se leen y escriben esos
 // archivos; qué cambios se aplican lo decide la interfaz (src/data/sync.ts).
 
-const SYNC_FOLDER: &str = "Caudal";
+/// Nombre de la carpeta que la app crea dentro de la que elige el usuario.
+const SYNC_FOLDER: &str = "numo-app";
 /** Tope por archivo: muy por encima de lo que ocupa una cartera personal. */
 const SYNC_MAX_BYTES: u64 = 64 * 1024 * 1024;
 
@@ -373,7 +374,7 @@ fn is_sync_name(name: &str) -> bool {
 }
 
 /// La carpeta que se usará dentro de la elegida: ella misma si ya es la de Caudal
-/// (se llama así o tiene archivos de otro equipo), o una subcarpeta «Caudal».
+/// (se llama así o tiene archivos de otro equipo), o una subcarpeta «numo-app».
 fn sync_target(picked: &Path) -> PathBuf {
     let named = picked.file_name().is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case(SYNC_FOLDER));
     let has_files = fs::read_dir(picked).is_ok_and(|entries| {
@@ -672,10 +673,10 @@ mod tests {
         let base = std::env::temp_dir().join(format!("caudal-sync-test-{}", std::process::id()));
         let _ = fs::remove_dir_all(&base);
         fs::create_dir_all(&base).unwrap();
-        // Una carpeta cualquiera: se usa una subcarpeta «Caudal».
-        assert_eq!(sync_target(&base), base.join("Caudal"));
-        // La propia carpeta de Caudal, o una que ya tiene archivos de otro equipo: se usa tal cual.
-        let own = base.join("caudal");
+        // Una carpeta cualquiera: se usa una subcarpeta «numo-app».
+        assert_eq!(sync_target(&base), base.join("numo-app"));
+        // La propia carpeta de la app, o una que ya tiene archivos de otro equipo: se usa tal cual.
+        let own = base.join("Numo-App");
         fs::create_dir_all(&own).unwrap();
         assert_eq!(sync_target(&own), own);
         let dir = base.to_string_lossy().into_owned();
