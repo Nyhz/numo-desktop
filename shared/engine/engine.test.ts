@@ -38,6 +38,8 @@ const asset = (id: string, over: Partial<Asset> = {}): Asset => ({
   isin: null,
   currency: "EUR",
   priceSource: "yahoo",
+  goalId: null,
+  planExcluded: false,
   createdAt: "2020-01-01T00:00:00Z",
   ...over,
 });
@@ -67,6 +69,11 @@ const state = (over: Partial<AppState>): AppState => ({
   prices: {},
   fx: {},
   splits: {},
+  goals: [],
+  properties: [],
+  mortgages: [],
+  mortgageEvents: [],
+  valuations: [],
   lastSync: null,
   ...over,
 });

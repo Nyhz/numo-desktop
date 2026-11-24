@@ -23,7 +23,10 @@ use tauri_plugin_dialog::DialogExt;
 
 /// Migraciones en orden. `PRAGMA user_version` recuerda la última aplicada.
 /// Nunca se edita una ya publicada: se añade otra al final.
-const MIGRATIONS: &[&str] = &[include_str!("../migrations/001_init.sql")];
+const MIGRATIONS: &[&str] = &[
+    include_str!("../migrations/001_init.sql"),
+    include_str!("../migrations/002_plan_inmuebles.sql"),
+];
 
 /// Únicos servidores a los que la app puede conectarse.
 const ALLOWED_HOSTS: &[&str] = &[
@@ -277,6 +280,36 @@ struct AppInfo {
     version: String,
     db_path: String,
     smoke: bool,
+    /// Hay una carga inicial pendiente (CAUDAL_IMPORT_DIR).
+    import: bool,
+}
+
+#[derive(Serialize)]
+struct SourceFile {
+    name: String,
+    text: String,
+}
+
+/// Archivos de la carga inicial sin interfaz: solo los .csv y .json de la
+/// carpeta indicada en CAUDAL_IMPORT_DIR. Sin esa variable no devuelve nada.
+#[tauri::command]
+fn import_source() -> CmdResult<Vec<SourceFile>> {
+    let Some(dir) = std::env::var_os("CAUDAL_IMPORT_DIR") else {
+        return Ok(Vec::new());
+    };
+    let mut out = Vec::new();
+    for entry in fs::read_dir(PathBuf::from(dir)).map_err(err)? {
+        let path = entry.map_err(err)?.path();
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or_default();
+        if path.is_file() && (ext == "csv" || ext == "json") {
+            out.push(SourceFile {
+                name: path.file_name().unwrap_or_default().to_string_lossy().into_owned(),
+                text: fs::read_to_string(&path).map_err(err)?,
+            });
+        }
+    }
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(out)
 }
 
 #[tauri::command]
@@ -285,13 +318,15 @@ fn app_info(app: AppHandle, db: State<'_, Db>) -> AppInfo {
         version: app.package_info().version.to_string(),
         db_path: db.path.display().to_string(),
         smoke: std::env::var_os("CAUDAL_SMOKE").is_some(),
+        import: std::env::var_os("CAUDAL_IMPORT_DIR").is_some(),
     }
 }
 
-/// Solo para la prueba de humo automática: imprime el resultado y cierra la app.
+/// Solo para los modos sin interfaz (prueba de humo y carga inicial):
+/// imprime el resultado y cierra la app.
 #[tauri::command]
 fn smoke_done(app: AppHandle, ok: bool, report: String) {
-    if std::env::var_os("CAUDAL_SMOKE").is_none() {
+    if std::env::var_os("CAUDAL_SMOKE").is_none() && std::env::var_os("CAUDAL_IMPORT_DIR").is_none() {
         return;
     }
     println!("[caudal-smoke] {}\n{report}", if ok { "OK" } else { "FALLO" });
@@ -318,6 +353,7 @@ pub fn run() {
             save_file,
             export_backup,
             app_info,
+            import_source,
             smoke_done
         ])
         .run(tauri::generate_context!())
@@ -352,6 +388,26 @@ mod tests {
         migrate(&mut conn).unwrap();
         let v: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
         assert_eq!(v as usize, MIGRATIONS.len());
+    }
+
+    #[test]
+    fn deleting_a_property_removes_its_mortgage_and_events() {
+        let conn = memory_db();
+        conn.execute_batch(
+            "INSERT INTO properties (id, name, purchase_date, purchase_price, created_at) VALUES ('p', 'Casa', '2024-01-01', 100, 'x');
+             INSERT INTO mortgages (id, property_id, principal, rate_type, rate_pct, term_months, first_payment_date, created_at) VALUES ('m', 'p', 80, 'fixed', 3, 360, '2024-02-01', 'x');
+             INSERT INTO mortgage_events (id, mortgage_id, date, type, amount, created_at) VALUES ('e', 'm', '2025-01-01', 'early_repayment', 10, 'x');
+             INSERT INTO property_valuations (id, property_id, date, value) VALUES ('v', 'p', '2025-01-01', 120);
+             INSERT INTO goals (id, name, target_pct, color, created_at) VALUES ('g', 'Global', 50, 1, 'x');
+             INSERT INTO assets (id, name, kind, currency, price_source, created_at, goal_id) VALUES ('a', 'ETF', 'etf', 'EUR', 'manual', 'x', 'g');
+             DELETE FROM properties WHERE id = 'p';
+             DELETE FROM goals WHERE id = 'g';",
+        )
+        .unwrap();
+        let count = |t: &str| -> i64 { conn.query_row(&format!("SELECT COUNT(*) FROM {t}"), [], |r| r.get(0)).unwrap() };
+        assert_eq!(count("mortgages") + count("mortgage_events") + count("property_valuations"), 0);
+        let goal: Option<String> = conn.query_row("SELECT goal_id FROM assets WHERE id = 'a'", [], |r| r.get(0)).unwrap();
+        assert_eq!(goal, None, "al borrar un bloque el activo queda sin asignar, no se borra");
     }
 
     #[test]

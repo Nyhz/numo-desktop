@@ -39,7 +39,79 @@ export type Asset = {
   /** Divisa en la que cotiza. */
   currency: string;
   priceSource: "yahoo" | "manual";
+  /** Bloque del plan al que pertenece; null = sin asignar. */
+  goalId: string | null;
+  /** Fuera del plan: no cuenta en ningún bloque ni en el total repartido (p. ej. un plan de pensiones). */
+  planExcluded: boolean;
   createdAt: string;
+};
+
+/** Bloque del plan de inversión: un peso objetivo sobre la cartera. */
+export type Goal = {
+  id: string;
+  name: string;
+  targetPct: number;
+  /** Hueco de color fijo (1-6); acompaña al bloque. */
+  color: number;
+  sortOrder: number;
+  createdAt: string;
+};
+
+export type Property = {
+  id: string;
+  name: string;
+  address: string;
+  /** Fecha de compra, YYYY-MM-DD. */
+  purchaseDate: string;
+  purchasePrice: number;
+  /** Impuestos, notaría, registro… */
+  purchaseCosts: number;
+  note: string;
+  createdAt: string;
+};
+
+export type RateType = "fixed" | "variable" | "mixed";
+
+/** Hipoteca de amortización francesa; como mucho una por inmueble. */
+export type Mortgage = {
+  id: string;
+  propertyId: string;
+  lender: string;
+  principal: number;
+  rateType: RateType;
+  /** TIN anual en %. */
+  ratePct: number;
+  termMonths: number;
+  /** Fecha de la primera cuota, YYYY-MM-DD. */
+  firstPaymentDate: string;
+  createdAt: string;
+};
+
+export type MortgageEventType = "early_repayment" | "rate_change" | "payment_override";
+
+/** Lo que cambia el cuadro: amortización anticipada, revisión del tipo o cuota real del recibo. */
+export type MortgageEvent = {
+  id: string;
+  mortgageId: string;
+  date: string;
+  type: MortgageEventType;
+  /** Importe amortizado, o nueva cuota mensual si es payment_override. */
+  amount: number | null;
+  /** Solo amortización anticipada: reducir plazo o reducir cuota. */
+  mode: "reduce_term" | "reduce_installment" | null;
+  /** Solo revisión del tipo: nuevo TIN en %. */
+  ratePct: number | null;
+  note: string;
+  createdAt: string;
+};
+
+/** Valoración fechada del inmueble (tasación, reforma). */
+export type PropertyValuation = {
+  id: string;
+  propertyId: string;
+  date: string;
+  value: number;
+  note: string;
 };
 
 export type Tx = {
@@ -86,6 +158,11 @@ export type AppState = {
   fx: Record<string, Point[]>;
   /** Splits por activo: [fecha, ratio] (10 = 10 acciones nuevas por cada antigua). */
   splits: Record<string, Point[]>;
+  goals: Goal[];
+  properties: Property[];
+  mortgages: Mortgage[];
+  mortgageEvents: MortgageEvent[];
+  valuations: PropertyValuation[];
   lastSync: string | null;
 };
 
@@ -120,6 +197,7 @@ export const ASSET_KIND_LABEL: Record<AssetKind, string> = {
   bond: "Renta fija",
   other: "Otros",
 };
+export const RATE_TYPE_LABEL: Record<RateType, string> = { fixed: "Fijo", variable: "Variable", mixed: "Mixto" };
 export const ACCOUNT_KIND_LABEL: Record<AccountKind, string> = {
   broker: "Bróker",
   bank: "Banco",

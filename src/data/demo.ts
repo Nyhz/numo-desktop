@@ -1,6 +1,6 @@
 import { addDays, addMonths, dayNum, isoOf } from "../../shared/dates.ts";
 import { txInput } from "../../shared/schema.ts";
-import type { Account, AppState, Asset, AssetKind, Point, Tx } from "../../shared/types.ts";
+import type { Account, AppState, Asset, AssetKind, Goal, Point, Tx } from "../../shared/types.ts";
 
 // Cartera de ejemplo: entidades, empresas y precios inventados. Sirve para
 // enseñar la app sin datos reales; nada de esto se guarda en la base de datos.
@@ -64,7 +64,7 @@ export function makeDemo(today: string): AppState {
     drift: number,
     vol: number,
   ) => {
-    const a: Asset = { id: `demo-${key}`, name, kind, symbol: null, isin, currency, priceSource: "manual", createdAt: at };
+    const a: Asset = { id: `demo-${key}`, name, kind, symbol: null, isin, currency, priceSource: "manual", goalId: null, planExcluded: false, createdAt: at };
     assets.push(a);
     prices[a.id] = walk(seed, from, today, p0, drift, vol);
     return a;
@@ -173,5 +173,18 @@ export function makeDemo(today: string): AppState {
   }
   trade("sell", crypto, btc, addMonths(start, 31), 0.012, 2.5);
 
-  return { accounts: [broker, funds, usd, crypto], assets, txs, prices, fx, splits: {}, lastSync: null };
+  // Plan de ejemplo: cinco bloques con su peso objetivo.
+  const goal = (i: number, name: string, targetPct: number): Goal => ({ id: `demo-goal-${i}`, name, targetPct, color: i, sortOrder: i, createdAt: at });
+  const goals = [goal(1, "Global", 35), goal(2, "Tecnología", 30), goal(3, "España y Europa", 15), goal(4, "Cripto", 10), goal(5, "Renta fija", 10)];
+  const assign: Record<string, number> = { world: 1, "fund-b": 1, helios: 2, meridian: 2, vertice: 2, textil: 3, banco: 3, north: 3, btc: 4, eth: 4, "fund-a": 5 };
+  for (const a of assets) a.goalId = `demo-goal-${assign[a.id.replace("demo-", "")] ?? 1}`;
+
+  // Un inmueble con hipoteca fija, una amortización anticipada y una tasación.
+  const bought = addMonths(today, -26);
+  const property = { id: "demo-prop-1", name: "Piso de la calle Mayor", address: "Calle Mayor 12, 3.º B", purchaseDate: bought, purchasePrice: 248000, purchaseCosts: 21300, note: "", createdAt: at };
+  const mortgage = { id: "demo-mort-1", propertyId: property.id, lender: "Banco Norte", principal: 198400, rateType: "fixed" as const, ratePct: 2.65, termMonths: 300, firstPaymentDate: addMonths(bought, 1), createdAt: at };
+  const mortgageEvents = [{ id: "demo-ev-1", mortgageId: mortgage.id, date: addDays(addMonths(bought, 14), 9), type: "early_repayment" as const, amount: 6000, mode: "reduce_term" as const, ratePct: null, note: "Paga extra", createdAt: at }];
+  const valuations = [{ id: "demo-val-1", propertyId: property.id, date: addMonths(bought, 20), value: 262000, note: "Tasación" }];
+
+  return { accounts: [broker, funds, usd, crypto], assets, txs, prices, fx, splits: {}, goals, properties: [property], mortgages: [mortgage], mortgageEvents, valuations, lastSync: null };
 }

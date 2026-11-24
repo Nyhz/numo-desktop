@@ -24,5 +24,6 @@ export const browserBackend: Backend = {
     return name;
   },
   exportBackup: async () => null,
-  info: async () => ({ version: "vista previa", dbPath: "(sin base de datos)", smoke: false }),
+  info: async () => ({ version: "vista previa", dbPath: "(sin base de datos)", smoke: false, import: false }),
+  importSource: async () => [],
 };

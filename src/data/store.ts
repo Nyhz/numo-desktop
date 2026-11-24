@@ -11,8 +11,19 @@ import {
   type Scope,
   type Timeline,
 } from "../../shared/engine/timeline.ts";
-import { accountInput, assetInput, firstIssue, txInput } from "../../shared/schema.ts";
-import type { Account, AppState, Asset, Point, Tx } from "../../shared/types.ts";
+import { extrasSchema, type Extras } from "../../shared/extras.ts";
+import {
+  accountInput,
+  assetInput,
+  firstIssue,
+  goalInput,
+  mortgageEventInput,
+  mortgageInput,
+  propertyInput,
+  txInput,
+  valuationInput,
+} from "../../shared/schema.ts";
+import type { Account, AppState, Asset, Goal, Mortgage, MortgageEvent, Point, Property, PropertyValuation, Tx } from "../../shared/types.ts";
 import { EMPTY_STATE, reduce, type AppInfo, type Backend, type Loaded, type Op } from "./backend.ts";
 import { browserBackend } from "./browser.ts";
 import { makeDemo } from "./demo.ts";
@@ -207,8 +218,12 @@ export function saveAsset(input: unknown, id?: string): Promise<Result<Asset>> {
   const before = id ? current().state.assets.find((a) => a.id === id) : undefined;
   if (id && !before) return Promise.resolve(fail("El activo ya no existe"));
   const d = parsed.data;
+  const raw = (input ?? {}) as Record<string, unknown>;
   const row: Asset = {
     ...d,
+    // El formulario de activo no toca el plan: se conserva lo que hubiera.
+    goalId: "goalId" in raw ? d.goalId : (before?.goalId ?? null),
+    planExcluded: "planExcluded" in raw ? d.planExcluded : (before?.planExcluded ?? false),
     symbol: d.symbol || null,
     isin: d.isin || null,
     priceSource: d.symbol ? d.priceSource : "manual",
@@ -388,6 +403,169 @@ export function importSeries(kind: "prices" | "splits", byAsset: Map<string, Poi
   return attempt(async () => {
     await commit(ops);
     return n;
+  });
+}
+
+// ── Plan ───────────────────────────────────────────────────────────────────
+
+export function saveGoal(input: unknown, id?: string): Promise<Result<Goal>> {
+  const parsed = goalInput.safeParse(input);
+  if (!parsed.success) return Promise.resolve(fail(firstIssue(parsed.error)));
+  const { goals } = current().state;
+  const before = id ? goals.find((g) => g.id === id) : undefined;
+  if (id && !before) return Promise.resolve(fail("El bloque ya no existe"));
+  if (goals.some((g) => g.id !== id && g.name.trim().toLowerCase() === parsed.data.name.toLowerCase()))
+    return Promise.resolve(fail("Ya hay un bloque con ese nombre"));
+  const used = new Set(goals.map((g) => g.color));
+  const row: Goal = {
+    ...parsed.data,
+    id: id ?? newId(),
+    color: before?.color ?? [1, 2, 3, 4, 5, 6].find((c) => !used.has(c)) ?? (goals.length % 6) + 1,
+    sortOrder: before?.sortOrder ?? goals.reduce((m, g) => Math.max(m, g.sortOrder), -1) + 1,
+    createdAt: before?.createdAt ?? new Date().toISOString(),
+  };
+  return attempt(async () => {
+    await commit([{ op: "putGoal", row }]);
+    return row;
+  });
+}
+
+export const removeGoal = (id: string): Promise<Result> => attempt(() => commit([{ op: "delGoal", id }]));
+
+/** Asigna un activo a un bloque, lo deja sin asignar (null) o lo saca del plan. */
+export function assignAsset(assetId: string, goalId: string | null, planExcluded: boolean): Promise<Result> {
+  const asset = current().state.assets.find((a) => a.id === assetId);
+  if (!asset) return Promise.resolve(fail("El activo ya no existe"));
+  return attempt(() => commit([{ op: "putAsset", row: { ...asset, goalId: planExcluded ? null : goalId, planExcluded } }]));
+}
+
+// ── Inmuebles ──────────────────────────────────────────────────────────────
+
+/**
+ * Guarda el inmueble y su hipoteca en un solo paso. `mortgage: null` significa
+ * sin hipoteca (y borra la que hubiera, con sus eventos).
+ */
+export function saveProperty(input: unknown, mortgage: unknown | null, id?: string): Promise<Result<Property>> {
+  const parsed = propertyInput.safeParse(input);
+  if (!parsed.success) return Promise.resolve(fail(firstIssue(parsed.error)));
+  const state = current().state;
+  const before = id ? state.properties.find((p) => p.id === id) : undefined;
+  if (id && !before) return Promise.resolve(fail("El inmueble ya no existe"));
+  const row: Property = { ...parsed.data, id: id ?? newId(), createdAt: before?.createdAt ?? new Date().toISOString() };
+  const ops: Op[] = [{ op: "putProperty", row }];
+  const existing = state.mortgages.find((m) => m.propertyId === row.id);
+  if (mortgage == null) {
+    if (existing) ops.push({ op: "delMortgage", id: existing.id });
+  } else {
+    const m = mortgageInput.safeParse(mortgage);
+    if (!m.success) return Promise.resolve(fail(firstIssue(m.error)));
+    if (m.data.principal > row.purchasePrice * 1.5) return Promise.resolve(fail("El capital de la hipoteca es mucho mayor que el precio de compra: revisa las cifras"));
+    const mrow: Mortgage = { ...m.data, id: existing?.id ?? newId(), propertyId: row.id, createdAt: existing?.createdAt ?? new Date().toISOString() };
+    ops.push({ op: "putMortgage", row: mrow });
+  }
+  return attempt(async () => {
+    await commit(ops);
+    return row;
+  });
+}
+
+export const removeProperty = (id: string): Promise<Result> => attempt(() => commit([{ op: "delProperty", id }]));
+
+export function saveMortgageEvent(mortgageId: string, input: unknown, id?: string): Promise<Result<MortgageEvent>> {
+  const parsed = mortgageEventInput.safeParse(input);
+  if (!parsed.success) return Promise.resolve(fail(firstIssue(parsed.error)));
+  const state = current().state;
+  const mortgage = state.mortgages.find((m) => m.id === mortgageId);
+  if (!mortgage) return Promise.resolve(fail("La hipoteca ya no existe"));
+  if (parsed.data.date < mortgage.firstPaymentDate && parsed.data.type !== "rate_change")
+    return Promise.resolve(fail("La fecha es anterior a la primera cuota"));
+  const before = id ? state.mortgageEvents.find((e) => e.id === id) : undefined;
+  const row: MortgageEvent = { ...parsed.data, id: id ?? newId(), mortgageId, createdAt: before?.createdAt ?? new Date().toISOString() };
+  return attempt(async () => {
+    await commit([{ op: "putMortgageEvent", row }]);
+    return row;
+  });
+}
+export const removeMortgageEvent = (id: string): Promise<Result> => attempt(() => commit([{ op: "delMortgageEvent", id }]));
+
+export function saveValuation(propertyId: string, input: unknown, id?: string): Promise<Result<PropertyValuation>> {
+  const parsed = valuationInput.safeParse(input);
+  if (!parsed.success) return Promise.resolve(fail(firstIssue(parsed.error)));
+  const state = current().state;
+  if (!state.properties.some((p) => p.id === propertyId)) return Promise.resolve(fail("El inmueble ya no existe"));
+  // Una valoración por fecha: guardar otra el mismo día la sustituye.
+  const same = state.valuations.find((v) => v.propertyId === propertyId && v.date === parsed.data.date);
+  const row: PropertyValuation = { ...parsed.data, id: id ?? same?.id ?? newId(), propertyId };
+  return attempt(async () => {
+    await commit([{ op: "putValuation", row }]);
+    return row;
+  });
+}
+export const removeValuation = (id: string): Promise<Result> => attempt(() => commit([{ op: "delValuation", id }]));
+
+/** Importa el plan y los inmuebles desde un JSON de extras. No duplica lo que ya exista por nombre. */
+export function importExtras(json: unknown): Promise<Result<{ goals: number; assigned: number; properties: number; unmatched: string[] }>> {
+  const parsed = extrasSchema.safeParse(json);
+  if (!parsed.success) return Promise.resolve(fail(`El archivo de extras no es válido: ${firstIssue(parsed.error)}`));
+  const x: Extras = parsed.data;
+  const state = current().state;
+  const ops: Op[] = [];
+  const now = new Date().toISOString();
+  const fold = (t: string) => t.trim().toLowerCase();
+
+  const goalIds = new Map(state.goals.map((g) => [fold(g.name), g.id]));
+  const used = new Set(state.goals.map((g) => g.color));
+  let goals = 0;
+  x.objetivos.forEach((o, i) => {
+    if (goalIds.has(fold(o.nombre))) return;
+    const color = [1, 2, 3, 4, 5, 6].find((c) => !used.has(c)) ?? ((state.goals.length + i) % 6) + 1;
+    used.add(color);
+    const row: Goal = { id: newId(), name: o.nombre.trim(), targetPct: o.objetivoPct, color, sortOrder: o.orden ?? state.goals.length + i, createdAt: now };
+    goalIds.set(fold(o.nombre), row.id);
+    ops.push({ op: "putGoal", row });
+    goals++;
+  });
+
+  const byKey = new Map<string, Asset>();
+  for (const a of state.assets) {
+    if (a.isin) byKey.set(`isin:${a.isin.toUpperCase()}`, a);
+    if (a.symbol) byKey.set(`sym:${a.symbol.toUpperCase()}`, a);
+    byKey.set(`name:${accountKey(a.name)}`, a);
+  }
+  const unmatched: string[] = [];
+  let assigned = 0;
+  for (const a of x.asignaciones) {
+    const asset =
+      (a.isin && byKey.get(`isin:${a.isin.toUpperCase()}`)) || (a.simbolo && byKey.get(`sym:${a.simbolo.toUpperCase()}`)) || (a.activo && byKey.get(`name:${accountKey(a.activo)}`)) || null;
+    if (!asset) {
+      unmatched.push(a.activo || a.isin || a.simbolo);
+      continue;
+    }
+    const goalId = a.objetivo ? (goalIds.get(fold(a.objetivo)) ?? null) : null;
+    ops.push({ op: "putAsset", row: { ...asset, goalId: a.excluido ? null : goalId, planExcluded: a.excluido } });
+    assigned++;
+  }
+
+  let properties = 0;
+  for (const p of x.inmuebles) {
+    if (state.properties.some((q) => fold(q.name) === fold(p.nombre))) continue;
+    const prop: Property = { id: newId(), name: p.nombre.trim(), address: p.direccion, purchaseDate: p.fechaCompra, purchasePrice: p.precio, purchaseCosts: p.gastos, note: p.nota, createdAt: now };
+    ops.push({ op: "putProperty", row: prop });
+    properties++;
+    if (p.hipoteca) {
+      const h = p.hipoteca;
+      const m: Mortgage = { id: newId(), propertyId: prop.id, lender: h.entidad, principal: h.principal, rateType: h.tipo, ratePct: h.tin, termMonths: h.plazoMeses, firstPaymentDate: h.primeraCuota, createdAt: now };
+      ops.push({ op: "putMortgage", row: m });
+      for (const e of h.eventos) {
+        ops.push({ op: "putMortgageEvent", row: { id: newId(), mortgageId: m.id, date: e.fecha, type: e.tipo, amount: e.importe, mode: e.modo, ratePct: e.tin, note: e.nota, createdAt: now } });
+      }
+    }
+    for (const v of p.valoraciones) ops.push({ op: "putValuation", row: { id: newId(), propertyId: prop.id, date: v.fecha, value: v.valor, note: v.nota } });
+  }
+
+  return attempt(async () => {
+    await commit(ops);
+    return { goals, assigned, properties, unmatched };
   });
 }
 

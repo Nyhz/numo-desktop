@@ -1,4 +1,4 @@
-import type { Account, AppState, Asset, Point, Tx } from "../../shared/types.ts";
+import type { Account, AppState, Asset, Goal, Mortgage, MortgageEvent, Point, Property, PropertyValuation, Tx } from "../../shared/types.ts";
 
 /**
  * Un cambio sobre los datos guardados. La interfaz nunca escribe SQL: describe
@@ -18,11 +18,23 @@ export type Op =
   | { op: "delPrice"; assetId: string; date: string }
   | { op: "splits"; assetId: string; points: Point[] }
   | { op: "fx"; currency: string; points: Point[] }
-  | { op: "meta"; key: string; value: string };
+  | { op: "meta"; key: string; value: string }
+  | { op: "putGoal"; row: Goal }
+  /** Los activos del bloque quedan sin asignar. */
+  | { op: "delGoal"; id: string }
+  | { op: "putProperty"; row: Property }
+  /** Borra también su hipoteca, eventos y valoraciones. */
+  | { op: "delProperty"; id: string }
+  | { op: "putMortgage"; row: Mortgage }
+  | { op: "delMortgage"; id: string }
+  | { op: "putMortgageEvent"; row: MortgageEvent }
+  | { op: "delMortgageEvent"; id: string }
+  | { op: "putValuation"; row: PropertyValuation }
+  | { op: "delValuation"; id: string };
 
 export type Meta = Record<string, string>;
 export type Loaded = { state: AppState; meta: Meta };
-export type AppInfo = { version: string; dbPath: string; smoke: boolean };
+export type AppInfo = { version: string; dbPath: string; smoke: boolean; import: boolean };
 
 export interface Backend {
   /** true dentro de la app de escritorio; false en la vista previa del navegador. */
@@ -34,6 +46,8 @@ export interface Backend {
   saveFile(name: string, data: string | Uint8Array): Promise<string | null>;
   exportBackup(name: string): Promise<string | null>;
   info(): Promise<AppInfo>;
+  /** Archivos de la carga inicial sin interfaz; vacío en uso normal. */
+  importSource(): Promise<Array<{ name: string; text: string }>>;
 }
 
 const mergePoints = (cur: Point[] | undefined, add: Point[]): Point[] => {
@@ -111,6 +125,52 @@ export function reduce(loaded: Loaded, ops: Op[]): Loaded {
         meta = { ...meta, [o.key]: o.value };
         if (o.key === "lastSync") state = { ...state, lastSync: o.value };
         break;
+      case "putGoal":
+        state = { ...state, goals: upsert(state.goals, o.row) };
+        break;
+      case "delGoal":
+        state = {
+          ...state,
+          goals: state.goals.filter((g) => g.id !== o.id),
+          assets: state.assets.map((a) => (a.goalId === o.id ? { ...a, goalId: null } : a)),
+        };
+        break;
+      case "putProperty":
+        state = { ...state, properties: upsert(state.properties, o.row) };
+        break;
+      case "delProperty": {
+        const gone = new Set(state.mortgages.filter((m) => m.propertyId === o.id).map((m) => m.id));
+        state = {
+          ...state,
+          properties: state.properties.filter((p) => p.id !== o.id),
+          mortgages: state.mortgages.filter((m) => m.propertyId !== o.id),
+          mortgageEvents: state.mortgageEvents.filter((e) => !gone.has(e.mortgageId)),
+          valuations: state.valuations.filter((v) => v.propertyId !== o.id),
+        };
+        break;
+      }
+      case "putMortgage":
+        state = { ...state, mortgages: upsert(state.mortgages, o.row) };
+        break;
+      case "delMortgage":
+        state = {
+          ...state,
+          mortgages: state.mortgages.filter((m) => m.id !== o.id),
+          mortgageEvents: state.mortgageEvents.filter((e) => e.mortgageId !== o.id),
+        };
+        break;
+      case "putMortgageEvent":
+        state = { ...state, mortgageEvents: upsert(state.mortgageEvents, o.row) };
+        break;
+      case "delMortgageEvent":
+        state = { ...state, mortgageEvents: state.mortgageEvents.filter((e) => e.id !== o.id) };
+        break;
+      case "putValuation":
+        state = { ...state, valuations: upsert(state.valuations, o.row) };
+        break;
+      case "delValuation":
+        state = { ...state, valuations: state.valuations.filter((v) => v.id !== o.id) };
+        break;
     }
   }
   return { state, meta };
@@ -123,5 +183,10 @@ export const EMPTY_STATE: AppState = {
   prices: {},
   fx: {},
   splits: {},
+  goals: [],
+  properties: [],
+  mortgages: [],
+  mortgageEvents: [],
+  valuations: [],
   lastSync: null,
 };

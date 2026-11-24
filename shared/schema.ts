@@ -33,6 +33,8 @@ export const assetInput = z.object({
     .default(null),
   currency,
   priceSource: z.enum(["yahoo", "manual"]).default("manual"),
+  goalId: z.string().min(1).nullable().default(null),
+  planExcluded: z.boolean().default(false),
 });
 export type AssetInput = z.infer<typeof assetInput>;
 
@@ -91,6 +93,63 @@ export const txInput = z
     toQuantity: t.type === "transfer" ? t.toQuantity : null,
   }));
 export type TxInput = z.infer<typeof txInput>;
+
+const isoDate = z.string().refine(isIsoDate, "Fecha no válida");
+
+export const goalInput = z.object({
+  name: z.string().trim().min(1, "Ponle un nombre").max(40),
+  targetPct: z.number().min(0, "No puede ser negativo").max(100, "No puede pasar de 100"),
+});
+export type GoalInput = z.infer<typeof goalInput>;
+
+export const propertyInput = z.object({
+  name: z.string().trim().min(1, "Ponle un nombre").max(60),
+  address: z.string().trim().max(160).default(""),
+  purchaseDate: isoDate,
+  purchasePrice: z.number().positive("Indica el precio de compra"),
+  purchaseCosts: money.default(0),
+  note: z.string().trim().max(500).default(""),
+});
+export type PropertyInput = z.infer<typeof propertyInput>;
+
+export const mortgageInput = z.object({
+  lender: z.string().trim().max(60).default(""),
+  principal: z.number().positive("Indica el capital prestado"),
+  rateType: z.enum(["fixed", "variable", "mixed"]).default("fixed"),
+  ratePct: z.number().min(0, "El tipo no puede ser negativo").max(30, "Tipo demasiado alto"),
+  termMonths: z.number().int().min(1, "Indica el plazo").max(600, "Plazo máximo: 50 años"),
+  firstPaymentDate: isoDate,
+});
+export type MortgageInput = z.infer<typeof mortgageInput>;
+
+export const mortgageEventInput = z
+  .object({
+    date: isoDate,
+    type: z.enum(["early_repayment", "rate_change", "payment_override"]),
+    amount: z.number().positive("Debe ser mayor que cero").nullable().default(null),
+    mode: z.enum(["reduce_term", "reduce_installment"]).nullable().default(null),
+    ratePct: z.number().min(0).max(30).nullable().default(null),
+    note: z.string().trim().max(300).default(""),
+  })
+  .superRefine((e, ctx) => {
+    const err = (path: string, message: string) => ctx.addIssue({ code: "custom", path: [path], message });
+    if (e.type === "rate_change" && e.ratePct == null) err("ratePct", "Indica el nuevo tipo");
+    if (e.type !== "rate_change" && e.amount == null) err("amount", "Indica el importe");
+  })
+  .transform((e) => ({
+    ...e,
+    amount: e.type === "rate_change" ? null : e.amount,
+    mode: e.type === "early_repayment" ? (e.mode ?? "reduce_term") : null,
+    ratePct: e.type === "rate_change" ? e.ratePct : null,
+  }));
+export type MortgageEventInput = z.infer<typeof mortgageEventInput>;
+
+export const valuationInput = z.object({
+  date: isoDate,
+  value: z.number().positive("Indica el valor"),
+  note: z.string().trim().max(300).default(""),
+});
+export type ValuationInput = z.infer<typeof valuationInput>;
 
 /** Primer mensaje de error legible de una validación fallida. */
 export const firstIssue = (e: z.ZodError): string => e.issues[0]?.message ?? "Datos no válidos";

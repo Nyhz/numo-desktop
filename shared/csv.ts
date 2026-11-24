@@ -327,6 +327,8 @@ export function planImport(rows: ImportRow[], state: AppState): ImportPlan {
       isin: /^[A-Z]{2}[A-Z0-9]{9}\d$/.test(ref.isin) ? ref.isin : null,
       currency: ref.currency,
       priceSource: ref.symbol ? "yahoo" : "manual",
+      goalId: null,
+      planExcluded: false,
     });
   };
   for (const r of rows) {

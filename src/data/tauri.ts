@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Account, AppState, Asset, Point, Tx } from "../../shared/types.ts";
+import type { Account, AppState, Asset, Goal, Mortgage, MortgageEvent, Point, Property, PropertyValuation, Tx } from "../../shared/types.ts";
 import type { AppInfo, Backend, Loaded, Meta, Op } from "./backend.ts";
 
 type Statement = { sql: string; params?: unknown[]; many?: unknown[][] };
@@ -25,7 +25,56 @@ const ASSET: Array<[string, keyof Asset]> = [
   ["isin", "isin"],
   ["currency", "currency"],
   ["price_source", "priceSource"],
+  ["goal_id", "goalId"],
+  ["plan_excluded", "planExcluded"],
   ["created_at", "createdAt"],
+];
+const GOAL: Array<[string, keyof Goal]> = [
+  ["id", "id"],
+  ["name", "name"],
+  ["target_pct", "targetPct"],
+  ["color", "color"],
+  ["sort_order", "sortOrder"],
+  ["created_at", "createdAt"],
+];
+const PROPERTY: Array<[string, keyof Property]> = [
+  ["id", "id"],
+  ["name", "name"],
+  ["address", "address"],
+  ["purchase_date", "purchaseDate"],
+  ["purchase_price", "purchasePrice"],
+  ["purchase_costs", "purchaseCosts"],
+  ["note", "note"],
+  ["created_at", "createdAt"],
+];
+const MORTGAGE: Array<[string, keyof Mortgage]> = [
+  ["id", "id"],
+  ["property_id", "propertyId"],
+  ["lender", "lender"],
+  ["principal", "principal"],
+  ["rate_type", "rateType"],
+  ["rate_pct", "ratePct"],
+  ["term_months", "termMonths"],
+  ["first_payment_date", "firstPaymentDate"],
+  ["created_at", "createdAt"],
+];
+const MORTGAGE_EVENT: Array<[string, keyof MortgageEvent]> = [
+  ["id", "id"],
+  ["mortgage_id", "mortgageId"],
+  ["date", "date"],
+  ["type", "type"],
+  ["amount", "amount"],
+  ["mode", "mode"],
+  ["rate_pct", "ratePct"],
+  ["note", "note"],
+  ["created_at", "createdAt"],
+];
+const VALUATION: Array<[string, keyof PropertyValuation]> = [
+  ["id", "id"],
+  ["property_id", "propertyId"],
+  ["date", "date"],
+  ["value", "value"],
+  ["note", "note"],
 ];
 const TX: Array<[string, keyof Tx]> = [
   ["id", "id"],
@@ -48,7 +97,7 @@ const TX: Array<[string, keyof Tx]> = [
   ["note", "note"],
   ["created_at", "createdAt"],
 ];
-const BOOLEANS = new Set(["trackCash", "archived"]);
+const BOOLEANS = new Set(["trackCash", "archived", "planExcluded"]);
 
 function upsert<T>(table: string, cols: Array<[string, keyof T]>, row: T): Statement {
   const names = cols.map(([c]) => c);
@@ -61,6 +110,9 @@ function upsert<T>(table: string, cols: Array<[string, keyof T]>, row: T): State
     params: cols.map(([, f]) => row[f] ?? null),
   };
 }
+
+// Las claves foráneas (ON DELETE CASCADE / SET NULL) limpian lo que cuelga de la fila.
+const del = (table: string, id: string): Statement => ({ sql: `DELETE FROM ${table} WHERE id = ?1`, params: [id] });
 
 function toStatements(ops: Op[]): Statement[] {
   const out: Statement[] = [];
@@ -120,6 +172,36 @@ function toStatements(ops: Op[]): Statement[] {
           params: [o.key, o.value],
         });
         break;
+      case "putGoal":
+        out.push(upsert("goals", GOAL, o.row));
+        break;
+      case "delGoal":
+        out.push(del("goals", o.id));
+        break;
+      case "putProperty":
+        out.push(upsert("properties", PROPERTY, o.row));
+        break;
+      case "delProperty":
+        out.push(del("properties", o.id));
+        break;
+      case "putMortgage":
+        out.push(upsert("mortgages", MORTGAGE, o.row));
+        break;
+      case "delMortgage":
+        out.push(del("mortgages", o.id));
+        break;
+      case "putMortgageEvent":
+        out.push(upsert("mortgage_events", MORTGAGE_EVENT, o.row));
+        break;
+      case "delMortgageEvent":
+        out.push(del("mortgage_events", o.id));
+        break;
+      case "putValuation":
+        out.push(upsert("property_valuations", VALUATION, o.row));
+        break;
+      case "delValuation":
+        out.push(del("property_valuations", o.id));
+        break;
     }
   }
   return out;
@@ -148,7 +230,7 @@ export const tauriBackend: Backend = {
   native: true,
 
   async load(): Promise<Loaded> {
-    const [accounts, assets, txs, prices, fx, splits, metaRows] = await Promise.all([
+    const [accounts, assets, txs, prices, fx, splits, metaRows, goals, properties, mortgages, mortgageEvents, valuations] = await Promise.all([
       selectAll<Account>("accounts", ACCOUNT, "created_at, name"),
       selectAll<Asset>("assets", ASSET, "name"),
       selectAll<Tx>("txs", TX, "date, created_at"),
@@ -156,10 +238,15 @@ export const tauriBackend: Backend = {
       grouped("SELECT currency, date, rate FROM fx ORDER BY currency, date"),
       grouped("SELECT asset_id, date, ratio FROM splits ORDER BY asset_id, date"),
       query("SELECT key, value FROM meta"),
+      selectAll<Goal>("goals", GOAL, "sort_order, name"),
+      selectAll<Property>("properties", PROPERTY, "purchase_date"),
+      selectAll<Mortgage>("mortgages", MORTGAGE, "created_at"),
+      selectAll<MortgageEvent>("mortgage_events", MORTGAGE_EVENT, "date"),
+      selectAll<PropertyValuation>("property_valuations", VALUATION, "date"),
     ]);
     const meta: Meta = {};
     for (const [k, v] of metaRows) meta[k as string] = v as string;
-    const state: AppState = { accounts, assets, txs, prices, fx, splits, lastSync: meta.lastSync ?? null };
+    const state: AppState = { accounts, assets, txs, prices, fx, splits, goals, properties, mortgages, mortgageEvents, valuations, lastSync: meta.lastSync ?? null };
     return { state, meta };
   },
 
@@ -177,4 +264,5 @@ export const tauriBackend: Backend = {
 
   exportBackup: (name) => invoke<string | null>("export_backup", { name }),
   info: () => invoke<AppInfo>("app_info"),
+  importSource: () => invoke<Array<{ name: string; text: string }>>("import_source"),
 };
