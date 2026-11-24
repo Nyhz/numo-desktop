@@ -18,7 +18,7 @@ Requisitos para compilar en local: Node 22+, pnpm, Rust y, en macOS, las herrami
 
 Cada cambio que se sube a `main` pasa las comprobaciones de `.github/workflows/ci.yml` (tipos, tests del motor y tests del núcleo nativo).
 
-En `pnpm dev:web`: `?splash=full` enseña la animación de arranque completa con la cartera de ejemplo, `?splash=off` la quita y `?update=1.2.3` simula que hay una versión nueva.
+En `pnpm dev:web`: `?splash=full` enseña la animación de arranque completa (el logo que se llena) con la cartera de ejemplo, `?splash=off` la quita y `?update=1.2.3` simula que hay una versión nueva.
 
 ## Cómo está hecha
 

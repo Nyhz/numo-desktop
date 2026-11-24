@@ -284,8 +284,8 @@ function Shell({ children }: { children: ReactNode }) {
       {/* Rail: solo iconos. En macOS se ensancha y deja hueco arriba: los botones de la ventana
           ocupan unos 70 px de ancho y no deben quedar sobre el panel. */}
       <nav data-tauri-drag-region className={`flex flex-none flex-col items-center gap-1.5 pb-3.5 ${backend.native && isMac ? "w-[78px] pt-[46px]" : "w-16 pt-3.5"}`} aria-label="Secciones">
-        <div data-tauri-drag-region data-splash-logo className="mb-3.5 size-9" title="Numo App">
-          <Logo size={36} className="pointer-events-none" />
+        <div data-tauri-drag-region data-splash-logo className="-mt-1 mb-2.5 size-11" title="Numo App">
+          <Logo size={44} className="pointer-events-none" />
         </div>
         {NAV_MAIN.map((n) => (
           <RailLink key={n.href} nav={n} />
@@ -324,19 +324,20 @@ function Shell({ children }: { children: ReactNode }) {
       >
         <header data-tauri-drag-region className="flex items-center gap-3.5 px-7 py-3 whitespace-nowrap">
           <div data-tauri-drag-region className="flex items-center gap-2 text-[13px] text-mute">
-            <span>Numo App</span>
-            <span className="opacity-50">/</span>
+            {/* En ventanas estrechas el nombre de la app cede su sitio a las pestañas. */}
+            <span className="max-[1180px]:hidden">Numo App</span>
+            <span className="opacity-50 max-[1180px]:hidden">/</span>
             <span className="font-semibold text-ink" style={{ fontStretch: "110%" }}>
               {here?.label ?? "Numo App"}
             </span>
           </div>
-          <div id="header-slot" className="flex min-w-0 items-center gap-3" />
+          <div id="header-slot" className="flex flex-none items-center gap-3" />
           <div data-tauri-drag-region className="min-w-0 flex-[1_1_0] self-stretch" />
           {example && (
-            <div className="flex items-center gap-2 text-[12px] text-mute">
-              Cartera de ejemplo · nada se guarda
+            <div className="flex min-w-0 items-center gap-2 text-[12px] text-mute">
+              <span className="truncate">Cartera de ejemplo · nada se guarda</span>
               {demo && (
-                <button type="button" className="font-medium text-ink underline decoration-line2 underline-offset-2 hover:decoration-ink" onClick={() => setDemo(false)}>
+                <button type="button" className="shrink-0 font-medium text-ink underline decoration-line2 underline-offset-2 hover:decoration-ink" onClick={() => setDemo(false)}>
                   Volver a mis datos
                 </button>
               )}

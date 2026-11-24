@@ -1,23 +1,25 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { setSplashPhase, useApp } from "../data/store.ts";
+import logo from "../assets/logo.png";
 import { Logo } from "./Logo.tsx";
 
 // Pantalla de carga «Marea» y su transición al Resumen. Todo se calcula a partir
 // de un único reloj T (segundos desde que se abre la app):
 //
-//   Carga    el logo late y un anillo avanza activo a activo         (variable)
-//   Listo    el anillo se completa y el logo late                     0,5 s
-//   Onda     el anillo se expande; una onda sale del logo a los lados 0,6 s
-//   Gráfico  la onda se convierte en la curva de valor del Resumen,
-//            el logo viaja a su sitio en el menú y la app entra       0,9 s
-//   Datos    se descubren el área y el aportado; la cifra cuenta      1,4 s
+//   Carga    el logo empieza apagado y se llena de abajo arriba: el nivel es
+//            el avance, y su borde, una línea luminosa que ondula   (variable)
+//   Listo    el nivel sube del todo, el logo late y lo cruza un destello 0,6 s
+//   Onda     una línea luminosa sale de los bordes del logo a los lados  0,6 s
+//   Gráfico  la línea se convierte en la curva de valor del Resumen,
+//            el logo viaja a su sitio en el menú y la app entra          0,9 s
+//   Datos    se descubren el área y el aportado; la cifra cuenta         1,4 s
 //
 // Dos variantes: completa cuando hay precios que actualizar, y corta (sin Carga
 // ni Listo, con los demás tramos algo más breves) cuando la app se abrió hace poco.
 
 type Cues = { ready: number; flow: number; chart: number; data: number; end: number };
 const SHORT: Cues = { ready: 0, flow: 0.4, chart: 0.9, data: 1.7, end: 2.6 };
-const fullCues = (ready: number): Cues => ({ ready, flow: ready + 0.5, chart: ready + 1.1, data: ready + 2.0, end: ready + 3.4 });
+const fullCues = (ready: number): Cues => ({ ready, flow: ready + 0.6, chart: ready + 1.2, data: ready + 2.1, end: ready + 3.5 });
 
 /** La carga se enseña al menos este rato y, si la red no responde, como mucho este otro. */
 const MIN_LOAD = 1.4;
@@ -29,6 +31,9 @@ const easeInOut = (t: number) => (t < 0.5 ? 4 * t ** 3 : 1 - (-2 * t + 2) ** 3 /
 const easeBack = (t: number) => 1 + 2.70158 * (t - 1) ** 3 + 1.70158 * (t - 1) ** 2;
 const seg = (T: number, a: number, b: number, ease: (t: number) => number) => ease(clamp((T - a) / (b - a)));
 const lerp = (a: number, b: number, k: number) => a + (b - a) * k;
+
+/** La ola de la marea: periodo 60, de x = −60 a 180 en el lienzo de 120 del logo. */
+const TIDE = "M-60 0q15-4 30 0t30 0t30 0t30 0t30 0t30 0t30 0t30 0";
 
 /** La curva de valor del gráfico principal, en coordenadas de la ventana. */
 type Target = { xs: number[]; ys: number[] };
@@ -83,6 +88,8 @@ export function Splash() {
   const sawSync = useRef(false);
   const target = useRef<Target | null>(null);
   const rail = useRef<{ x: number; y: number } | null>(null);
+  // El nivel del relleno sigue al avance real sin saltos.
+  const level = useRef({ value: 0, at: 0 });
 
   const simulated = param === "full";
   const mode = simulated ? "full" : (splash?.mode ?? "full");
@@ -141,36 +148,52 @@ export function Splash() {
   const loading = !cues;
   const t = target.current;
 
-  // Logo: late en «Listo» y viaja al menú en «Gráfico».
+  // Nivel de la marea: lo actualizado entre el total, suavizado; al terminar sube del todo.
+  const goal = loading ? (load && load.total ? load.done / load.total : 0) : 1;
+  level.current.value += (goal - level.current.value) * (1 - Math.exp(-Math.max(0, T - level.current.at) / 0.16));
+  level.current.at = T;
+  const ring = level.current.value;
+  const fill = cues ? seg(T, cues.ready, cues.ready + 0.35, easeInOut) : 0;
+  const tideY = lerp(120 * (0.84 - 0.68 * ring), -10, fill);
+  const tideX = -((T / 2.2) % 1) * 60;
+  const sheen = cues && full ? seg(T, cues.ready + 0.1, cues.ready + 0.6, easeOut) : 0;
+
+  // Logo: late en «Listo» y viaja al menú en «Gráfico». En la carga mide 148 px; en el menú, 44.
   const bump = cues && full ? seg(T, cues.ready, cues.ready + 0.2, easeBack) - seg(T, cues.ready + 0.2, cues.ready + 0.45, easeInOut) : 0;
   const g = cues ? seg(T, cues.chart, cues.chart + 0.85, easeInOut) : 0;
-  const scale = lerp(2.556 * (1 + 0.11 * bump), 1, g);
+  const scale = lerp(3.364 * (1 + 0.07 * bump), 1, g);
   const to = rail.current ?? { x: cx, y: cy };
 
-  // Anillo: se completa y se va como una onda expansiva.
-  const rip = cues ? seg(T, cues.flow, cues.flow + 0.8, easeOut) : 0;
-  const ring = loading ? (load && load.total ? load.done / load.total : 0) : 1;
-
-  // La onda que sale del logo y se convierte en la curva.
+  // La línea que sale del logo y se convierte en la curva. No se dibuja detrás del logo:
+  // el hueco se cierra cuando este se va al menú.
   const grow = cues ? seg(T, cues.flow, cues.chart, easeOut) : 0;
   const k = cues ? seg(T, cues.chart, cues.data, easeInOut) : 0;
   const [left, right] = t ? [t.xs[0]!, t.xs[t.xs.length - 1]!] : [28, vw - 28];
-  const half = 46 + grow * Math.max(cx - left, right - cx);
+  const half = 44 + grow * Math.max(cx - left, right - cx);
   const [x0, x1] = [Math.max(left, cx - half), Math.min(right, cx + half)];
-  const phi = (((cues ? Math.min(T, cues.data) - cues.flow : 0) / 1.8) * 2 * Math.PI) % (2 * Math.PI);
+  const gap = 44 * (1 - (cues ? seg(T, cues.chart, cues.chart + 0.4, easeInOut) : 0));
+  const phi = ((cues ? Math.min(T, cues.data) : 0) / 2.2) * 2 * Math.PI;
   let line = "";
   if (cues && T >= cues.flow && T < cues.data) {
     // Bastantes puntos para que, al terminar, coincida con la curva real y el relevo no se note.
+    let pen = false;
     for (let i = 0; i <= 420; i++) {
       const x = lerp(x0, x1, i / 420);
-      const wave = cy + 3 + 5.2 * Math.sin(((x - cx) / 51.75) * 2 * Math.PI + phi);
-      line += `${i ? "L" : "M"}${x.toFixed(1)} ${(t ? lerp(wave, yAt(t, x), k) : wave).toFixed(1)}`;
+      if (Math.abs(x - cx) < gap) {
+        pen = false;
+        continue;
+      }
+      // Sale a la altura por la que la línea del logo deja su silueta: 7 px sobre el centro.
+      const wave = cy - 7 + 4 * Math.sin(((x - cx) / 74) * 2 * Math.PI + phi);
+      line += `${pen ? "L" : "M"}${x.toFixed(1)} ${(t ? lerp(wave, yAt(t, x), k) : wave).toFixed(1)}`;
+      pen = true;
     }
   }
 
   const veil = cues ? 1 - seg(T, cues.chart + 0.05, cues.chart + 0.65, easeInOut) : 1;
   const textOut = cues ? 1 - seg(T, cues.chart, cues.chart + 0.3, easeInOut) : 1;
   const count = load?.total ?? 0;
+  const width = lerp(2.6, 1.9, k);
 
   return (
     <div
@@ -186,49 +209,57 @@ export function Splash() {
         <svg
           viewBox={`0 0 ${vw} ${vh}`}
           className="absolute inset-0 size-full"
-          style={{ opacity: t ? 1 : 1 - k, filter: k < 1 ? `drop-shadow(0 0 ${(10 * (1 - k)).toFixed(1)}px color-mix(in oklab, var(--acc) 55%, transparent))` : undefined }}
+          style={{ opacity: t ? 1 : 1 - k, filter: k < 1 ? `drop-shadow(0 0 ${(8 * (1 - k)).toFixed(1)}px color-mix(in oklab, var(--glow) 70%, transparent))` : undefined }}
         >
-          <path d={line} fill="none" stroke="var(--acc)" strokeWidth={lerp(5.75, 1.9, k)} strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      )}
-
-      {full && rip < 1 && (
-        <svg viewBox="0 0 148 148" className="absolute size-[148px]" style={{ left: cx - 74, top: cy - 74, opacity: 1 - rip, transform: `scale(${1 + 0.9 * rip})` }}>
-          {/* El anillo rodea el logo (92 px, con sus esquinas) sin tocarlo. */}
-          <g transform="rotate(-90 74 74)" fill="none" strokeWidth="2">
-            <circle cx="74" cy="74" r="70" stroke="var(--line)" />
-            <circle
-              cx="74"
-              cy="74"
-              r="70"
-              stroke="var(--acc)"
-              strokeLinecap="round"
-              strokeDasharray="439.8"
-              strokeDashoffset={439.8 * (1 - ring)}
-              style={{ transition: "stroke-dashoffset .4s cubic-bezier(.2,.8,.2,1)" }}
-            />
-          </g>
+          {/* Debajo, el trazo en el color que tendrá la curva; encima, la luz, que se apaga al llegar. */}
+          <path d={line} fill="none" stroke="var(--acc)" strokeWidth={width} strokeLinecap="round" strokeLinejoin="round" />
+          <path d={line} fill="none" stroke="var(--glow-line)" strokeWidth={width} strokeLinecap="round" strokeLinejoin="round" opacity={1 - k} />
         </svg>
       )}
 
       {full && textOut > 0 && (
-        <div className="absolute inset-x-0 text-center" style={{ top: cy + 100, opacity: textOut }}>
+        <div className="absolute inset-x-0 text-center" style={{ top: cy + 88, opacity: textOut }}>
           <div className="wide text-[15px] font-semibold">{loading ? "Actualizando precios" : "Precios al día"}</div>
-          <div className="mt-1 text-[12.5px] text-mute">
+          <div className="mt-1 h-[18px] text-[12.5px] text-mute">
             {loading ? (load && load.total ? `${load.name} · ${load.done} de ${load.total}` : " ") : count ? `${count} ${count === 1 ? "activo" : "activos"} · ahora mismo` : " "}
           </div>
         </div>
       )}
 
       <div
-        className="absolute size-9"
+        className="absolute size-11"
         style={{
-          left: cx - 18,
-          top: cy - 18,
+          left: cx - 22,
+          top: cy - 22,
           transform: `translate(${(to.x - cx) * g}px, ${(to.y - cy) * g}px) scale(${scale})`,
         }}
       >
-        <Logo size={36} flow={!cues || T < cues.data} />
+        {/* Halo: crece con el avance y se queda atrás cuando el logo se va al menú. */}
+        <div
+          className="absolute -inset-2.5 rounded-full"
+          style={{ background: "radial-gradient(closest-side, color-mix(in oklab, var(--accent) 20%, transparent), transparent)", opacity: (0.2 + 0.8 * ring) * (1 - g) }}
+        />
+        <Logo size={44} />
+        {/* Lo que falta por llenar: un velo del color del fondo sobre la ola, y la línea luminosa en su
+            borde. Van en el mismo grupo, que es el que se mueve, y recortados con la silueta del logo. */}
+        <svg viewBox="0 0 120 120" className="absolute inset-0 size-full overflow-visible">
+          <defs>
+            <mask id="splash-logo-shape" style={{ maskType: "alpha" }}>
+              <image href={logo} width="120" height="120" />
+            </mask>
+          </defs>
+          <g mask="url(#splash-logo-shape)">
+            <g transform={`translate(${tideX.toFixed(2)} ${tideY.toFixed(2)})`}>
+              <path d={`${TIDE}V-200H-60Z`} fill="var(--panel)" fillOpacity={0.86} />
+              <path d={TIDE} fill="none" stroke="var(--glow-line)" strokeWidth={1.4} opacity={(ring > 0.01 ? 1 : 0) * (1 - fill)} style={{ filter: "drop-shadow(0 0 2px var(--glow))" }} />
+            </g>
+          </g>
+        </svg>
+        {sheen > 0 && sheen < 1 && (
+          <div className="absolute inset-0 overflow-hidden" style={{ maskImage: `url(${logo})`, WebkitMaskImage: `url(${logo})`, maskSize: "100% 100%", WebkitMaskSize: "100% 100%" }}>
+            <div className="absolute inset-0" style={{ background: "linear-gradient(105deg, transparent 35%, rgba(255,255,255,.7) 50%, transparent 65%)", transform: `translateX(${-100 + 200 * sheen}%)` }} />
+          </div>
+        )}
       </div>
     </div>
   );

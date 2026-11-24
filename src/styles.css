@@ -77,6 +77,17 @@
   --cta-shine: rgba(255, 255, 255, 0.25);
 }
 
+/* La luz de la pantalla de carga (la línea de la marea y su resplandor) es la del
+   acento: de serie, dorada; con otro acento, una versión clara de ese color. */
+:root {
+  --glow-line: #fff0b8;
+  --glow: #ffd76a;
+}
+html[data-accent] {
+  --glow-line: color-mix(in oklab, var(--accent) 40%, #fff);
+  --glow: color-mix(in oklab, var(--accent) 80%, #fff);
+}
+
 /* Acentos alternativos (Ajustes → Apariencia). El selector vale también para las
    muestras de Ajustes, que enseñan cada color con su propio data-accent. */
 [data-accent="azul"] {
@@ -330,20 +341,6 @@ html[data-accent] .logo img {
 }
 html[data-accent] .logo-tint {
   display: block;
-}
-
-/* Mientras carga, el logo late: se apaga un poco y vuelve a encenderse. */
-@keyframes logo-flow {
-  0%,
-  100% {
-    filter: brightness(1);
-  }
-  50% {
-    filter: brightness(0.72);
-  }
-}
-.logo-flow {
-  animation: logo-flow 1.8s ease-in-out infinite;
 }
 
 /* El logo del menú y la línea de valor los pone la animación hasta que termina. */
