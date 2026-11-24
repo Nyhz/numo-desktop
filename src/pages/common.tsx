@@ -1,9 +1,9 @@
 import type { CSSProperties, ReactNode } from "react";
 import { ASSET_KIND_LABEL, type AssetKind } from "../../shared/types.ts";
-import { RANGES, setDemo, setRange, useApp, type RangeKey } from "../data/store.ts";
+import { RANGES, backend, chooseSyncFolder, setDemo, setRange, syncDevices, syncFolder, useApp, type RangeKey } from "../data/store.ts";
 import { seriesColor } from "../lib/format.ts";
 import { openDialog } from "../ui/dialogs.ts";
-import { Btn, Empty, Pills } from "../ui/kit.tsx";
+import { Btn, Empty, Pills, toast } from "../ui/kit.tsx";
 
 // Color fijo por tipo de activo y por divisa: el color sigue a la categoría.
 export type Kind = AssetKind | "cash";
@@ -33,6 +33,15 @@ export function PeriodPills() {
 }
 
 export function Welcome() {
+  const dir = useApp((s) => syncFolder(s));
+  const busy = useApp((s) => s.devices.busy);
+  // Un equipo recién instalado empieza vacío: la cartera de otro equipo llega al elegir aquí la misma carpeta compartida.
+  const bring = async () => {
+    const res = dir ? await syncDevices() : await chooseSyncFolder();
+    if (!res.ok) return toast(res.error, { tone: "error" });
+    if (!res.value) return;
+    toast(res.value.pulled ? `Sincronizado: ${res.value.pulled} registros traídos de tus otros equipos` : "En esa carpeta todavía no hay nada de otro equipo");
+  };
   return (
     <Empty
       title="Tu cartera, en un solo sitio"
@@ -42,6 +51,11 @@ export function Welcome() {
             Crear la primera cuenta
           </Btn>
           <Btn onClick={() => openDialog({ kind: "import" })}>Importar un CSV</Btn>
+          {backend.native && (
+            <Btn onClick={() => void bring()} disabled={busy}>
+              {busy ? "Sincronizando…" : dir ? "Sincronizar ahora" : "Ya uso Caudal en otro equipo"}
+            </Btn>
+          )}
           <Btn variant="ghost" onClick={() => setDemo(true)}>
             Ver una cartera de ejemplo
           </Btn>
@@ -49,6 +63,12 @@ export function Welcome() {
       }
     >
       Crea una cuenta por cada bróker, banco o exchange y registra en ella tus compras, ventas y dividendos. Caudal calcula el resto.
+      {dir && (
+        <span className="mt-3 block text-mute">
+          Este equipo ya sincroniza, pero en la carpeta compartida aún no hay nada de otro equipo. Elige esa misma carpeta en el otro (Ajustes → Sincronización entre equipos) y espera a que tu
+          servicio de nube la traiga aquí.
+        </span>
+      )}
     </Empty>
   );
 }
