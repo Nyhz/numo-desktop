@@ -184,8 +184,9 @@ function Shell({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex h-full bg-bg transition-colors duration-300">
-      {/* Rail: solo iconos. En macOS deja hueco arriba para los botones de la ventana. */}
-      <nav data-tauri-drag-region className={`flex w-16 flex-none flex-col items-center gap-1.5 pb-3.5 ${backend.native && isMac ? "pt-[46px]" : "pt-3.5"}`} aria-label="Secciones">
+      {/* Rail: solo iconos. En macOS se ensancha y deja hueco arriba: los botones de la ventana
+          ocupan unos 70 px de ancho y no deben quedar sobre el panel. */}
+      <nav data-tauri-drag-region className={`flex flex-none flex-col items-center gap-1.5 pb-3.5 ${backend.native && isMac ? "w-[78px] pt-[46px]" : "w-16 pt-3.5"}`} aria-label="Secciones">
         <div
           data-tauri-drag-region
           className="mb-3.5 grid size-9 place-items-center rounded-full border border-line2 bg-raised text-acc"
@@ -215,7 +216,7 @@ function Shell({ children }: { children: ReactNode }) {
       </nav>
 
       <main
-        className="mt-2 flex min-w-0 flex-1 flex-col rounded-tl-[20px] border-t border-l border-line bg-panel transition-colors duration-300"
+        className="my-2 mr-2 flex min-w-0 flex-1 flex-col overflow-hidden rounded-[20px] border border-line bg-panel transition-colors duration-300"
         style={{ boxShadow: "var(--panel-shadow)" }}
       >
         <header data-tauri-drag-region className="flex items-center gap-3.5 px-7 py-3 whitespace-nowrap">
