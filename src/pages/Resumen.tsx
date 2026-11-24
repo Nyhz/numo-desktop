@@ -116,7 +116,8 @@ export function Resumen() {
       stats: periodStats(tl, from, to),
       all: periodStats(tl, -1, to),
       start,
-      totals: totalsIn(d.ledger, d.scope, start, d.today),
+      // Las cifras clave de debajo del gráfico son de toda la historia: el periodo solo manda arriba.
+      totals: totalsIn(d.ledger, d.scope, isoOf(tl.start), d.today),
       ret: returnIndex(d.returns, from, to),
     };
   }, [tl, range, d, homes]);
@@ -220,7 +221,6 @@ export function Resumen() {
   const [heroI, heroD] = splitMoney(eur(portfolioAt + homesAt));
   const unrealized = d.positions.reduce((s, p) => s + p.unrealizedEur, 0);
   const cost = d.positions.reduce((s, p) => s + p.costEur, 0);
-  const xirr = stats.xirr ?? all.xirr;
   const legend = model ? model.rowsAt(hover ? Math.min(hover.k, model.n - 1) : model.n - 1) : [];
 
   return (
@@ -265,6 +265,8 @@ export function Resumen() {
               <span style={{ color: toneOf(stats.twr, 0.00005) }}>{pctSigned(stats.twr, 2)}</span>
               <span className="text-mute">
                 {RANGE_PHRASE[range]} · rentabilidad {withHomes ? "de la cartera, " : ""}sin contar lo aportado
+                {/* La TIR del periodo solo tiene sentido con tres meses o más. */}
+                {stats.xirr != null && ` · TIR ${pctSigned(stats.xirr)} anual`}
               </span>
             </div>
           </div>
@@ -291,11 +293,11 @@ export function Resumen() {
         <Kpi label="Plusvalía latente" note={cost > 0 ? `${pctSigned(unrealized / cost)} sobre el coste` : "sin posiciones"} tone={unrealized}>
           <Money value={unrealized} signed dim="soft" />
         </Kpi>
-        <Kpi label="Realizado y cobrado" note={<>ventas <Priv>{eur(totals.realizedEur, 0)}</Priv> · rentas <Priv>{eur(totals.dividendsEur + totals.interestEur, 0)}</Priv> · {RANGE_PHRASE[range]}</>} tone={totals.realizedEur + totals.dividendsEur + totals.interestEur}>
+        <Kpi label="Realizado y cobrado" note={<>ventas <Priv>{eur(totals.realizedEur, 0)}</Priv> · rentas <Priv>{eur(totals.dividendsEur + totals.interestEur, 0)}</Priv> · desde el inicio</>} tone={totals.realizedEur + totals.dividendsEur + totals.interestEur}>
           <Money value={totals.realizedEur + totals.dividendsEur + totals.interestEur} signed dim="soft" />
         </Kpi>
-        <Kpi label="TIR anualizada" note={xirr == null ? "hace falta más historia" : stats.xirr != null ? RANGE_PHRASE[range] : "desde el inicio"} tone={xirr}>
-          {xirr == null ? "—" : pctSigned(xirr)}
+        <Kpi label="TIR anualizada" note={all.xirr == null ? "hace falta más historia" : "desde el inicio"} tone={all.xirr}>
+          {all.xirr == null ? "—" : pctSigned(all.xirr)}
         </Kpi>
       </Kpis>
 
