@@ -210,7 +210,7 @@ export function saveAccount(input: unknown, id?: string): Promise<Result<Account
     return Promise.resolve(fail("Ya hay una cuenta con ese nombre"));
   // El color se asigna una vez y acompaña a la cuenta para siempre.
   const used = new Set(accounts.map((a) => a.color));
-  const color = before?.color ?? [1, 2, 3, 4, 5, 6, 7, 8].find((c) => !used.has(c)) ?? 0;
+  const color = before?.color ?? [1, 2, 3, 4, 5, 6].find((c) => !used.has(c)) ?? 0;
   const row: Account = {
     ...parsed.data,
     id: id ?? newId(),
@@ -334,7 +334,7 @@ export async function importPlan(plan: ImportPlan): Promise<Result<number>> {
   const accounts = new Map(state.accounts.map((a) => [accountKey(a.name), a]));
   const used = new Set(state.accounts.map((a) => a.color));
   for (const a of plan.newAccounts) {
-    const color = [1, 2, 3, 4, 5, 6, 7, 8].find((c) => !used.has(c)) ?? 0;
+    const color = [1, 2, 3, 4, 5, 6].find((c) => !used.has(c)) ?? 0;
     used.add(color);
     const row: Account = { ...a, id: newId(), color, createdAt: new Date(now).toISOString() };
     accounts.set(accountKey(a.name), row);

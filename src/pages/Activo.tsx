@@ -3,12 +3,12 @@ import { useMemo } from "react";
 import { Link } from "wouter";
 import { dayNum, isoOf } from "../../shared/dates.ts";
 import { ASSET_KIND_LABEL, TX_LABEL } from "../../shared/types.ts";
-import { Legend } from "../charts/core.tsx";
-import { TimeChart, type Marker } from "../charts/TimeChart.tsx";
+import { HeroChart, lineModel } from "../charts/hero.tsx";
 import { useDerived } from "../data/store.ts";
-import { dateShort, eur, money, num, seriesColor } from "../lib/format.ts";
+import { dateShort, eur, eurSigned, money, num, seriesColor, splitMoney } from "../lib/format.ts";
 import { openDialog } from "../ui/dialogs.ts";
-import { Button, Delta, Dot, Empty, Section, Stat, Tag } from "../ui/kit.tsx";
+import { Btn, Card, Dot, Empty, Kpi, Kpis, Money, Tag, toneOf } from "../ui/kit.tsx";
+import { L, THead, TRow, Table } from "./common.tsx";
 
 export function Activo({ id }: { id: string }) {
   const d = useDerived();
@@ -30,168 +30,170 @@ export function Activo({ id }: { id: string }) {
       values.push(p);
     }
     const index = new Map(dates.map((dt, i) => [dt, i]));
-    const markers: Marker[] = [];
-    for (const n of txs) {
-      if (n.tx.type !== "buy" && n.tx.type !== "sell") continue;
-      const i = index.get(n.tx.date);
-      if (i != null) markers.push({ i, kind: n.tx.type, label: `${TX_LABEL[n.tx.type]} · ${dateShort(n.tx.date)} · ${num(n.qty, 6)} uds.` });
-    }
+    const marks = txs
+      .filter((n) => n.tx.type === "buy" || n.tx.type === "sell")
+      .flatMap((n) => {
+        const i = index.get(n.tx.date);
+        return i == null ? [] : [{ i, filled: n.tx.type === "buy", label: `${TX_LABEL[n.tx.type]} · ${dateShort(n.tx.date)} · ${num(n.qty, 6)} uds.` }];
+      });
     const realized = d.ledger.matches.filter((m) => m.assetId === id && (!d.scope || d.scope.has(m.accountId))).reduce((s, m) => s + m.gainEur, 0);
     const income = txs.filter((n) => n.tx.type === "dividend").reduce((s, n) => s + n.cashEur, 0);
     const priceEur = market.priceEur(id, today) ?? 0;
     const lots = (d.ledger.lots.get(id) ?? []).map((l) => ({ ...l, valueEur: l.qty * priceEur }));
-    return { txs: [...txs].reverse(), dates, values, markers, realized, income, lots, splits: market.splitsOf(id) };
+    const fmt = (v: number) => money(v, asset.currency, v < 10 ? 4 : 2);
+    const model = dates.length > 1 ? lineModel({ dates, values, label: "Precio", format: fmt, axis: (v) => num(v, v < 10 ? 2 : 0), marks }) : null;
+    return { txs: [...txs].reverse(), model, marks, realized, income, lots, splits: market.splitsOf(id), last: values[values.length - 1] ?? null };
   }, [asset, id, d]);
 
   if (!asset || !data) {
-    return (
-      <Empty title="Este activo ya no existe" action={<Link href="/posiciones"><Button>Volver a posiciones</Button></Link>} />
-    );
+    return <Empty title="Este activo ya no existe" action={<Link href="/posiciones"><Btn>Volver a posiciones</Btn></Link>} />;
   }
 
   const pos = d.positions.find((p) => p.asset.id === id);
   const avg = pos && pos.qty > 0 ? pos.costEur / pos.qty : null;
+  const [heroI, heroD] = splitMoney(eur(pos?.valueEur ?? 0));
+  const goal = d.state.goals.find((g) => g.id === asset.goalId);
 
   return (
-    <div className="grid gap-9">
-      <header>
-        <Link href="/posiciones" className="inline-flex items-center gap-1 text-[12.5px] text-ink-2 hover:text-ink">
+    <div className="screen flex flex-col gap-5">
+      <section className="px-1 pt-2">
+        <Link href="/posiciones" className="inline-flex items-center gap-1 text-[12.5px] text-mute hover:text-ink">
           <ArrowLeft size={13} /> Posiciones
         </Link>
-        <div className="mt-2 flex items-start justify-between gap-6">
+        <div className="mt-2 flex flex-wrap items-end justify-between gap-5">
           <div className="min-w-0">
-            <h2 className="wide truncate text-[22px] leading-tight font-semibold">{asset.name}</h2>
-            <div className="selectable mt-1.5 flex flex-wrap items-center gap-2 text-[12.5px] text-ink-2">
+            <div className="selectable flex flex-wrap items-center gap-2 text-[12px] text-mute">
+              <span className="wide text-[15px] font-semibold text-ink">{asset.name}</span>
               <Tag>{ASSET_KIND_LABEL[asset.kind]}</Tag>
               {asset.symbol && <span>{asset.symbol}</span>}
               {asset.isin && <span>{asset.isin}</span>}
               <span>{asset.currency}</span>
-              <span className="text-muted">{asset.priceSource === "yahoo" ? "precio automático" : "precio manual"}</span>
+              <span>· {asset.priceSource === "yahoo" ? "precio automático" : "precio manual"}</span>
+              {goal && <span>· plan: {goal.name}</span>}
+            </div>
+            <div className="mt-1 text-[56px] leading-[1.05] font-medium tracking-[-0.02em]" style={{ fontStretch: "108%" }}>
+              {heroI}
+              <span className="text-mute">{heroD}</span>
+            </div>
+            <div className="mt-1.5 flex items-baseline gap-2.5 text-[13.5px]">
+              {pos ? (
+                <>
+                  <span className="font-[550]" style={{ color: toneOf(pos.unrealizedEur) }}>
+                    {eurSigned(pos.unrealizedEur)}
+                  </span>
+                  <span className="text-mute">de plusvalía latente sobre un coste de {eur(pos.costEur)}</span>
+                </>
+              ) : (
+                <span className="text-mute">Sin posición abierta en las cuentas seleccionadas</span>
+              )}
             </div>
           </div>
-          <div className="flex shrink-0 gap-2">
-            <Button onClick={() => openDialog({ kind: "price", asset })}>Añadir precio</Button>
-            <Button onClick={() => openDialog({ kind: "asset", asset })}>
+          <div className="flex shrink-0 gap-2 pb-1">
+            <Btn onClick={() => openDialog({ kind: "price", asset })}>Añadir precio</Btn>
+            <Btn onClick={() => openDialog({ kind: "asset", asset })}>
               <Pencil size={13} /> Editar
-            </Button>
-            <Button variant="primary" onClick={() => openDialog({ kind: "tx", preset: { assetId: asset.id } })}>
-              <Plus size={15} strokeWidth={2.4} /> Operación
-            </Button>
+            </Btn>
+            <Btn variant="cta" onClick={() => openDialog({ kind: "tx", preset: { assetId: asset.id } })}>
+              <Plus size={14} strokeWidth={2.6} /> Operación
+            </Btn>
           </div>
         </div>
-      </header>
-
-      <section className="grid grid-cols-6 gap-6 border-y border-line py-5">
-        <Stat label="Valor">{eur(pos?.valueEur ?? 0)}</Stat>
-        <Stat label="Unidades">{num(pos?.qty ?? 0, 6)}</Stat>
-        <Stat label="Último precio" sub={pos?.priceDate ? dateShort(pos.priceDate) : undefined}>
-          {pos?.price != null ? money(pos.price, asset.currency) : data.values.length ? money(data.values[data.values.length - 1]!, asset.currency) : "—"}
-        </Stat>
-        <Stat label="Coste medio" sub="por unidad, en EUR">
-          {avg == null ? "—" : eur(avg, avg < 10 ? 4 : 2)}
-        </Stat>
-        <Stat label="Plusvalía latente">{pos ? <Delta value={pos.unrealizedEur} /> : "—"}</Stat>
-        <Stat label="Realizado y cobrado" sub={`ventas ${eur(data.realized, 0)} · rentas ${eur(data.income, 0)}`}>
-          <Delta value={data.realized + data.income} />
-        </Stat>
-      </section>
-
-      <Section
-        title={`Precio en ${asset.currency}`}
-        aside={
-          data.markers.length > 0 && (
-            <Legend items={[]}>
-              <span className="inline-flex items-center gap-1.5">
-                <span className="size-2.5 rounded-full bg-ink" /> Compra
-              </span>
-              <span className="inline-flex items-center gap-1.5">
-                <span className="size-2.5 rounded-full border-2 border-ink" /> Venta
-              </span>
-            </Legend>
-          )
-        }
-      >
-        <TimeChart
-          dates={data.dates}
-          series={[{ key: "p", label: "Precio", color: "var(--s1)", values: data.values }]}
-          markers={data.markers}
+        <HeroChart
+          model={data.model}
           height={260}
-          format={(v) => money(v, asset.currency, v < 10 ? 4 : 2)}
-          formatAxis={(v) => num(v, v < 10 ? 2 : 0)}
+          footer={
+            data.marks.length > 0 ? (
+              <div className="mt-2 flex gap-4 text-[12px] text-ink2">
+                <span className="flex items-center gap-1.5">
+                  <span className="size-2 rounded-full bg-ink" /> Compra
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="size-2 rounded-full border-[1.5px] border-ink" /> Venta
+                </span>
+                <span className="text-mute">Precio en {asset.currency}</span>
+              </div>
+            ) : null
+          }
         />
         {data.splits.length > 0 && (
-          <p className="mt-2 text-[12px] text-muted">
+          <p className="mt-2 text-[12px] text-mute">
             Splits aplicados: {data.splits.map(([day, r]) => `${dateShort(isoOf(day))} (×${num(r, 4)})`).join(", ")}. Las unidades anteriores se muestran ya ajustadas.
           </p>
         )}
-      </Section>
+      </section>
+
+      <Kpis>
+        <Kpi label="Unidades">{num(pos?.qty ?? 0, 6)}</Kpi>
+        <Kpi label="Último precio" note={pos?.priceDate ? dateShort(pos.priceDate) : "último precio de operación"}>
+          {pos?.price != null ? money(pos.price, asset.currency, pos.price < 10 ? 4 : 2) : data.last != null ? money(data.last, asset.currency) : "—"}
+        </Kpi>
+        <Kpi label="Coste medio" note="por unidad, en EUR">
+          {avg == null ? "—" : eur(avg, avg < 10 ? 4 : 2)}
+        </Kpi>
+        <Kpi label="Peso en la cartera">{pos ? `${num(pos.weight * 100, 1, 1)} %` : "—"}</Kpi>
+        <Kpi label="Realizado y cobrado" note={`ventas ${eur(data.realized, 0)} · dividendos ${eur(data.income, 0)}`} tone={data.realized + data.income}>
+          <Money value={data.realized + data.income} signed dim="soft" />
+        </Kpi>
+      </Kpis>
 
       {data.lots.length > 0 && (
-        <Section title="Lotes abiertos" aside={<span className="text-[12px] text-muted">por orden de venta (FIFO)</span>}>
-          <table className="tbl">
-            <thead>
-              <tr>
-                <th>Adquisición</th>
-                <th className="r">Unidades</th>
-                <th className="r">Coste</th>
-                <th className="r">Coste por unidad</th>
-                <th className="r">Valor hoy</th>
-                <th className="r">Plusvalía</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.lots.map((l, i) => (
-                <tr key={i}>
-                  <td>{dateShort(l.acqDate)}</td>
-                  <td className="r">{num(l.qty, 6)}</td>
-                  <td className="r">{eur(l.costEur)}</td>
-                  <td className="r text-ink-2">{eur(l.costEur / l.qty, 4)}</td>
-                  <td className="r">{eur(l.valueEur)}</td>
-                  <td className="r">
-                    <Delta value={l.valueEur - l.costEur} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </Section>
+        <Card title="Lotes abiertos" note="en el orden en que se venderían (FIFO)" pad={false} className="overflow-hidden">
+          <Table cols="120px 1fr 1fr 1fr 1fr 1fr" minWidth={760}>
+            <THead>
+              <L>Adquisición</L>
+              <span>Unidades</span>
+              <span>Coste</span>
+              <span>Coste por unidad</span>
+              <span>Valor hoy</span>
+              <span>Plusvalía</span>
+            </THead>
+            {data.lots.map((l, i) => (
+              <TRow key={i}>
+                <L className="text-ink2">{dateShort(l.acqDate)}</L>
+                <span>{num(l.qty, 6)}</span>
+                <span>{eur(l.costEur)}</span>
+                <span className="text-mute">{eur(l.costEur / l.qty, 4)}</span>
+                <span>{eur(l.valueEur)}</span>
+                <span className="font-semibold" style={{ color: toneOf(l.valueEur - l.costEur) }}>
+                  {eurSigned(l.valueEur - l.costEur)}
+                </span>
+              </TRow>
+            ))}
+          </Table>
+        </Card>
       )}
 
-      <Section title="Operaciones">
+      <Card title="Operaciones" pad={false} className="overflow-hidden">
         {data.txs.length === 0 ? (
-          <div className="text-muted">No hay operaciones de este activo en las cuentas seleccionadas.</div>
+          <div className="px-5 pb-5 text-mute">No hay operaciones de este activo en las cuentas seleccionadas.</div>
         ) : (
-          <table className="tbl">
-            <thead>
-              <tr>
-                <th>Fecha</th>
-                <th>Tipo</th>
-                <th>Cuenta</th>
-                <th className="r">Unidades</th>
-                <th className="r">Precio</th>
-                <th className="r">Efecto en EUR</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.txs.map((n) => (
-                <tr key={n.tx.id} className="click" onClick={() => openDialog({ kind: "tx", tx: n.tx })}>
-                  <td>{dateShort(n.tx.date)}</td>
-                  <td>{TX_LABEL[n.tx.type]}</td>
-                  <td>
-                    <span className="inline-flex items-center gap-2">
-                      <Dot color={seriesColor(n.account.color)} />
-                      {n.account.name}
-                    </span>
-                  </td>
-                  <td className="r">{n.tx.quantity != null ? num(n.tx.quantity, 6) : ""}</td>
-                  <td className="r">{n.tx.price != null ? money(n.tx.price, n.tx.currency, n.tx.price < 10 ? 4 : 2) : ""}</td>
-                  <td className="r">{n.tx.type === "transfer" ? <span className="text-muted">sin efecto</span> : eur(n.cashEur)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <Table cols="110px 110px minmax(150px,1fr) 1fr 1fr 1fr" minWidth={760}>
+            <THead>
+              <L>Fecha</L>
+              <L>Tipo</L>
+              <L>Cuenta</L>
+              <span>Unidades</span>
+              <span>Precio</span>
+              <span>Efecto en EUR</span>
+            </THead>
+            {data.txs.map((n) => (
+              <TRow key={n.tx.id} onClick={() => openDialog({ kind: "tx", tx: n.tx })}>
+                <L className="text-ink2">{dateShort(n.tx.date)}</L>
+                <L className="font-medium">{TX_LABEL[n.tx.type]}</L>
+                <L className="flex items-center gap-[7px]">
+                  <Dot color={seriesColor(n.account.color)} />
+                  {n.account.name}
+                </L>
+                <span>{n.tx.quantity != null ? num(n.tx.quantity, 6) : ""}</span>
+                <span className="text-ink2">{n.tx.price != null ? money(n.tx.price, n.tx.currency, n.tx.price < 10 ? 4 : 2) : ""}</span>
+                <span className="font-semibold" style={{ color: n.cashEur > 0 ? "var(--up)" : undefined }}>
+                  {n.tx.type === "transfer" && !n.cashEur ? <span className="font-normal text-mute">sin efecto</span> : <Money value={n.cashEur} signed dim="soft" />}
+                </span>
+              </TRow>
+            ))}
+          </Table>
         )}
-      </Section>
+      </Card>
     </div>
   );
 }

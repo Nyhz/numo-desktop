@@ -1,19 +1,31 @@
+import { Moon, Sun } from "lucide-react";
+import type { ReactNode } from "react";
 import { txsToCsv } from "../../shared/csv.ts";
 import { todayIso } from "../../shared/dates.ts";
+import { useTheme } from "../App.tsx";
 import { backend, isExample, setDemo, sync, useApp } from "../data/store.ts";
 import { saveText } from "../lib/export.ts";
 import { ago } from "../lib/format.ts";
 import { openDialog } from "../ui/dialogs.ts";
-import { Button, Section, toast } from "../ui/kit.tsx";
+import { Btn, toast } from "../ui/kit.tsx";
 
-function Row({ title, children, action }: { title: string; children: React.ReactNode; action: React.ReactNode }) {
+function Group({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="flex items-center justify-between gap-8 border-b border-line py-3.5">
-      <div className="min-w-0">
-        <div className="font-medium">{title}</div>
-        <div className="mt-0.5 text-[12.5px] text-ink-2">{children}</div>
+    <section className="card">
+      <div className="wide px-5 py-4 font-semibold">{title}</div>
+      {children}
+    </section>
+  );
+}
+
+function Row({ title, children, action }: { title: string; children: ReactNode; action?: ReactNode }) {
+  return (
+    <div className="flex items-center gap-6 border-t border-line px-5 py-4">
+      <div className="min-w-0 flex-1">
+        <div className="font-[550]">{title}</div>
+        <div className="mt-[3px] text-[12.5px] text-pretty text-ink2">{children}</div>
       </div>
-      <div className="flex shrink-0 gap-2">{action}</div>
+      {action}
     </div>
   );
 }
@@ -26,6 +38,7 @@ export function Ajustes() {
   const example = useApp((s) => isExample(s));
   const syncing = useApp((s) => s.syncing);
   const issues = useApp((s) => s.issues);
+  const [light, flipTheme] = useTheme();
   const auto = state.assets.filter((a) => a.priceSource === "yahoo").length;
 
   const backup = async () => {
@@ -42,77 +55,82 @@ export function Ajustes() {
   };
 
   return (
-    <div className="grid max-w-3xl gap-10">
-      <Section title="Tus datos">
-        <div className="border-t border-line">
-          <Row
-            title="Copia de seguridad"
-            action={
-              <Button onClick={backup} disabled={!backend.native}>
-                Guardar una copia…
-              </Button>
-            }
-          >
-            Todo está en un único archivo en tu ordenador. Caudal guarda además una copia diaria (las 14 últimas) en la carpeta «copias», junto a la base de datos.
-            <div className="selectable mt-1 break-all text-muted">{info?.dbPath}</div>
-          </Row>
-          <Row
-            title="Exportar todas las operaciones"
-            action={
-              <Button onClick={exportAll} disabled={!state.txs.length}>
-                Exportar CSV
-              </Button>
-            }
-          >
-            Un CSV legible con todo el libro de operaciones. Es el mismo formato que entiende «Importar», así que también sirve para mover tus datos.
-          </Row>
-          <Row title="Importar" action={<Button onClick={() => openDialog({ kind: "import" })}>Importar CSV…</Button>}>
-            Operaciones, precios históricos y splits desde archivos CSV, por ejemplo los que genera el conversor de Numo (<span className="selectable">tools/numo-a-csv.mjs</span>).
-          </Row>
-        </div>
-      </Section>
+    <div className="screen flex max-w-[780px] flex-col gap-5">
+      <Group title="Tus datos">
+        <Row
+          title="Copia de seguridad"
+          action={
+            <Btn onClick={backup} disabled={!backend.native}>
+              Guardar una copia…
+            </Btn>
+          }
+        >
+          Todo está en un único archivo en tu ordenador. Caudal guarda además una copia diaria (las 14 últimas) en la carpeta «copias», junto a la base de datos.
+          <div className="selectable mt-1 text-[12px] break-all text-mute">{info?.dbPath}</div>
+        </Row>
+        <Row
+          title="Exportar todas las operaciones"
+          action={
+            <Btn onClick={exportAll} disabled={!state.txs.length}>
+              Exportar CSV
+            </Btn>
+          }
+        >
+          Un CSV legible con todo el libro de operaciones. Es el mismo formato que entiende «Importar», así que también sirve para mover tus datos.
+        </Row>
+        <Row title="Importar" action={<Btn onClick={() => openDialog({ kind: "import" })}>Importar…</Btn>}>
+          Operaciones, precios históricos, splits, plan e inmuebles desde archivos CSV o JSON, por ejemplo los que genera el conversor de Numo (tools/numo-a-csv.mjs).
+        </Row>
+      </Group>
 
-      <Section title="Precios y tipos de cambio">
-        <div className="border-t border-line">
-          <Row
-            title="Actualización"
-            action={
-              <Button onClick={() => void sync(true)} disabled={syncing || example}>
-                {syncing ? "Actualizando…" : "Actualizar ahora"}
-              </Button>
-            }
-          >
-            {example
-              ? "La cartera de ejemplo usa precios inventados y no se actualiza."
-              : `Se actualizan solos al abrir la app. ${auto} de ${state.assets.length} activos tienen precio automático (Yahoo Finance); los tipos de cambio son los de referencia del BCE. Última actualización: ${ago(real.lastSync)}.`}
-          </Row>
-          {issues.length > 0 && (
-            <div className="border-b border-line py-3.5">
-              <div className="mb-1.5 font-medium text-warn">Avisos de la última actualización</div>
-              <ul className="selectable grid gap-1 text-[12.5px] text-ink-2">
-                {issues.map((i, k) => (
-                  <li key={k}>
-                    <strong className="font-medium text-ink">{i.what}:</strong> {i.message}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
-      </Section>
+      <Group title="Precios y tipos de cambio">
+        <Row
+          title="Actualización"
+          action={
+            <Btn onClick={() => void sync(true)} disabled={syncing || example}>
+              {syncing ? "Actualizando…" : "Actualizar ahora"}
+            </Btn>
+          }
+        >
+          {example
+            ? "La cartera de ejemplo usa precios inventados y no se actualiza."
+            : `Se actualizan solos al abrir la app. ${auto} de ${state.assets.length} activos tienen precio automático (Yahoo Finance); el resto es manual. Los tipos de cambio son los de referencia del BCE. Última actualización: ${ago(real.lastSync)}.`}
+        </Row>
+        {issues.length > 0 && (
+          <div className="border-t border-line px-5 py-4">
+            <div className="mb-1.5 font-[550] text-acc">Avisos de la última actualización</div>
+            <ul className="selectable grid gap-1 text-[12.5px] text-ink2">
+              {issues.map((i, k) => (
+                <li key={k}>
+                  <span className="font-medium text-ink">{i.what}:</span> {i.message}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </Group>
 
-      <Section title="Cartera de ejemplo">
-        <div className="border-t border-line">
-          <Row
-            title={demo ? "Estás viendo la cartera de ejemplo" : "Probar con datos inventados"}
-            action={backend.native ? <Button onClick={() => setDemo(!demo)}>{demo ? "Volver a mis datos" : "Ver la cartera de ejemplo"}</Button> : null}
-          >
-            Una cartera ficticia para explorar la app. Mientras está activa no se guarda nada y tus datos no se tocan.
-          </Row>
-        </div>
-      </Section>
+      <Group title="Apariencia">
+        <Row
+          title="Tema"
+          action={
+            <Btn onClick={flipTheme} className="!gap-[7px]">
+              {light ? <Moon size={14} /> : <Sun size={14} />}
+              {light ? "Cambiar a oscuro" : "Cambiar a claro"}
+            </Btn>
+          }
+        >
+          Claro u oscuro; también desde el pie del menú lateral.
+        </Row>
+      </Group>
 
-      <p className="text-[12px] text-muted">
+      <Group title="Cartera de ejemplo">
+        <Row title={demo ? "Estás viendo la cartera de ejemplo" : "Probar con datos inventados"} action={backend.native ? <Btn onClick={() => setDemo(!demo)}>{demo ? "Volver a mis datos" : "Ver la cartera de ejemplo"}</Btn> : undefined}>
+          Una cartera ficticia para explorar la app. Mientras está activa no se guarda nada y tus datos no se tocan.
+        </Row>
+      </Group>
+
+      <p className="m-0 px-1 text-[12px] text-pretty text-mute">
         Caudal {info?.version}. Sin cuentas de usuario ni servidores: la app solo se conecta a Yahoo Finance y al BCE para pedir cotizaciones, y solo envía símbolos y divisas.
       </p>
     </div>

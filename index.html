@@ -3,14 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="color-scheme" content="light dark" />
+    <meta name="color-scheme" content="dark light" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>Caudal</title>
     <script>
-      // Aplica el tema antes de pintar para evitar el destello.
+      // El tema oscuro es el de por defecto; el claro se aplica antes de pintar para evitar el destello.
       try {
-        var t = localStorage.getItem("caudal.theme");
-        if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+        if (localStorage.getItem("caudal.theme") === "light") document.documentElement.dataset.theme = "light";
       } catch (e) {}
     </script>
   </head>

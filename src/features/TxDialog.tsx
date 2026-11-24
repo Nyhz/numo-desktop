@@ -6,7 +6,7 @@ import { TX_LABEL, TX_TYPES, cashOnly, needsAsset, type Tx, type TxType } from "
 import { ecbRate, removeTx, restoreTx, saveTx, useDerived } from "../data/store.ts";
 import { dateShort, eur, money, num } from "../lib/format.ts";
 import { closeDialog } from "../ui/dialogs.ts";
-import { Button, Dialog, Field, Segmented, toast } from "../ui/kit.tsx";
+import { Btn, Dialog, Field, Pills, toast } from "../ui/kit.tsx";
 import { AssetPicker } from "./AssetPicker.tsx";
 
 type Form = {
@@ -231,12 +231,12 @@ export function TxDialog({ tx, preset }: { tx?: Tx; preset?: { type?: TxType; as
       footer={
         <>
           {tx && (
-            <Button variant="danger" className="mr-auto" onClick={remove}>
+            <Btn variant="danger" className="mr-auto" onClick={remove}>
               Eliminar
-            </Button>
+            </Btn>
           )}
           {!tx && (
-            <div className="mr-auto min-w-0 truncate text-[12.5px] text-ink-2">
+            <div className="mr-auto min-w-0 truncate text-[12.5px] text-ink2">
               {total && (
                 <>
                   {f.type === "buy" ? "Coste total" : "Neto"}{" "}
@@ -245,15 +245,15 @@ export function TxDialog({ tx, preset }: { tx?: Tx; preset?: { type?: TxType; as
               )}
             </div>
           )}
-          <Button onClick={closeDialog}>Cancelar</Button>
+          <Btn onClick={closeDialog}>Cancelar</Btn>
           {!tx && (
-            <Button disabled={saving} onClick={() => void submit(true)} title="⌘ Intro">
+            <Btn disabled={saving} onClick={() => void submit(true)} title="⌘ Intro">
               Guardar y añadir otra
-            </Button>
+            </Btn>
           )}
-          <Button variant="primary" disabled={saving} onClick={() => void submit(false)}>
+          <Btn variant="cta" disabled={saving} onClick={() => void submit(false)}>
             Guardar
-          </Button>
+          </Btn>
         </>
       }
     >
@@ -270,7 +270,7 @@ export function TxDialog({ tx, preset }: { tx?: Tx; preset?: { type?: TxType; as
           }
         }}
       >
-        <Segmented size="sm" label="Tipo de operación" value={f.type} options={types.map((t) => [t, TX_LABEL[t]] as const)} onChange={(type) => set({ type })} />
+        <Pills size="sm" label="Tipo de operación" value={f.type} options={types.map((t) => [t, TX_LABEL[t]] as const)} onChange={(type) => set({ type })} />
 
         <div className="grid grid-cols-[150px_1fr] gap-3">
           <Field label="Fecha">
@@ -380,7 +380,7 @@ export function TxDialog({ tx, preset }: { tx?: Tx; preset?: { type?: TxType; as
                 <input className="field" inputMode="decimal" disabled={!f.toAssetId} value={f.toQuantity} onChange={(e) => set({ toQuantity: e.target.value })} />
               </Field>
             </div>
-            <p className="text-[12px] text-muted">Un traspaso no es una venta: el destino hereda la fecha y el coste de adquisición de lo que sale.</p>
+            <p className="text-[12px] text-mute">Un traspaso no es una venta: el destino hereda la fecha y el coste de adquisición de lo que sale.</p>
           </>
         )}
 
@@ -397,9 +397,9 @@ export function TxDialog({ tx, preset }: { tx?: Tx; preset?: { type?: TxType; as
                 }}
               />
               {fxManual && (
-                <Button onClick={() => setFxManual(false)} title="Sustituye el cambio por el de referencia del BCE de esa fecha">
+                <Btn onClick={() => setFxManual(false)} title="Sustituye el cambio por el de referencia del BCE de esa fecha">
                   Usar el del BCE
-                </Button>
+                </Btn>
               )}
             </div>
           </Field>
@@ -410,7 +410,7 @@ export function TxDialog({ tx, preset }: { tx?: Tx; preset?: { type?: TxType; as
         </Field>
 
         {error && (
-          <div role="alert" className="rounded-md bg-wash-strong px-3 py-2 text-[13px] text-down">
+          <div role="alert" className="rounded-[10px] bg-wash2 px-3 py-2 text-[13px] text-down">
             {error}
           </div>
         )}

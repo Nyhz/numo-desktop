@@ -4,7 +4,7 @@ import { addDays, todayIso } from "../../shared/dates.ts";
 import { ASSET_KINDS, ASSET_KIND_LABEL, type Asset, type AssetKind } from "../../shared/types.ts";
 import { searchMarket, yahooChart, type SearchHit } from "../data/market.ts";
 import { backend, isExample, saveAsset, useApp } from "../data/store.ts";
-import { Button, toast } from "../ui/kit.tsx";
+import { Btn, toast } from "../ui/kit.tsx";
 
 type Item =
   | { kind: "own"; asset: Asset }
@@ -111,8 +111,8 @@ export function AssetPicker({ value, onChange, autoFocus, exclude }: { value: st
       else toast(res.error, { tone: "error" });
     };
     return (
-      <div className="rounded-md border border-line-strong p-3">
-        <div className="mb-2 text-[12px] text-ink-2">Activo nuevo con precio manual</div>
+      <div className="rounded-xl border border-line2 p-3">
+        <div className="mb-2 text-[12px] text-ink2">Activo nuevo con precio manual</div>
         <div className="grid grid-cols-[1fr_120px_76px] gap-2">
           <input className="field" placeholder="Nombre" autoFocus value={manual.name} onChange={(e) => setManual({ ...manual, name: e.target.value })} />
           <select className="field" value={manual.kind} onChange={(e) => setManual({ ...manual, kind: e.target.value as AssetKind })}>
@@ -126,10 +126,10 @@ export function AssetPicker({ value, onChange, autoFocus, exclude }: { value: st
         </div>
         <div className="mt-2 flex gap-2">
           <input className="field uppercase" placeholder="ISIN (opcional)" maxLength={12} value={manual.isin} onChange={(e) => setManual({ ...manual, isin: e.target.value.toUpperCase() })} />
-          <Button onClick={() => setManual(null)}>Cancelar</Button>
-          <Button variant="primary" onClick={create}>
+          <Btn onClick={() => setManual(null)}>Cancelar</Btn>
+          <Btn variant="cta" onClick={create}>
             Crear activo
-          </Button>
+          </Btn>
         </div>
       </div>
     );
@@ -137,10 +137,10 @@ export function AssetPicker({ value, onChange, autoFocus, exclude }: { value: st
 
   return (
     <div className="relative">
-      <Search size={14} className="pointer-events-none absolute top-[9px] left-2.5 text-muted" />
+      <Search size={14} className="pointer-events-none absolute top-2.5 left-3 text-mute" />
       <input
         ref={input}
-        className="field pl-8"
+        className="field pl-9"
         autoFocus={autoFocus}
         data-autofocus={autoFocus ? "" : undefined}
         role="combobox"
@@ -173,15 +173,15 @@ export function AssetPicker({ value, onChange, autoFocus, exclude }: { value: st
         }}
       />
       {open && (items.length > 0 || searching) && (
-        <ul id="asset-options" role="listbox" className="absolute z-20 mt-1 max-h-72 w-full overflow-y-auto rounded-lg bg-raised py-1" style={{ boxShadow: "var(--shadow)" }}>
+        <ul id="asset-options" role="listbox" className="absolute z-20 mt-1.5 max-h-72 w-full overflow-y-auto rounded-xl border border-line2 bg-raised p-1" style={{ boxShadow: "var(--shadow-pop)" }}>
           {items.map((it, i) => {
             const first = i === 0 || items[i - 1]!.kind !== it.kind;
             return (
               <li key={i} role="option" aria-selected={i === cursor}>
-                {first && it.kind !== "manual" && <div className="px-3 pt-1.5 pb-0.5 text-[11.5px] text-muted">{it.kind === "own" ? "Tus activos" : "En el mercado"}</div>}
+                {first && it.kind !== "manual" && <div className="px-3 pt-1.5 pb-0.5 text-[11.5px] text-mute">{it.kind === "own" ? "Tus activos" : "En el mercado"}</div>}
                 <button
                   type="button"
-                  className={`flex w-full items-baseline gap-2 px-3 py-1.5 text-left ${i === cursor ? "bg-wash-strong" : "hover:bg-wash"}`}
+                  className={`flex w-full items-baseline gap-2 rounded-lg px-2.5 py-1.5 text-left ${i === cursor ? "bg-wash2" : "hover:bg-wash"}`}
                   onMouseDown={(e) => e.preventDefault()}
                   onMouseEnter={() => setCursor(i)}
                   onClick={() => void choose(it)}
@@ -189,21 +189,21 @@ export function AssetPicker({ value, onChange, autoFocus, exclude }: { value: st
                   {it.kind === "own" && (
                     <>
                       <span className="truncate">{it.asset.name}</span>
-                      <span className="ml-auto shrink-0 text-[12px] text-muted">{[it.asset.symbol, it.asset.isin, it.asset.currency].filter(Boolean).join("  ")}</span>
+                      <span className="ml-auto shrink-0 text-[12px] text-mute">{[it.asset.symbol, it.asset.isin, it.asset.currency].filter(Boolean).join("  ")}</span>
                     </>
                   )}
                   {it.kind === "market" && (
                     <>
                       <span className="truncate">{it.hit.name}</span>
-                      <span className="ml-auto shrink-0 text-[12px] text-muted">{[it.hit.symbol, it.hit.exchange, ASSET_KIND_LABEL[it.hit.kind]].filter(Boolean).join("  ")}</span>
+                      <span className="ml-auto shrink-0 text-[12px] text-mute">{[it.hit.symbol, it.hit.exchange, ASSET_KIND_LABEL[it.hit.kind]].filter(Boolean).join("  ")}</span>
                     </>
                   )}
-                  {it.kind === "manual" && <span className="text-ink-2">Crear «{it.name}» con precio manual</span>}
+                  {it.kind === "manual" && <span className="text-ink2">Crear «{it.name}» con precio manual</span>}
                 </button>
               </li>
             );
           })}
-          {searching && <li className="px-3 py-1.5 text-[12px] text-muted">Buscando en el mercado…</li>}
+          {searching && <li className="px-3 py-1.5 text-[12px] text-mute">Buscando en el mercado…</li>}
         </ul>
       )}
     </div>

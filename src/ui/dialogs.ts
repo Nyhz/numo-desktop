@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import type { Account, Asset, Tx, TxType } from "../../shared/types.ts";
+import type { Account, Asset, Mortgage, MortgageEventType, Property, Tx, TxType } from "../../shared/types.ts";
 
 /** Qué diálogo está abierto. Solo hay uno a la vez. */
 export type DialogState =
@@ -8,6 +8,9 @@ export type DialogState =
   | { kind: "asset"; asset: Asset }
   | { kind: "price"; asset: Asset }
   | { kind: "import" }
+  | { kind: "property"; property?: Property }
+  | { kind: "mortgageEvent"; mortgage: Mortgage; type: MortgageEventType; amount?: number; mode?: "reduce_term" | "reduce_installment" }
+  | { kind: "valuation"; property: Property }
   | null;
 
 let state: DialogState = null;

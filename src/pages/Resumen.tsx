@@ -2,81 +2,58 @@ import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { isoOf } from "../../shared/dates.ts";
 import { monthlyReturns, netInvested, periodStats, returnIndex, totalsIn } from "../../shared/engine/timeline.ts";
-import { ASSET_KIND_LABEL, type AssetKind } from "../../shared/types.ts";
-import { Columns, RankedBars, ReturnHeatmap, SegmentedBar, foldParts, type Part } from "../charts/bars.tsx";
-import { Legend } from "../charts/core.tsx";
-import { TimeChart, type Series } from "../charts/TimeChart.tsx";
-import { rangeBase, setDemo, useApp, useDerived, type Derived, type RangeKey } from "../data/store.ts";
-import { eur, eurAxis, monthLong, monthShort, pct, pctSigned, seriesColor } from "../lib/format.ts";
+import { HeroChart, HeroLegend, bandModel, lineModel, stackModel, type HeroModel, type Row } from "../charts/hero.tsx";
+import { Dumbbell, Heatmap, TreeMap, treeGroups, type TreeCell, type TreeItem } from "../charts/viz.tsx";
+import { rangeBase, useApp, useDerived, type Derived } from "../data/store.ts";
+import { dateShort, eur, eurAxis, eurSigned, num, pct, pctSigned, seriesColor, splitMoney } from "../lib/format.ts";
 import { openDialog } from "../ui/dialogs.ts";
-import { Button, Delta, Empty, Section, Segmented, Stat } from "../ui/kit.tsx";
+import { Btn, Card, Delta, Empty, HeaderSlot, Kpi, Kpis, Money, Pills, toneOf } from "../ui/kit.tsx";
+import { KIND_ORDER, PeriodPills, RANGE_PHRASE, Welcome, kindColor, kindLabel } from "./common.tsx";
 
-// Color fijo por tipo de activo y por divisa: el color sigue a la categoría.
-export const KIND_SLOT: Record<AssetKind | "cash", number> = { etf: 1, stock: 2, fund: 3, crypto: 4, bond: 5, other: 6, cash: 7 };
-const KIND_ORDER: Array<AssetKind | "cash"> = ["etf", "stock", "fund", "crypto", "bond", "other", "cash"];
-export const kindLabel = (k: string) => (k === "cash" ? "Efectivo" : ASSET_KIND_LABEL[k as AssetKind]);
-const CCY_SLOT: Record<string, number> = { EUR: 1, USD: 2, GBP: 3, CHF: 4, JPY: 5 };
-const ccyColor = (c: string) => seriesColor(CCY_SLOT[c] ?? 6 + ([...c].reduce((s, ch) => s + ch.charCodeAt(0), 0) % 3));
+type Mode = "valor" | "cuenta" | "tipo" | "rent";
+type Group = "Tipo" | "Cuenta" | "Divisa";
 
-const RANGE_PHRASE: Record<RangeKey, string> = {
-  "1M": "en el último mes",
-  "3M": "en 3 meses",
-  "6M": "en 6 meses",
-  YTD: "en lo que va de año",
-  "1A": "en el último año",
-  "3A": "en 3 años",
-  ALL: "desde el inicio",
-};
-
-type Mode = "total" | "account" | "kind";
-type Split = "kind" | "account" | "currency";
-
-export function Welcome() {
-  return (
-    <Empty
-      title="Tu cartera, en un solo sitio"
-      action={
-        <>
-          <Button variant="primary" onClick={() => openDialog({ kind: "account" })}>
-            Crear la primera cuenta
-          </Button>
-          <Button onClick={() => openDialog({ kind: "import" })}>Importar un CSV</Button>
-          <Button variant="ghost" onClick={() => setDemo(true)}>
-            Ver una cartera de ejemplo
-          </Button>
-        </>
-      }
-    >
-      Crea una cuenta por cada bróker, banco o exchange y registra en ella tus compras, ventas y dividendos. Caudal calcula el resto.
-    </Empty>
-  );
-}
-
-function allocation(d: Derived, split: Split): Part[] {
+function treeItems(d: Derived, g: Group): TreeItem[] {
   const tl = d.timeline;
   const last = tl.n - 1;
-  if (last < 0) return [];
-  if (split === "kind") {
-    return KIND_ORDER.map((k) => ({ key: k, label: kindLabel(k), color: seriesColor(KIND_SLOT[k]), value: tl.byKind.get(k)?.[last] ?? 0 }));
+  const items: TreeItem[] = [];
+  for (const p of d.positions) {
+    // Una posición repartida entre cuentas se parte en proporción a sus unidades.
+    const parts = g === "Cuenta" ? p.accounts.map((a) => ({ id: a.accountId, share: p.qty ? a.qty / p.qty : 0 })) : [{ id: "", share: 1 }];
+    for (const part of parts) {
+      const acct = d.accounts.get(part.id);
+      items.push({
+        key: `${p.asset.id}|${part.id}`,
+        name: p.asset.name,
+        value: p.valueEur * part.share,
+        group: g === "Tipo" ? kindLabel(p.asset.kind) : g === "Cuenta" ? (acct?.name ?? "—") : p.asset.currency,
+        color: acct ? seriesColor(acct.color) : undefined,
+      });
+    }
   }
-  if (split === "account") {
-    return d.state.accounts.map((a) => ({ key: a.id, label: a.name, color: seriesColor(a.color), value: tl.byAccount.get(a.id)?.[last] ?? 0 }));
-  }
-  const by = new Map<string, number>();
-  for (const p of d.positions) by.set(p.asset.currency, (by.get(p.asset.currency) ?? 0) + p.valueEur);
   for (const [id, series] of tl.cash) {
-    const ccy = d.accounts.get(id)?.currency ?? "EUR";
-    by.set(ccy, (by.get(ccy) ?? 0) + series[last]! / d.ledger.market.fx(ccy, tl.start + last));
+    const acct = d.accounts.get(id);
+    if (!acct || last < 0) continue;
+    const value = series[last]! / d.ledger.market.fx(acct.currency, tl.start + last);
+    items.push({
+      key: `cash|${id}`,
+      name: `Efectivo · ${acct.name}`,
+      value,
+      group: g === "Tipo" ? "Efectivo" : g === "Cuenta" ? acct.name : acct.currency,
+      color: seriesColor(acct.color),
+    });
   }
-  return [...by.entries()].map(([c, value]) => ({ key: c, label: c, color: ccyColor(c), value }));
+  return items;
 }
 
 export function Resumen() {
   const d = useDerived();
   const range = useApp((s) => s.range);
   const [, go] = useLocation();
-  const [mode, setMode] = useState<Mode>("total");
-  const [split, setSplit] = useState<Split>("kind");
+  const [mode, setMode] = useState<Mode>("valor");
+  const [group, setGroup] = useState<Group>("Tipo");
+  const [hover, setHover] = useState<{ src: number; k: number } | null>(null);
+  const [cell, setCell] = useState<TreeCell | null>(null);
   const tl = d.timeline;
 
   const view = useMemo(() => {
@@ -85,241 +62,208 @@ export function Resumen() {
     const { from, fromDate } = rangeBase(range, tl, d.today);
     const i0 = Math.max(from, 0);
     const dates = Array.from({ length: to - i0 + 1 }, (_, k) => isoOf(tl.start + i0 + k));
-    const stats = periodStats(tl, from, to);
-    const all = periodStats(tl, -1, to);
-    const start = fromDate ?? isoOf(tl.start);
-    const totals = totalsIn(d.ledger, d.scope, start, d.today);
     const invested = netInvested(tl);
-    const ret = returnIndex(d.returns, from, to);
-    return { to, from, i0, dates, stats, all, totals, invested, ret, start };
+    const V = tl.total.subarray(i0);
+    const C = invested.subarray(i0);
+    const start = fromDate ?? isoOf(tl.start);
+    return {
+      to,
+      from,
+      i0,
+      dates,
+      V,
+      C,
+      invested,
+      stats: periodStats(tl, from, to),
+      all: periodStats(tl, -1, to),
+      totals: totalsIn(d.ledger, d.scope, start, d.today),
+      ret: returnIndex(d.returns, from, to),
+    };
   }, [tl, range, d]);
+
+  // La geometría del gráfico solo depende del periodo y del modo: el hover no la recalcula.
+  const model = useMemo<HeroModel | null>(() => {
+    if (!view || view.dates.length < 2) return null;
+    const { dates, V, C, i0, ret } = view;
+    const lane = (a: number, b: number) => {
+      const g = V[b]! - V[a]! - (C[b]! - C[a]!);
+      return { up: Math.max(g, 0), down: Math.max(-g, 0) };
+    };
+    if (mode === "rent") {
+      // returnIndex puede traer un punto menos cuando el periodo empieza con la cartera.
+      const off = dates.length - ret.length;
+      return lineModel({ dates: dates.slice(off), values: ret, label: "Rentabilidad acumulada", format: (v) => pctSigned(v / 100, 2), axis: (v) => `${num(v, 0)} %`, zero: true, lane: (a, b) => lane(a + off, b + off) });
+    }
+    if (mode === "cuenta") {
+      return stackModel({
+        dates,
+        axis: eurAxis,
+        format: (v) => eur(v, 0),
+        lane,
+        series: d.state.accounts.filter((a) => tl.byAccount.has(a.id)).map((a) => ({ label: a.name, color: seriesColor(a.color), values: tl.byAccount.get(a.id)!.subarray(i0) })),
+      });
+    }
+    if (mode === "tipo") {
+      return stackModel({
+        dates,
+        axis: eurAxis,
+        format: (v) => eur(v, 0),
+        lane,
+        series: KIND_ORDER.filter((k) => tl.byKind.has(k)).map((k) => ({ label: kindLabel(k), color: kindColor(k), values: tl.byKind.get(k)!.subarray(i0) })),
+      });
+    }
+    return bandModel({
+      dates,
+      top: V,
+      base: C,
+      axis: eurAxis,
+      lane,
+      rows: (i): Row[] => [
+        { color: "var(--acc)", label: "Valor", value: eur(V[i]!) },
+        { color: "var(--mute)", label: "Aportado neto", value: eur(C[i]!, 0) },
+        { color: "transparent", label: "Ganancia", value: eurSigned(V[i]! - C[i]!) },
+      ],
+    });
+  }, [view, mode, d.state.accounts, tl]);
+
+  const groups = useMemo(() => treeGroups(treeItems(d, group), group === "Cuenta"), [d, group]);
+  const months = useMemo(() => monthlyReturns(tl), [tl]);
 
   if (d.state.accounts.length === 0) return <Welcome />;
   if (!view) {
     return (
-      <Empty title="Aún no hay operaciones" action={<Button variant="primary" onClick={() => openDialog({ kind: "tx" })}>Registrar la primera operación</Button>}>
+      <Empty title="Aún no hay operaciones" action={<Btn variant="cta" onClick={() => openDialog({ kind: "tx" })}>Registrar la primera operación</Btn>}>
         En cuanto registres una compra o un ingreso verás aquí la evolución de tu cartera.
       </Empty>
     );
   }
 
-  const { to, i0, dates, stats, all, totals, invested, ret } = view;
-  const rangeLabel = RANGE_PHRASE[range];
+  const { stats, all, totals, invested, to, V, dates } = view;
+  // Con el cursor sobre el gráfico, la cifra principal pasa a ser la de esa fecha.
+  const off = mode === "rent" ? dates.length - view.ret.length : 0;
+  const at = hover ? Math.min(V.length - 1, hover.src + off) : V.length - 1;
+  const [heroI, heroD] = splitMoney(eur(V[at]!));
   const unrealized = d.positions.reduce((s, p) => s + p.unrealizedEur, 0);
   const cost = d.positions.reduce((s, p) => s + p.costEur, 0);
-
-  let series: Series[];
-  if (mode === "total") {
-    series = [{ key: "total", label: "Valor", color: "var(--s1)", values: tl.total.subarray(i0) }];
-  } else if (mode === "account") {
-    series = d.state.accounts
-      .filter((a) => tl.byAccount.has(a.id))
-      .map((a) => ({ key: a.id, label: a.name, color: seriesColor(a.color), values: tl.byAccount.get(a.id)!.subarray(i0) }));
-  } else {
-    series = KIND_ORDER.filter((k) => tl.byKind.has(k)).map((k) => ({ key: k, label: kindLabel(k), color: seriesColor(KIND_SLOT[k]), values: tl.byKind.get(k)!.subarray(i0) }));
-  }
-
-  // Ingresos por mes dentro del periodo (como mínimo los últimos 12 meses).
-  const months = (() => {
-    // Desde el inicio del periodo, pero nunca menos de doce meses (ni antes de la primera operación).
-    const yearAgo = isoOf(Math.max(tl.start, tl.start + to - 365)).slice(0, 7);
-    const first = view.start.slice(0, 7) < yearAgo ? view.start.slice(0, 7) : yearAgo;
-    const list: string[] = [];
-    let [y, m] = first.split("-").map(Number) as [number, number];
-    const end = d.today.slice(0, 7);
-    for (let k = 0; k < 240; k++) {
-      const ym = `${y}-${String(m).padStart(2, "0")}`;
-      list.push(ym);
-      if (ym >= end) break;
-      if (++m > 12) {
-        m = 1;
-        y++;
-      }
-    }
-    const div = new Map<string, number>();
-    const int = new Map<string, number>();
-    for (const n of d.ledger.ntxs) {
-      if (d.scope && !d.scope.has(n.tx.accountId)) continue;
-      const ym = n.tx.date.slice(0, 7);
-      if (n.tx.type === "dividend") div.set(ym, (div.get(ym) ?? 0) + n.cashEur);
-      else if (n.tx.type === "interest") int.set(ym, (int.get(ym) ?? 0) + n.cashEur);
-    }
-    return { list, div: list.map((ym) => div.get(ym) ?? 0), int: list.map((ym) => int.get(ym) ?? 0) };
-  })();
-  const hasIncome = months.div.some(Boolean) || months.int.some(Boolean);
-
-  const top = d.positions.slice(0, 8);
-  const movers = [...d.positions].sort((a, b) => Math.abs(b.unrealizedEur) - Math.abs(a.unrealizedEur)).slice(0, 8).sort((a, b) => b.unrealizedEur - a.unrealizedEur);
+  const xirr = stats.xirr ?? all.xirr;
+  const legend = model ? model.rowsAt(hover ? Math.min(hover.k, model.n - 1) : model.n - 1) : [];
 
   return (
-    <div className="grid gap-10">
-      {/* Cifra principal y evolución */}
-      <section>
-        <div className="flex items-end justify-between gap-6">
+    <div className="screen flex flex-col gap-5">
+      <HeaderSlot>
+        <Pills
+          label="Qué muestra el gráfico"
+          value={mode}
+          onChange={(m) => {
+            setHover(null);
+            setMode(m);
+          }}
+          options={[
+            ["valor", "Valor y aportado"],
+            ["cuenta", "Por cuenta"],
+            ["tipo", "Por tipo"],
+            ["rent", "Rentabilidad"],
+          ]}
+        />
+      </HeaderSlot>
+
+      <section className="px-1 pt-2">
+        <div className="flex flex-wrap items-end justify-between gap-5">
           <div>
-            <div className="text-[13px] text-ink-2">Valor de la cartera</div>
-            <div className="mt-1 text-[52px] leading-none font-semibold tracking-[-0.02em]">{eur(stats.endValue)}</div>
-            <div className="mt-2.5 flex items-center gap-2 text-[14px]">
-              <Delta value={stats.gain} />
-              <span className="text-muted">{rangeLabel}</span>
-              <span className="text-line-strong">|</span>
-              <span className="num text-ink-2">{pctSigned(stats.twr, 2)} de rentabilidad</span>
+            <div className="text-[12px] text-mute">Valor de la cartera · {dateShort(dates[at]!)}</div>
+            <div className="mt-0.5 text-[56px] leading-[1.05] font-medium tracking-[-0.02em]" style={{ fontStretch: "108%" }}>
+              {heroI}
+              <span className="text-mute">{heroD}</span>
+            </div>
+            <div className="mt-1.5 flex min-h-5 items-baseline gap-2.5 text-[13.5px]">
+              <span className="font-[550]" style={{ color: toneOf(stats.gain) }}>
+                {eurSigned(stats.gain)}
+              </span>
+              <span style={{ color: toneOf(stats.twr, 0.00005) }}>{pctSigned(stats.twr, 2)}</span>
+              <span className="text-mute">{RANGE_PHRASE[range]} · rentabilidad sin contar lo aportado</span>
             </div>
           </div>
-          <Segmented
-            label="Qué muestra el gráfico"
-            value={mode}
-            onChange={setMode}
-            options={[
-              ["total", "Valor y aportado"],
-              ["account", "Por cuenta"],
-              ["kind", "Por tipo"],
-            ]}
-          />
+          <HeroLegend rows={legend} />
         </div>
-        <div className="mt-5">
-          <TimeChart
-            dates={dates}
-            series={series}
-            stacked={mode !== "total"}
-            reference={mode === "total" ? { label: "Aportado neto", values: invested.subarray(i0) } : undefined}
-            height={300}
-            format={(v) => eur(v, 0)}
-            formatAxis={eurAxis}
-          />
-        </div>
-        <div className="mt-2">
-          {mode === "total" ? (
-            <Legend
-              items={[
-                { key: "v", label: "Valor de la cartera", color: "var(--s1)", line: true },
-                { key: "a", label: "Aportado neto (lo que has puesto menos lo que has retirado)", color: "var(--muted)", line: true },
-              ]}
-            />
-          ) : (
-            <Legend items={series.map((s) => ({ key: s.key, label: s.label, color: s.color }))} />
-          )}
-        </div>
+        <HeroChart
+          model={model}
+          laneLabel="Ganancia o pérdida de cada tramo, sin contar lo aportado"
+          onHover={(src, k) => setHover(src == null || k == null ? null : { src, k })}
+          footer={<PeriodPills />}
+        />
       </section>
 
-      {/* Cifras clave */}
-      <section className="grid grid-cols-5 gap-6 border-y border-line py-5">
-        <Stat label="Aportado neto" sub="desde el inicio">
+      <Kpis>
+        <Kpi label="Aportado neto" note="desde el inicio">
           {eur(invested[to]!, 0)}
-        </Stat>
-        <Stat label="Ganancia total" sub="valor menos aportado">
-          <Delta value={all.gain} />
-        </Stat>
-        <Stat label="Plusvalía latente" sub={cost > 0 ? `${pctSigned(unrealized / cost)} sobre el coste` : "sin posiciones"}>
-          <Delta value={unrealized} />
-        </Stat>
-        <Stat label="Realizado y cobrado" sub={`ventas ${eur(totals.realizedEur, 0)} · rentas ${eur(totals.dividendsEur + totals.interestEur, 0)}`}>
-          <Delta value={totals.realizedEur + totals.dividendsEur + totals.interestEur} />
-        </Stat>
-        <Stat label="TIR anualizada" sub={(stats.xirr ?? all.xirr) == null ? "hace falta más historia" : stats.xirr != null ? rangeLabel : "desde el inicio"}>
-          {(stats.xirr ?? all.xirr) == null ? "—" : <Delta ratio={stats.xirr ?? all.xirr} />}
-        </Stat>
-      </section>
+        </Kpi>
+        <Kpi label="Ganancia total" note="valor menos aportado" tone={all.gain}>
+          <Money value={all.gain} signed dim="soft" />
+        </Kpi>
+        <Kpi label="Plusvalía latente" note={cost > 0 ? `${pctSigned(unrealized / cost)} sobre el coste` : "sin posiciones"} tone={unrealized}>
+          <Money value={unrealized} signed dim="soft" />
+        </Kpi>
+        <Kpi label="Realizado y cobrado" note={`ventas ${eur(totals.realizedEur, 0)} · rentas ${eur(totals.dividendsEur + totals.interestEur, 0)} · ${RANGE_PHRASE[range]}`} tone={totals.realizedEur + totals.dividendsEur + totals.interestEur}>
+          <Money value={totals.realizedEur + totals.dividendsEur + totals.interestEur} signed dim="soft" />
+        </Kpi>
+        <Kpi label="TIR anualizada" note={xirr == null ? "hace falta más historia" : stats.xirr != null ? RANGE_PHRASE[range] : "desde el inicio"} tone={xirr}>
+          {xirr == null ? "—" : pctSigned(xirr)}
+        </Kpi>
+      </Kpis>
 
-      <div className="grid grid-cols-[minmax(0,5fr)_minmax(0,7fr)] gap-12">
-        <Section
+      <div className="grid gap-5" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))" }}>
+        <Card
+          className="col-span-full"
           title="Reparto"
+          aside={<span className="truncate">{cell ? `${cell.name} · ${eur(cell.value, 0)} · ${pct(cell.share)}` : ""}</span>}
+          note={<Pills size="sm" label="Repartir por" value={group} onChange={setGroup} options={[["Tipo", "Tipo"], ["Cuenta", "Cuenta"], ["Divisa", "Divisa"]]} />}
+        >
+          <TreeMap groups={groups} hot={cell?.key ?? null} onHover={setCell} />
+        </Card>
+
+        <Card title="Rentabilidad mes a mes" aside={<span className="text-mute">en %</span>}>
+          <Heatmap months={months} />
+        </Card>
+
+        <Card
+          title="De coste a valor"
           aside={
-            <Segmented
-              size="sm"
-              label="Repartir por"
-              value={split}
-              onChange={setSplit}
-              options={[
-                ["kind", "Tipo"],
-                ["account", "Cuenta"],
-                ["currency", "Divisa"],
-              ]}
-            />
+            <span className="flex gap-3.5 text-[12px] text-mute">
+              <span className="flex items-center gap-1.5">
+                <span className="size-2 rounded-full border-[1.5px] border-mute" />
+                coste
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="size-2 rounded-full bg-ink2" />
+                valor hoy
+              </span>
+            </span>
           }
         >
-          <SegmentedBar parts={foldParts(allocation(d, split))} format={(v) => eur(v, 0)} />
-        </Section>
-
-        <Section title="Rentabilidad acumulada" aside={<span className="text-[12px] text-muted">ponderada por tiempo, sin el efecto de aportar o retirar</span>}>
-          <TimeChart
-            dates={dates.slice(dates.length - ret.length)}
-            series={[{ key: "twr", label: "Rentabilidad", color: "var(--s1)", values: ret }]}
-            height={210}
-            zero
-            format={(v) => pctSigned(v / 100, 2)}
-            formatAxis={(v) => pct(v / 100, 0)}
-          />
-        </Section>
-      </div>
-
-      <Section title="Rentabilidad mes a mes" aside={<span className="text-[12px] text-muted">en %</span>}>
-        <ReturnHeatmap months={monthlyReturns(tl)} />
-      </Section>
-
-      <div className="grid grid-cols-2 gap-12">
-        <Section title="Mayores posiciones" aside={<Button size="sm" variant="ghost" onClick={() => go("/posiciones")}>Ver todas</Button>}>
-          {top.length ? (
-            <RankedBars
-              rows={top.map((p) => ({
-                key: p.asset.id,
-                label: p.asset.name,
-                value: p.valueEur,
-                display: (
-                  <>
-                    {eur(p.valueEur, 0)} <span className="text-muted">{pct(p.weight)}</span>
-                  </>
-                ),
-                onClick: () => go(`/activo/${p.asset.id}`),
-              }))}
+          {d.positions.length ? (
+            <Dumbbell
+              axis={eurAxis}
+              toneOf={(r) => toneOf(r.to - r.from)}
+              rows={[...d.positions]
+                .sort((a, b) => b.unrealizedEur - a.unrealizedEur)
+                .map((p) => ({
+                  key: p.asset.id,
+                  name: p.asset.name,
+                  from: p.costEur,
+                  to: p.valueEur,
+                  onClick: () => go(`/activo/${p.asset.id}`),
+                  right: (
+                    <>
+                      {eurSigned(p.unrealizedEur)} <span className="text-[11.5px] opacity-70">{p.unrealizedPct == null ? "" : pctSigned(p.unrealizedPct)}</span>
+                    </>
+                  ),
+                }))}
             />
           ) : (
-            <div className="text-muted">No hay posiciones abiertas.</div>
+            <div className="py-6 text-mute">No hay posiciones abiertas.</div>
           )}
-        </Section>
-        <Section title="Plusvalía latente por posición">
-          {movers.length ? (
-            <RankedBars
-              diverging
-              rows={movers.map((p) => ({
-                key: p.asset.id,
-                label: p.asset.name,
-                value: p.unrealizedEur,
-                display: <Delta value={p.unrealizedEur} />,
-                onClick: () => go(`/activo/${p.asset.id}`),
-              }))}
-            />
-          ) : (
-            <div className="text-muted">No hay posiciones abiertas.</div>
-          )}
-        </Section>
+        </Card>
       </div>
-
-      {hasIncome && (
-        <Section
-          title="Dividendos e intereses cobrados"
-          aside={
-            <Legend
-              items={[
-                { key: "d", label: "Dividendos", color: "var(--s1)" },
-                { key: "i", label: "Intereses", color: "var(--s2)" },
-              ]}
-            />
-          }
-        >
-          <Columns
-            categories={months.list.map((ym) => monthShort(ym))}
-            titles={months.list.map(monthLong)}
-            series={[
-              { key: "div", label: "Dividendos", color: "var(--s1)", values: months.div },
-              { key: "int", label: "Intereses", color: "var(--s2)", values: months.int },
-            ]}
-            height={190}
-            format={(v) => eur(v)}
-            formatAxis={eurAxis}
-          />
-        </Section>
-      )}
     </div>
   );
 }

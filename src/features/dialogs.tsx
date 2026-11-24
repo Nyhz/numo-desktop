@@ -1,19 +1,14 @@
 import { useState } from "react";
 import { detectCsv, matchSeries, parseNumber, parseSeriesCsv, parseTxCsv, planImport, type ImportPlan } from "../../shared/csv.ts";
 import { todayIso } from "../../shared/dates.ts";
+import { looksLikeExtras } from "../../shared/extras.ts";
 import { ACCOUNT_KINDS, ACCOUNT_KIND_LABEL, ASSET_KINDS, ASSET_KIND_LABEL, type Account, type Asset } from "../../shared/types.ts";
-import { getApp, importPlan, importSeries, sync, removeAccount, removeAsset, saveAccount, saveAsset, setPrice, useDerived } from "../data/store.ts";
+import { getApp, importExtras, importPlan, importSeries, sync, removeAccount, removeAsset, saveAccount, saveAsset, setPrice, useDerived } from "../data/store.ts";
 import { dateShort, num } from "../lib/format.ts";
 import { closeDialog, useDialog } from "../ui/dialogs.ts";
-import { Button, Dialog, Field, toast } from "../ui/kit.tsx";
+import { Btn, Dialog, ErrorLine, Field, toast } from "../ui/kit.tsx";
+import { MortgageEventDialog, PropertyDialog, ValuationDialog } from "./property-dialogs.tsx";
 import { TxDialog } from "./TxDialog.tsx";
-
-const ErrorLine = ({ text }: { text: string | null }) =>
-  text ? (
-    <div role="alert" className="rounded-md bg-wash-strong px-3 py-2 text-[13px] text-down">
-      {text}
-    </div>
-  ) : null;
 
 // ── Cuenta ─────────────────────────────────────────────────────────────────
 
@@ -54,25 +49,25 @@ function AccountDialog({ account }: { account?: Account }) {
       footer={
         confirming ? (
           <>
-            <span className="mr-auto text-[13px] text-ink-2">
+            <span className="mr-auto text-[13px] text-ink2">
               {txCount ? `Se borrarán también sus ${txCount} operaciones. No se puede deshacer.` : "La cuenta se borrará."}
             </span>
-            <Button onClick={() => setConfirming(false)}>Conservar</Button>
-            <Button variant="danger" onClick={remove}>
+            <Btn onClick={() => setConfirming(false)}>Conservar</Btn>
+            <Btn variant="danger" onClick={remove}>
               Eliminar cuenta
-            </Button>
+            </Btn>
           </>
         ) : (
           <>
             {account && (
-              <Button variant="danger" className="mr-auto" onClick={() => setConfirming(true)}>
+              <Btn variant="danger" className="mr-auto" onClick={() => setConfirming(true)}>
                 Eliminar
-              </Button>
+              </Btn>
             )}
-            <Button onClick={closeDialog}>Cancelar</Button>
-            <Button variant="primary" onClick={save}>
+            <Btn onClick={closeDialog}>Cancelar</Btn>
+            <Btn variant="cta" onClick={save}>
               {account ? "Guardar" : "Crear cuenta"}
-            </Button>
+            </Btn>
           </>
         )
       }
@@ -105,17 +100,17 @@ function AccountDialog({ account }: { account?: Account }) {
           </Field>
         </div>
         <label className="flex items-start gap-2.5">
-          <input type="checkbox" className="mt-[3px] accent-[var(--ink)]" checked={f.trackCash} onChange={(e) => setF({ ...f, trackCash: e.target.checked })} />
+          <input type="checkbox" className="mt-[3px] accent-[var(--acc)]" checked={f.trackCash} onChange={(e) => setF({ ...f, trackCash: e.target.checked })} />
           <span>
             Llevar el efectivo de esta cuenta
-            <span className="block text-[12px] text-muted">
+            <span className="block text-[12px] text-mute">
               Actívalo si vas a registrar ingresos y retiradas: las compras restarán del saldo y los dividendos sumarán. Si no, la cuenta solo sigue tus inversiones.
             </span>
           </span>
         </label>
         {account && (
           <label className="flex items-center gap-2.5">
-            <input type="checkbox" className="accent-[var(--ink)]" checked={f.archived} onChange={(e) => setF({ ...f, archived: e.target.checked })} />
+            <input type="checkbox" className="accent-[var(--acc)]" checked={f.archived} onChange={(e) => setF({ ...f, archived: e.target.checked })} />
             Archivada: se conserva su historia pero no aparece al registrar operaciones
           </label>
         )}
@@ -160,13 +155,13 @@ function AssetDialog({ asset }: { asset: Asset }) {
       width={480}
       footer={
         <>
-          <Button variant="danger" className="mr-auto" onClick={remove}>
+          <Btn variant="danger" className="mr-auto" onClick={remove}>
             Eliminar
-          </Button>
-          <Button onClick={closeDialog}>Cancelar</Button>
-          <Button variant="primary" onClick={save}>
+          </Btn>
+          <Btn onClick={closeDialog}>Cancelar</Btn>
+          <Btn variant="cta" onClick={save}>
             Guardar
-          </Button>
+          </Btn>
         </>
       }
     >
@@ -202,7 +197,7 @@ function AssetDialog({ asset }: { asset: Asset }) {
             <input className="field" placeholder="p. ej. VWCE.DE" value={f.symbol} onChange={(e) => setF({ ...f, symbol: e.target.value })} />
           </Field>
         </div>
-        <p className="text-[12px] text-muted">
+        <p className="text-[12px] text-mute">
           Con símbolo, el precio se actualiza solo. Si cambias el símbolo o la divisa se descarta el histórico de precios guardado y se vuelve a descargar.
         </p>
         <ErrorLine text={error} />
@@ -238,10 +233,10 @@ function PriceDialog({ asset }: { asset: Asset }) {
       width={420}
       footer={
         <>
-          <Button onClick={closeDialog}>Cancelar</Button>
-          <Button variant="primary" onClick={save}>
+          <Btn onClick={closeDialog}>Cancelar</Btn>
+          <Btn variant="cta" onClick={save}>
             Guardar precio
-          </Button>
+          </Btn>
         </>
       }
     >
@@ -262,7 +257,7 @@ function PriceDialog({ asset }: { asset: Asset }) {
         </div>
         {recent.length > 0 && (
           <div>
-            <div className="mb-1 text-[12px] text-ink-2">Últimos precios guardados</div>
+            <div className="mb-1 text-[12px] text-ink2">Últimos precios guardados</div>
             <table className="tbl">
               <tbody>
                 {recent.map(([dt, v]) => (
@@ -270,9 +265,9 @@ function PriceDialog({ asset }: { asset: Asset }) {
                     <td>{dateShort(dt)}</td>
                     <td className="r">{num(v, 4, 2)}</td>
                     <td className="r w-0">
-                      <Button size="sm" variant="ghost" onClick={() => void setPrice(asset.id, dt, null)}>
+                      <Btn size="sm" variant="ghost" onClick={() => void setPrice(asset.id, dt, null)}>
                         Quitar
-                      </Button>
+                      </Btn>
                     </td>
                   </tr>
                 ))}
@@ -291,6 +286,7 @@ function PriceDialog({ asset }: { asset: Asset }) {
 
 type Issue = { line: number; message: string };
 type Loaded =
+  | { kind: "extras"; file: string; text: string }
   | { kind: "operations"; file: string; plan: ImportPlan; errors: Issue[] }
   | { kind: "prices" | "splits"; file: string; text: string; rows: number; errors: Issue[] }
   | { kind: "unknown"; file: string };
@@ -308,6 +304,10 @@ function ImportDialog() {
     const out: Loaded[] = [];
     for (const file of Array.from(list ?? [])) {
       const text = await file.text();
+      if (looksLikeExtras(text)) {
+        out.push({ kind: "extras", file: file.name, text });
+        continue;
+      }
       const kind = detectCsv(text);
       if (kind === "operations") {
         const parsed = parseTxCsv(text);
@@ -317,8 +317,9 @@ function ImportDialog() {
         out.push({ kind, file: file.name, text, rows: parsed.rows.length, errors: parsed.errors });
       } else out.push({ kind: "unknown", file: file.name });
     }
-    // Las operaciones primero: crean los activos a los que se refieren precios y splits.
-    out.sort((a, b) => (a.kind === "operations" ? 0 : 1) - (b.kind === "operations" ? 0 : 1));
+    // Las operaciones primero (crean los activos); el plan y los inmuebles al final.
+    const order = ["operations", "prices", "splits", "extras", "unknown"];
+    out.sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind));
     setFiles(out);
   };
 
@@ -333,6 +334,17 @@ function ImportDialog() {
           const res = await importPlan(f.plan);
           if (!res.ok) return setError(`${f.file}: ${res.error}`);
           done.push(`${res.value} operaciones`);
+        } else if (f.kind === "extras") {
+          let json: unknown;
+          try {
+            json = JSON.parse(f.text);
+          } catch {
+            return setError(`${f.file}: no es un JSON válido`);
+          }
+          const res = await importExtras(json);
+          if (!res.ok) return setError(`${f.file}: ${res.error}`);
+          done.push(`${res.value.goals} bloques, ${res.value.assigned} activos asignados, ${res.value.properties} inmuebles`);
+          if (res.value.unmatched.length) toast(`${f.file}: ${res.value.unmatched.length} asignaciones sin emparejar`, { tone: "error" });
         } else if (f.kind === "prices" || f.kind === "splits") {
           // Se empareja ahora, cuando los activos del archivo de operaciones ya existen.
           const app = getApp();
@@ -360,23 +372,23 @@ function ImportDialog() {
     <Dialog
       open
       onClose={closeDialog}
-      title="Importar desde CSV"
+      title="Importar"
       width={600}
       footer={
         <>
-          <Button onClick={closeDialog}>Cancelar</Button>
-          <Button variant="primary" disabled={!anything || blocking || busy} onClick={run}>
+          <Btn onClick={closeDialog}>Cancelar</Btn>
+          <Btn variant="cta" disabled={!anything || blocking || busy} onClick={run}>
             {busy ? "Importando…" : "Importar"}
-          </Button>
+          </Btn>
         </>
       }
     >
       <div className="grid gap-4">
-        <p className="text-ink-2">
-          Elige uno o varios archivos. Caudal reconoce por la cabecera si son <strong>operaciones</strong>, <strong>precios históricos</strong> o <strong>splits</strong>, y
-          crea las cuentas y los activos que falten. Se importa todo o nada: si una línea falla no se guarda ninguna.
+        <p className="text-ink2">
+          Elige uno o varios archivos. Caudal reconoce si son <strong>operaciones</strong>, <strong>precios históricos</strong>, <strong>splits</strong> o el <strong>plan e
+          inmuebles</strong>, y crea las cuentas y los activos que falten. Se importa todo o nada: si una línea falla no se guarda ninguna.
         </p>
-        <input type="file" accept=".csv,text/csv,text/plain" multiple className="field h-auto py-1.5" onChange={(e) => void read(e.target.files)} />
+        <input type="file" accept=".csv,.json,text/csv,text/plain,application/json" multiple className="field h-auto py-2" onChange={(e) => void read(e.target.files)} />
 
         {files.map((f) => (
           <div key={f.file} className="border-t border-line pt-3">
@@ -384,7 +396,7 @@ function ImportDialog() {
             {f.kind === "unknown" && <div className="text-down">No se reconoce la cabecera. Una exportación de operaciones de Caudal sirve de plantilla.</div>}
             {f.kind === "operations" && (
               <>
-                <div className="text-ink-2">
+                <div className="text-ink2">
                   {f.plan.rows.length} operaciones
                   {f.plan.newAccounts.length > 0 && ` · ${f.plan.newAccounts.length} cuentas nuevas (${f.plan.newAccounts.map((a) => a.name).join(", ")})`}
                   {f.plan.newAssets.length > 0 && ` · ${f.plan.newAssets.length} activos nuevos`}
@@ -400,10 +412,11 @@ function ImportDialog() {
                 )}
               </>
             )}
+            {f.kind === "extras" && <div className="text-ink2">Plan e inmuebles</div>}
             {(f.kind === "prices" || f.kind === "splits") && (
-              <div className="text-ink-2">
+              <div className="text-ink2">
                 {f.rows} {f.kind === "prices" ? "precios" : "splits"}
-                {f.errors.length > 0 && <span className="text-warn"> · {f.errors.length} líneas ilegibles que se omitirán</span>}
+                {f.errors.length > 0 && <span className="text-acc"> · {f.errors.length} líneas ilegibles que se omitirán</span>}
               </div>
             )}
           </div>
@@ -429,5 +442,11 @@ export function Dialogs() {
       return <PriceDialog asset={dlg.asset} />;
     case "import":
       return <ImportDialog />;
+    case "property":
+      return <PropertyDialog property={dlg.property} />;
+    case "mortgageEvent":
+      return <MortgageEventDialog mortgage={dlg.mortgage} type={dlg.type} amount={dlg.amount} mode={dlg.mode} />;
+    case "valuation":
+      return <ValuationDialog property={dlg.property} />;
   }
 }

@@ -1,62 +1,69 @@
 import { X } from "lucide-react";
-import { useEffect, useRef, useSyncExternalStore, type ButtonHTMLAttributes, type ReactNode } from "react";
-import { eurSigned, pctSigned } from "../lib/format.ts";
+import { useEffect, useRef, useState, useSyncExternalStore, type ButtonHTMLAttributes, type CSSProperties, type ReactNode } from "react";
+import { createPortal } from "react-dom";
+import { eur, eurSigned, pctSigned } from "../lib/format.ts";
 
 // ── Botones ────────────────────────────────────────────────────────────────
 
-type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
-  variant?: "primary" | "secondary" | "ghost" | "danger";
+type BtnProps = ButtonHTMLAttributes<HTMLButtonElement> & {
+  /** cta = acento (acción principal) · ink = sólido neutro · outline · ghost · danger */
+  variant?: "cta" | "ink" | "outline" | "ghost" | "danger";
   size?: "md" | "sm";
 };
 
-const VARIANT = {
-  primary: "bg-ink text-surface hover:opacity-90",
-  secondary: "border border-line-strong text-ink hover:bg-wash",
-  ghost: "text-ink-2 hover:bg-wash hover:text-ink",
-  danger: "border border-line-strong text-down hover:bg-wash",
+const VARIANT: Record<NonNullable<BtnProps["variant"]>, string> = {
+  cta: "bg-acc text-on-acc font-[650] hover:-translate-y-px shadow-[inset_0_1px_0_var(--cta-shine),0_6px_16px_-8px_var(--acc)]",
+  ink: "bg-ink text-bg font-semibold hover:opacity-90",
+  outline: "border border-line2 font-medium hover:bg-wash",
+  ghost: "text-mute hover:text-ink",
+  danger: "border border-line2 font-medium text-down hover:bg-wash",
 };
 
-export function Button({ variant = "secondary", size = "md", className = "", type = "button", ...rest }: ButtonProps) {
+export function Btn({ variant = "outline", size = "md", className = "", type = "button", ...rest }: BtnProps) {
   return (
     <button
       type={type}
-      className={`inline-flex shrink-0 items-center justify-center gap-1.5 rounded-md font-medium whitespace-nowrap transition-colors disabled:pointer-events-none disabled:opacity-45 ${
-        size === "sm" ? "h-7 px-2.5 text-[12.5px]" : "h-8 px-3.5 text-[13px]"
+      className={`inline-flex shrink-0 items-center justify-center gap-1.5 rounded-full whitespace-nowrap transition-[transform,background,color,opacity] duration-150 active:scale-[.97] disabled:pointer-events-none disabled:opacity-40 ${
+        size === "sm" ? "px-2.5 py-1 text-[12px]" : "px-3.5 py-[7px] text-[12.5px]"
       } ${VARIANT[variant]} ${className}`}
       {...rest}
     />
   );
 }
 
-export function IconButton({ label, className = "", ...rest }: ButtonHTMLAttributes<HTMLButtonElement> & { label: string }) {
+export function IconBtn({ label, className = "", ...rest }: ButtonHTMLAttributes<HTMLButtonElement> & { label: string }) {
   return (
     <button
       type="button"
       aria-label={label}
       title={label}
-      className={`inline-flex size-7 shrink-0 items-center justify-center rounded-md text-ink-2 transition-colors hover:bg-wash hover:text-ink disabled:opacity-40 ${className}`}
+      className={`inline-grid size-[30px] shrink-0 place-items-center rounded-full text-mute transition-colors hover:bg-wash hover:text-ink disabled:opacity-40 ${className}`}
       {...rest}
     />
   );
 }
 
-// ── Selector segmentado ────────────────────────────────────────────────────
+// ── Píldoras ───────────────────────────────────────────────────────────────
 
-export function Segmented<T extends string>({
+/** Grupo de píldoras para elegir una opción entre varias. */
+export function Pills<T extends string>({
   value,
   options,
   onChange,
   label,
   size = "md",
+  bare = false,
 }: {
   value: T;
   options: ReadonlyArray<readonly [T, string]>;
   onChange: (v: T) => void;
   label: string;
   size?: "md" | "sm";
+  /** Sin fondo de grupo (selector de periodo bajo el gráfico). */
+  bare?: boolean;
 }) {
   return (
-    <div role="radiogroup" aria-label={label} className="inline-flex rounded-md bg-wash p-[2px]">
+    <div role="radiogroup" aria-label={label} className={`inline-flex gap-0.5 rounded-full ${bare ? "" : "bg-wash p-[3px]"}`}>
       {options.map(([v, text]) => (
         <button
           key={v}
@@ -64,9 +71,9 @@ export function Segmented<T extends string>({
           role="radio"
           aria-checked={v === value}
           onClick={() => onChange(v)}
-          className={`rounded-[5px] font-medium whitespace-nowrap transition-colors ${size === "sm" ? "h-6 px-2 text-[12px]" : "h-7 px-2.5 text-[12.5px]"} ${
-            v === value ? "bg-raised text-ink shadow-[0_0_0_1px_var(--line-strong)]" : "text-ink-2 hover:text-ink"
-          }`}
+          className={`rounded-full font-medium whitespace-nowrap transition-[background,color] duration-200 active:scale-[.96] ${
+            size === "sm" ? "px-[11px] py-[3px] text-[12px]" : bare ? "px-3.5 py-1.5 text-[12.5px]" : "px-[13px] py-[5px] text-[12.5px]"
+          } ${v === value ? "bg-raised text-ink shadow-[var(--shadow-active)]" : "text-mute hover:text-ink"}`}
         >
           {text}
         </button>
@@ -75,14 +82,129 @@ export function Segmented<T extends string>({
   );
 }
 
-// ── Campos de formulario ───────────────────────────────────────────────────
+/** Coloca su contenido en la cabecera de la app, junto a la miga (subvistas de la pantalla). */
+export function HeaderSlot({ children }: { children: ReactNode }) {
+  const [target, setTarget] = useState<HTMLElement | null>(null);
+  useEffect(() => setTarget(document.getElementById("header-slot")), []);
+  return target ? createPortal(children, target) : null;
+}
+
+// ── Tarjetas y secciones ───────────────────────────────────────────────────
+
+export function Card({
+  title,
+  note,
+  aside,
+  children,
+  className = "",
+  pad = true,
+  style,
+}: {
+  title?: ReactNode;
+  /** Explicación breve junto al título. */
+  note?: ReactNode;
+  aside?: ReactNode;
+  children: ReactNode;
+  className?: string;
+  /** Sin relleno interior cuando el contenido son filas a sangre. */
+  pad?: boolean;
+  style?: CSSProperties;
+}) {
+  return (
+    <section className={`card min-w-0 ${pad ? "px-5 py-[18px]" : ""} ${className}`} style={style}>
+      {(title || aside) && (
+        <div className={`flex flex-wrap items-baseline gap-x-4 gap-y-1 ${pad ? "mb-3.5" : "px-5 pt-4 pb-2"}`}>
+          {title && <span className="wide font-semibold">{title}</span>}
+          {note && <span className="text-[12px] text-mute">{note}</span>}
+          {aside && <span className="ml-auto flex min-w-0 items-center gap-3 text-[12.5px] text-ink2">{aside}</span>}
+        </div>
+      )}
+      {children}
+    </section>
+  );
+}
+
+/** Tira de cifras clave: una tarjeta con celdas separadas por líneas finas. */
+export function Kpis({ children }: { children: ReactNode }) {
+  return <section className="card flex flex-wrap overflow-hidden">{children}</section>;
+}
+
+export function Kpi({ label, children, note, tone }: { label: string; children: ReactNode; note?: ReactNode; tone?: number | null }) {
+  const color = tone == null || Math.abs(tone) < 0.005 ? undefined : tone > 0 ? "var(--up)" : "var(--down)";
+  return (
+    <div className="min-w-0 flex-[1_1_180px] px-5 py-4 shadow-[0_0_0_.5px_var(--line)]">
+      <div className="text-[12px] text-mute">{label}</div>
+      <div className="mt-1 truncate text-[20px] font-[550]" style={{ fontStretch: "106%", color }}>
+        {children}
+      </div>
+      {note && <div className="mt-0.5 text-[11.5px] text-pretty text-mute">{note}</div>}
+    </div>
+  );
+}
+
+// ── Cifras ─────────────────────────────────────────────────────────────────
+
+/** Importe con los decimales y el «€» atenuados: manda la parte entera. */
+export function Money({ value, signed = false, digits = 2, dim = "mute" }: { value: number; signed?: boolean; digits?: number; dim?: "mute" | "soft" }) {
+  const text = signed ? eurSigned(value, digits) : eur(value, digits);
+  const cut = digits > 0 ? text.lastIndexOf(",") : -1;
+  if (cut < 0) return <>{text}</>;
+  return (
+    <>
+      {text.slice(0, cut)}
+      <span className={dim === "mute" ? "font-normal text-mute" : "font-normal opacity-60"}>{text.slice(cut)}</span>
+    </>
+  );
+}
+
+export const toneOf = (v: number | null | undefined, eps = 0.005): string => (v == null || Math.abs(v) < eps ? "var(--ink2)" : v > 0 ? "var(--up)" : "var(--down)");
+
+/** Resultado con signo. El signo escrito es la señal; el color la refuerza. */
+export function Delta({ value, ratio, className = "" }: { value?: number; ratio?: number | null; className?: string }) {
+  const tone = value != null ? toneOf(value) : toneOf(ratio, 0.0005);
+  return (
+    <span className={`whitespace-nowrap ${className}`} style={{ color: tone }}>
+      {value != null && eurSigned(value)}
+      {value != null && ratio != null && " "}
+      {ratio != null && <span className={value != null ? "text-[0.92em] opacity-80" : ""}>{pctSigned(ratio)}</span>}
+    </span>
+  );
+}
+
+export function Tag({ children, tone = "neutral" }: { children: ReactNode; tone?: "neutral" | "warn" }) {
+  return (
+    <span className={`narrow inline-flex h-[19px] items-center rounded-full px-2 text-[11.5px] font-medium ${tone === "warn" ? "bg-wash2 text-acc" : "bg-wash text-ink2"}`}>
+      {children}
+    </span>
+  );
+}
+
+export function Dot({ color, size = 6 }: { color: string; size?: number }) {
+  return <span className="inline-block shrink-0 rounded-full" style={{ background: color, width: size, height: size }} />;
+}
+
+export function Swatch({ color }: { color: string }) {
+  return <span className="inline-block size-2 shrink-0 rounded-[2px]" style={{ background: color }} />;
+}
+
+export function Empty({ title, children, action }: { title: string; children?: ReactNode; action?: ReactNode }) {
+  return (
+    <div className="screen mx-auto flex max-w-md flex-col items-center py-24 text-center">
+      <div className="wide text-[18px] font-semibold">{title}</div>
+      {children && <p className="mt-2 text-pretty text-ink2">{children}</p>}
+      {action && <div className="mt-6 flex flex-wrap justify-center gap-2">{action}</div>}
+    </div>
+  );
+}
+
+// ── Formularios y diálogos ─────────────────────────────────────────────────
 
 export function Field({ label, hint, error, children, className = "" }: { label: string; hint?: ReactNode; error?: string | null; children: ReactNode; className?: string }) {
   return (
     <label className={`block ${className}`}>
-      <span className="mb-1 flex items-baseline justify-between gap-2 text-[12px] text-ink-2">
+      <span className="mb-1.5 flex items-baseline justify-between gap-2 text-[12px] whitespace-nowrap text-ink2">
         <span>{label}</span>
-        {hint && <span className="text-muted">{hint}</span>}
+        {hint && <span className="min-w-0 truncate text-mute">{hint}</span>}
       </span>
       {children}
       {error && <span className="mt-1 block text-[12px] text-down">{error}</span>}
@@ -90,7 +212,12 @@ export function Field({ label, hint, error, children, className = "" }: { label:
   );
 }
 
-// ── Diálogo ────────────────────────────────────────────────────────────────
+export const ErrorLine = ({ text }: { text: string | null }) =>
+  text ? (
+    <div role="alert" className="rounded-[10px] bg-wash2 px-3 py-2 text-[13px] text-down">
+      {text}
+    </div>
+  ) : null;
 
 /** Diálogo modal nativo: atrapa el foco y se cierra con Esc sin código extra. */
 export function Dialog({
@@ -136,80 +263,15 @@ export function Dialog({
         <div className="flex max-h-[calc(100vh-64px)] flex-col">
           <header className="flex items-center justify-between px-5 pt-4 pb-3">
             <h2 className="wide text-[15px] font-semibold">{title}</h2>
-            <IconButton label="Cerrar" onClick={onClose}>
+            <IconBtn label="Cerrar" onClick={onClose}>
               <X size={16} />
-            </IconButton>
+            </IconBtn>
           </header>
           <div className="dialog-body min-h-0 flex-1 overflow-y-auto px-5 pb-4">{children}</div>
           {footer && <footer className="flex items-center justify-end gap-2 border-t border-line px-5 py-3">{footer}</footer>}
         </div>
       )}
     </dialog>
-  );
-}
-
-// ── Cifras ─────────────────────────────────────────────────────────────────
-
-/** Resultado con signo: flecha + cifra. El color acompaña, nunca es la única señal. */
-export function Delta({ value, ratio, className = "" }: { value?: number; ratio?: number | null; className?: string }) {
-  // Lo que se imprimiría como cero no lleva flecha ni color.
-  const flat = value != null ? Math.abs(value) < 0.005 : Math.abs(ratio ?? 0) < 0.0005;
-  const up = (value ?? ratio ?? 0) > 0;
-  const tone = flat ? "text-ink-2" : up ? "text-up" : "text-down";
-  const arrow = flat ? "" : up ? "▲ " : "▼ ";
-  return (
-    <span className={`num whitespace-nowrap ${tone} ${className}`}>
-      <span className="text-[0.72em]">{arrow}</span>
-      {value != null && eurSigned(value)}
-      {value != null && ratio != null && " · "}
-      {ratio != null && pctSigned(ratio)}
-    </span>
-  );
-}
-
-/** Cifra con su etiqueta. La cifra manda. */
-export function Stat({ label, children, sub }: { label: string; children: ReactNode; sub?: ReactNode }) {
-  return (
-    <div className="min-w-0">
-      <div className="truncate text-[12px] text-ink-2">{label}</div>
-      <div className="mt-0.5 truncate text-[20px] leading-tight font-semibold">{children}</div>
-      {sub && <div className="mt-0.5 truncate text-[12px] text-muted">{sub}</div>}
-    </div>
-  );
-}
-
-export function Tag({ children, tone = "neutral" }: { children: ReactNode; tone?: "neutral" | "warn" }) {
-  return (
-    <span className={`narrow inline-flex h-[19px] items-center rounded-[4px] px-1.5 text-[11.5px] font-medium ${tone === "warn" ? "bg-wash-strong text-warn" : "bg-wash text-ink-2"}`}>
-      {children}
-    </span>
-  );
-}
-
-export function Dot({ color }: { color: string }) {
-  return <span className="inline-block size-2 shrink-0 rounded-full" style={{ background: color }} />;
-}
-
-/** Sección de una página: título a la izquierda, controles a la derecha, sin caja. */
-export function Section({ title, aside, children, className = "" }: { title: string; aside?: ReactNode; children: ReactNode; className?: string }) {
-  return (
-    <section className={`min-w-0 ${className}`}>
-      <header className="mb-3 flex h-7 items-center justify-between gap-3">
-        <h2 className="wide text-[13px] font-semibold">{title}</h2>
-        {aside}
-      </header>
-      {children}
-    </section>
-  );
-}
-
-export function Empty({ title, children, action }: { title: string; children?: ReactNode; action?: ReactNode }) {
-  return (
-    <div className="mx-auto flex max-w-md flex-col items-center py-16 text-center">
-      <div className="wide text-[16px] font-semibold">{title}</div>
-      {children && <p className="mt-2 text-ink-2">{children}</p>}
-      {action && <div className="mt-5 flex gap-2">{action}</div>}
-    </div>
   );
 }
 
@@ -241,14 +303,19 @@ export function Toaster() {
     () => toasts,
   );
   return (
-    <div className="pointer-events-none fixed bottom-5 left-1/2 z-50 flex -translate-x-1/2 flex-col items-center gap-2" aria-live="polite">
+    <div className="pointer-events-none fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 flex-col items-center gap-2" aria-live="polite">
       {list.map((t) => (
-        <div key={t.id} className="pointer-events-auto flex items-center gap-3 rounded-lg bg-ink py-2 pr-2 pl-3.5 text-[13px] text-surface" style={{ boxShadow: "var(--shadow)" }}>
+        <div
+          key={t.id}
+          className="screen pointer-events-auto flex items-center gap-3 rounded-full border border-line2 bg-raised py-2 pr-2 pl-4 text-[13px]"
+          style={{ boxShadow: "var(--shadow-pop)" }}
+        >
+          {t.tone === "error" && <span className="size-1.5 rounded-full bg-down" />}
           <span>{t.text}</span>
           {t.action && (
             <button
               type="button"
-              className="rounded-md px-2 py-0.5 font-semibold underline underline-offset-2 hover:opacity-80"
+              className="rounded-full px-2 py-0.5 font-semibold text-acc hover:opacity-80"
               onClick={() => {
                 t.action!.run();
                 dismiss(t.id);
@@ -257,7 +324,7 @@ export function Toaster() {
               {t.action.label}
             </button>
           )}
-          <button type="button" aria-label="Cerrar aviso" className="rounded p-0.5 opacity-60 hover:opacity-100" onClick={() => dismiss(t.id)}>
+          <button type="button" aria-label="Cerrar aviso" className="rounded-full p-1 text-mute hover:text-ink" onClick={() => dismiss(t.id)}>
             <X size={14} />
           </button>
         </div>

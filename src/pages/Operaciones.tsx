@@ -2,148 +2,203 @@ import { Download, Search, Upload } from "lucide-react";
 import { useMemo, useState } from "react";
 import { txsToCsv } from "../../shared/csv.ts";
 import { isoOf } from "../../shared/dates.ts";
-import { TX_LABEL, TX_TYPES, type TxType } from "../../shared/types.ts";
+import type { NTx } from "../../shared/engine/ledger.ts";
+import { TX_LABEL, type TxType } from "../../shared/types.ts";
+import { FlowChart, type FlowDot } from "../charts/viz.tsx";
 import { rangeBase, useApp, useDerived } from "../data/store.ts";
 import { operationsSheet, saveText, saveXlsx } from "../lib/export.ts";
-import { dateShort, eur, money, num, seriesColor } from "../lib/format.ts";
+import { dateShort, eur, eurSigned, money, num, seriesColor } from "../lib/format.ts";
 import { openDialog } from "../ui/dialogs.ts";
-import { Button, Dot, Empty, toast } from "../ui/kit.tsx";
-import { Welcome } from "./Resumen.tsx";
+import { Btn, Card, Dot, Empty, HeaderSlot, Money, Pills, toast } from "../ui/kit.tsx";
+import { L, PeriodPills, THead, TRow, Table, Welcome } from "./common.tsx";
 
-const PAGE = 250;
+type Filter = "all" | "buy" | "sell" | "income" | "cash";
+const FILTER: Record<Filter, (t: TxType) => boolean> = {
+  all: () => true,
+  buy: (t) => t === "buy",
+  sell: (t) => t === "sell",
+  income: (t) => t === "dividend" || t === "interest",
+  cash: (t) => t === "deposit" || t === "withdrawal" || t === "fee",
+};
+const COLOR: Record<TxType, string> = {
+  buy: "var(--acc)",
+  sell: "var(--s1)",
+  dividend: "var(--up)",
+  interest: "var(--up)",
+  deposit: "var(--ink2)",
+  withdrawal: "var(--ink2)",
+  fee: "var(--down)",
+  transfer: "var(--mute)",
+};
+const LEGEND: Array<[string, string]> = [
+  ["Compra", "var(--acc)"],
+  ["Venta", "var(--s1)"],
+  ["Dividendo o interés", "var(--up)"],
+  ["Ingreso o retirada", "var(--ink2)"],
+  ["Comisión", "var(--down)"],
+];
+const COLS = "96px 96px 150px minmax(160px,1.6fr) 84px 118px 130px 86px 124px";
+const PAGE = 200;
+
+const describe = (n: NTx) => `${dateShort(n.tx.date)} · ${TX_LABEL[n.tx.type]}${n.asset ? ` · ${n.asset.name}` : ""} · ${eurSigned(n.cashEur)}`;
 
 export function Operaciones() {
   const d = useDerived();
   const range = useApp((s) => s.range);
   const [q, setQ] = useState("");
-  const [type, setType] = useState<TxType | "">("");
+  const [filter, setFilter] = useState<Filter>("all");
   const [shown, setShown] = useState(PAGE);
+  const [hot, setHot] = useState<string | null>(null);
 
   const { from } = rangeBase(range, d.timeline, d.today);
-  const since = from < 0 ? "" : isoOf(d.timeline.start + from + 1);
+  const since = from < 0 ? (d.timeline.n ? isoOf(d.timeline.start) : d.today) : isoOf(d.timeline.start + from + 1);
 
   const rows = useMemo(() => {
     const t = q.trim().toLowerCase();
     return d.ledger.ntxs
       .filter((n) => {
         if (d.scope && !d.scope.has(n.tx.accountId) && !(n.tx.toAccountId && d.scope.has(n.tx.toAccountId))) return false;
-        if (since && n.tx.date < since) return false;
-        if (type && n.tx.type !== type) return false;
+        if (n.tx.date < since || !FILTER[filter](n.tx.type)) return false;
         if (!t) return true;
         return (
           n.asset?.name.toLowerCase().includes(t) ||
           n.asset?.symbol?.toLowerCase().includes(t) ||
           n.asset?.isin?.toLowerCase().includes(t) ||
           n.account.name.toLowerCase().includes(t) ||
+          TX_LABEL[n.tx.type].toLowerCase().includes(t) ||
           n.tx.note.toLowerCase().includes(t)
         );
       })
       .reverse();
-  }, [d.ledger, d.scope, q, type, since]);
+  }, [d.ledger, d.scope, q, filter, since]);
+
+  const dots = useMemo<FlowDot[]>(
+    () => rows.filter((n) => Math.abs(n.cashEur) >= 0.005).map((n) => ({ key: n.tx.id, date: n.tx.date, amount: n.cashEur, color: COLOR[n.tx.type], label: describe(n) })),
+    [rows],
+  );
 
   if (d.state.accounts.length === 0) return <Welcome />;
 
-  const stamp = d.today;
+  const hotRow = hot ? rows.find((n) => n.tx.id === hot) : null;
   const exportCsv = async () => {
-    const path = await saveText(`caudal-operaciones-${stamp}.csv`, txsToCsv(d.state, new Set(rows.map((n) => n.tx.id))));
+    const path = await saveText(`caudal-operaciones-${d.today}.csv`, txsToCsv(d.state, new Set(rows.map((n) => n.tx.id))));
     if (path) toast(`${rows.length} operaciones exportadas`);
   };
   const exportXlsx = async () => {
-    const path = await saveXlsx(`caudal-operaciones-${stamp}.xlsx`, [operationsSheet([...rows].reverse(), d.accounts, d.assets)]);
+    const path = await saveXlsx(`caudal-operaciones-${d.today}.xlsx`, [operationsSheet([...rows].reverse(), d.accounts, d.assets)]);
     if (path) toast(`${rows.length} operaciones exportadas`);
   };
 
   return (
-    <div>
-      <div className="mb-4 flex items-center gap-2.5">
-        <div className="relative w-72">
-          <Search size={14} className="pointer-events-none absolute top-[9px] left-2.5 text-muted" />
-          <input className="field pl-8" placeholder="Buscar por activo, cuenta o nota" value={q} onChange={(e) => setQ(e.target.value)} />
-        </div>
-        <select className="field w-44" value={type} onChange={(e) => setType(e.target.value as TxType | "")} aria-label="Tipo de operación">
-          <option value="">Todos los tipos</option>
-          {TX_TYPES.map((t) => (
-            <option key={t} value={t}>
-              {TX_LABEL[t]}
-            </option>
-          ))}
-        </select>
-        <span className="num text-[12.5px] text-muted">
+    <div className="screen flex flex-col gap-4">
+      <HeaderSlot>
+        <Pills
+          label="Tipo de operación"
+          value={filter}
+          onChange={setFilter}
+          options={[
+            ["all", "Todas"],
+            ["buy", "Compras"],
+            ["sell", "Ventas"],
+            ["income", "Rentas"],
+            ["cash", "Efectivo"],
+          ]}
+        />
+      </HeaderSlot>
+
+      <div className="flex flex-wrap items-center gap-2.5">
+        <label className="flex h-9 w-80 max-w-full items-center gap-2 rounded-full bg-wash px-3.5 text-mute focus-within:outline-2 focus-within:outline-acc">
+          <Search size={14} />
+          <input className="min-w-0 flex-1 border-0 bg-transparent text-ink outline-0 placeholder:text-mute" placeholder="Buscar por activo, cuenta o tipo" value={q} onChange={(e) => setQ(e.target.value)} />
+        </label>
+        <span className="text-[12.5px] text-mute">
           {rows.length} {rows.length === 1 ? "operación" : "operaciones"}
         </span>
-        <div className="ml-auto flex gap-2">
-          <Button onClick={() => openDialog({ kind: "import" })}>
-            <Upload size={13} /> Importar
-          </Button>
-          <Button onClick={exportCsv} disabled={!rows.length} title="El mismo formato que entiende «Importar»">
-            <Download size={13} /> CSV
-          </Button>
-          <Button onClick={exportXlsx} disabled={!rows.length} title="Con todos los importes convertidos a EUR">
-            <Download size={13} /> Excel
-          </Button>
-        </div>
+        <div className="flex-1" />
+        <Btn onClick={() => openDialog({ kind: "import" })}>
+          <Upload size={13} /> Importar
+        </Btn>
+        <Btn onClick={exportCsv} disabled={!rows.length} title="El mismo formato que entiende «Importar»">
+          <Download size={13} /> CSV
+        </Btn>
+        <Btn onClick={exportXlsx} disabled={!rows.length} title="Con todos los importes convertidos a EUR">
+          <Download size={13} /> Excel
+        </Btn>
       </div>
+
+      <Card title="Flujo de efectivo" note="cada punto es una operación; su tamaño, el importe" aside={<span className="truncate text-ink">{hotRow ? describe(hotRow) : ""}</span>}>
+        {dots.length ? <FlowChart dots={dots} from={since} to={d.today} hot={hot} onHover={setHot} /> : <div className="py-10 text-center text-mute">Ninguna operación mueve efectivo en este periodo.</div>}
+        <div className="mt-3 flex flex-wrap gap-4 text-[12px] text-ink2">
+          {LEGEND.map(([label, color]) => (
+            <span key={label} className="flex items-center gap-1.5">
+              <span className="size-2 rounded-full" style={{ background: color }} />
+              {label}
+            </span>
+          ))}
+        </div>
+        <PeriodPills />
+      </Card>
 
       {rows.length === 0 ? (
         <Empty
           title={d.state.txs.length ? "Ninguna operación coincide" : "Aún no hay operaciones"}
-          action={!d.state.txs.length && <Button variant="primary" onClick={() => openDialog({ kind: "tx" })}>Registrar la primera operación</Button>}
+          action={!d.state.txs.length && <Btn variant="cta" onClick={() => openDialog({ kind: "tx" })}>Registrar la primera operación</Btn>}
         >
-          {d.state.txs.length ? "Prueba con otro periodo, otra cuenta u otro texto de búsqueda." : "Pulsa N en cualquier momento para registrar una operación."}
+          {d.state.txs.length ? "Prueba con otro periodo, otro tipo u otro texto de búsqueda." : "Pulsa N en cualquier momento para registrar una operación."}
         </Empty>
       ) : (
-        <>
-          <table className="tbl">
-            <thead>
-              <tr>
-                <th>Fecha</th>
-                <th>Tipo</th>
-                <th>Cuenta</th>
-                <th>Activo</th>
-                <th className="r">Unidades</th>
-                <th className="r">Precio</th>
-                <th className="r">Importe</th>
-                <th className="r">Comisión y retenciones</th>
-                <th className="r">Efecto en EUR</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.slice(0, shown).map((n) => {
-                const { tx } = n;
-                const trade = tx.type === "buy" || tx.type === "sell";
-                const gross = trade ? (tx.quantity ?? 0) * (tx.price ?? 0) : (tx.amount ?? 0);
-                const costs = n.feeEur + n.taxSourceEur + n.taxHomeEur;
-                const to = tx.type === "transfer" ? [tx.toAccountId && d.accounts.get(tx.toAccountId)?.name, tx.toAssetId && d.assets.get(tx.toAssetId)?.name].filter(Boolean).join(" · ") : "";
-                return (
-                  <tr key={tx.id} className="click" onClick={() => openDialog({ kind: "tx", tx })}>
-                    <td className="num">{dateShort(tx.date)}</td>
-                    <td>{TX_LABEL[tx.type]}</td>
-                    <td>
-                      <span className="inline-flex items-center gap-2">
-                        <Dot color={seriesColor(n.account.color)} />
-                        {n.account.name}
-                      </span>
-                    </td>
-                    <td className="max-w-[260px]">
-                      <div className="truncate">{n.asset?.name ?? <span className="text-muted">{tx.note || "—"}</span>}</div>
-                      {to && <div className="truncate text-[12px] text-muted">→ {to}</div>}
-                    </td>
-                    <td className="r">{tx.quantity != null ? num(tx.quantity, 6) : ""}</td>
-                    <td className="r">{tx.price != null ? money(tx.price, tx.currency, tx.price < 10 ? 4 : 2) : ""}</td>
-                    <td className="r">{tx.type === "transfer" ? "" : money(gross, tx.currency)}</td>
-                    <td className="r text-ink-2">{costs ? eur(costs) : ""}</td>
-                    <td className={`r font-medium ${tx.type === "transfer" ? "text-muted" : ""}`}>{tx.type === "transfer" && !n.cashEur ? "sin efecto" : eur(n.cashEur)}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+        <section className="card overflow-hidden" onMouseLeave={() => setHot(null)}>
+          <Table cols={COLS} minWidth={1080}>
+            <THead>
+              <L>Fecha</L>
+              <L>Tipo</L>
+              <L>Cuenta</L>
+              <L>Activo</L>
+              <span>Unidades</span>
+              <span>Precio</span>
+              <span>Importe</span>
+              <span>Comisión</span>
+              <span>Efecto en EUR</span>
+            </THead>
+            {rows.slice(0, shown).map((n) => {
+              const { tx } = n;
+              const trade = tx.type === "buy" || tx.type === "sell";
+              const gross = trade ? (tx.quantity ?? 0) * (tx.price ?? 0) : (tx.amount ?? 0);
+              const costs = n.feeEur + n.taxSourceEur + n.taxHomeEur;
+              const to = tx.type === "transfer" ? [tx.toAccountId && d.accounts.get(tx.toAccountId)?.name, tx.toAssetId && d.assets.get(tx.toAssetId)?.name].filter(Boolean).join(" · ") : "";
+              return (
+                <TRow key={tx.id} onClick={() => openDialog({ kind: "tx", tx })} onMouseEnter={() => setHot(tx.id)} linked={hot === tx.id}>
+                  <L className="text-ink2">{dateShort(tx.date)}</L>
+                  <L className="font-medium" >
+                    <span style={{ color: tx.type === "buy" || tx.type === "transfer" ? undefined : COLOR[tx.type] }}>{TX_LABEL[tx.type]}</span>
+                  </L>
+                  <L className="flex items-center gap-[7px]">
+                    <Dot color={seriesColor(n.account.color)} />
+                    <span className="truncate">{n.account.name}</span>
+                  </L>
+                  <L className="truncate font-medium">
+                    {n.asset?.name ?? <span className="font-normal text-mute">{tx.note || "—"}</span>}
+                    {to && <span className="font-normal text-mute"> → {to}</span>}
+                  </L>
+                  <span>{tx.quantity != null ? num(tx.quantity, 6) : ""}</span>
+                  <span className="text-ink2">{tx.price != null ? money(tx.price, tx.currency, tx.price < 10 ? 4 : 2) : ""}</span>
+                  <span>{tx.type === "transfer" ? "" : money(gross, tx.currency)}</span>
+                  <span className="text-mute" title={n.taxSourceEur + n.taxHomeEur ? "Incluye retenciones" : undefined}>
+                    {costs ? eur(costs) : ""}
+                  </span>
+                  <span className="font-semibold" style={{ color: n.cashEur > 0.005 ? "var(--up)" : undefined }}>
+                    {tx.type === "transfer" && !n.cashEur ? <span className="font-normal text-mute">sin efecto</span> : <Money value={n.cashEur} signed dim="soft" />}
+                  </span>
+                </TRow>
+              );
+            })}
+          </Table>
           {rows.length > shown && (
-            <div className="mt-4 text-center">
-              <Button onClick={() => setShown((s) => s + PAGE)}>Mostrar {Math.min(PAGE, rows.length - shown)} más</Button>
+            <div className="border-t border-line py-3 text-center">
+              <Btn onClick={() => setShown((s) => s + PAGE)}>Mostrar {Math.min(PAGE, rows.length - shown)} más</Btn>
             </div>
           )}
-        </>
+        </section>
       )}
     </div>
   );

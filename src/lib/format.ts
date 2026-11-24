@@ -72,4 +72,15 @@ export function ago(isoTimestamp: string | null): string {
   return days === 1 ? "ayer" : `hace ${days} días`;
 }
 
-export const seriesColor = (slot: number): string => `var(--s${slot >= 1 && slot <= 8 ? slot : 0})`;
+/** Color de serie de una cuenta o bloque: seis tonos fijos; a partir del séptimo, gris. */
+export const seriesColor = (slot: number): string => `var(--s${slot >= 1 && slot <= 6 ? slot : 0})`;
+
+/** Parte un importe ya formateado en entero y decimales («1.234» + «,56 €»). */
+export const splitMoney = (text: string): [string, string] => {
+  const cut = text.lastIndexOf(",");
+  return cut < 0 ? [text, ""] : [text.slice(0, cut), text.slice(cut)];
+};
+
+/** 2024-03-05 → 5 mar 2024, o «5 mar» si es del año en curso. */
+export const dateBrief = (iso: string, today: string): string =>
+  iso.slice(0, 4) === today.slice(0, 4) ? `${+iso.slice(8, 10)} ${MONTHS[+iso.slice(5, 7) - 1]}` : dateShort(iso);
