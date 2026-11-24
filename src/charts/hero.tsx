@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { dateShort, monthName } from "../lib/format.ts";
 import { Swatch } from "../ui/kit.tsx";
+import { usePrivate } from "../ui/privacy.ts";
 
 // Gráfico principal del diseño: capas SVG en un lienzo 1000×300 que se estira
 // (trazo sin escalar), rejilla y etiquetas en HTML, carril inferior de barras
@@ -9,7 +10,8 @@ import { Swatch } from "../ui/kit.tsx";
 const W = 1000;
 const H = 300;
 
-export type Row = { color: string; label: string; value: string };
+/** `priv`: la cifra es un importe del usuario y el modo privado la emborrona. */
+export type Row = { color: string; label: string; value: string; priv?: boolean };
 type Layer = { d: string; fill?: string; opacity?: number; stroke?: string; width?: number; dash?: string; /** La línea principal: es la que hereda la onda del arranque. */ main?: boolean };
 export type LaneBar = { up: number; down: number };
 
@@ -18,6 +20,8 @@ export type HeroModel = {
   n: number;
   layers: Layer[];
   ticks: Array<{ top: number; label: string }>;
+  /** El eje vertical son importes del usuario: el modo privado lo emborrona. */
+  priv: boolean;
   xl: Array<{ left: number; label: string }>;
   lane: LaneBar[] | null;
   rowsAt: (k: number) => Row[];
@@ -120,6 +124,8 @@ type Common = {
   lane?: (a: number, b: number) => LaneBar;
   /** Fecha de hoy si la serie se extiende al futuro. */
   now?: string;
+  /** El eje y las cifras son importes del usuario (no porcentajes ni precios de mercado). */
+  priv?: boolean;
 };
 
 const nowLeftOf = (dates: string[], now?: string): number | null => {
@@ -153,9 +159,10 @@ export function bandModel(
       { d: f.path(v), stroke: "var(--acc)", width: 1.9, main: true },
     ],
     ticks: f.ticks,
+    priv: !!o.priv,
     xl: f.xl,
     lane: o.lane ? buildLane(f, o.dates.length, o.lane) : null,
-    rowsAt: (k) => o.rows(f.idx[k]!),
+    rowsAt: (k) => (o.priv ? o.rows(f.idx[k]!).map((r) => ({ ...r, priv: true })) : o.rows(f.idx[k]!)),
     dotsAt: (k) => [
       { top: f.top(v[k]!), color: "var(--acc)" },
       { top: f.top(c[k]!), color: "var(--mute)" },
@@ -189,9 +196,10 @@ export function stackModel(o: Common & { series: Array<{ label: string; color: s
     n: f.n,
     layers,
     ticks: f.ticks,
+    priv: !!o.priv,
     xl: f.xl,
     lane: o.lane ? buildLane(f, o.dates.length, o.lane) : null,
-    rowsAt: (k) => o.series.map((s) => ({ color: s.color, label: s.label, value: o.format(s.values[f.idx[k]!] ?? 0) })).reverse(),
+    rowsAt: (k) => o.series.map((s) => ({ color: s.color, label: s.label, value: o.format(s.values[f.idx[k]!] ?? 0), priv: o.priv })).reverse(),
     dotsAt: (k) =>
       cum
         .slice(1)
@@ -234,9 +242,10 @@ export function lineModel(
     n: f.n,
     layers,
     ticks: f.ticks,
+    priv: !!o.priv,
     xl: f.xl,
     lane: o.lane ? buildLane(f, o.dates.length, o.lane) : null,
-    rowsAt: (k) => [{ color: "var(--acc)", label: o.label, value: o.format(t[k]!) }],
+    rowsAt: (k) => [{ color: "var(--acc)", label: o.label, value: o.format(t[k]!), priv: o.priv }],
     dotsAt: (k) => [{ top: f.top(t[k]!), color: "var(--acc)" }],
     dateAt: (k) => o.dates[f.idx[k]!]!,
     src: (k) => f.idx[k]!,
@@ -265,6 +274,7 @@ export function HeroChart({
   footer?: ReactNode;
 }) {
   const [k, setK] = useState<number | null>(null);
+  const hidden = usePrivate();
   if (!model || model.n < 2) {
     return (
       <div className="mt-6 grid place-items-center rounded-2xl border border-dashed border-line2 text-mute" style={{ height }}>
@@ -296,7 +306,7 @@ export function HeroChart({
         <div className="relative" style={{ height }}>
           {model.ticks.map((t, i) => (
             <div key={i} className="absolute inset-x-0 border-t border-line" style={{ top: `${t.top}%` }}>
-              <span className="absolute -top-2 left-full pl-2 text-[11px] whitespace-nowrap text-mute">{t.label}</span>
+              <span className={`absolute -top-2 left-full pl-2 text-[11px] whitespace-nowrap text-mute ${model.priv ? "priv" : ""}`}>{t.label}</span>
             </div>
           ))}
           {/* Dos capas: lo de debajo (que en el arranque se descubre de izquierda a derecha) y la línea principal. */}
@@ -329,7 +339,8 @@ export function HeroChart({
           {model.markers.map((m, i) => (
             <span
               key={i}
-              title={m.label}
+              // El rótulo lleva las unidades de la operación.
+              title={hidden ? undefined : m.label}
               className="absolute size-[9px] -translate-x-1/2 -translate-y-1/2 rounded-full"
               style={{
                 left: `${m.left}%`,
@@ -383,7 +394,7 @@ export function HeroChart({
                 <div key={i} className="flex items-center gap-2 py-[1.5px]">
                   <span className="size-[7px] shrink-0 rounded-[2px]" style={{ background: r.color }} />
                   <span className="flex-1 text-ink2">{r.label}</span>
-                  <span className="pl-3.5 font-semibold">{r.value}</span>
+                  <span className={`pl-3.5 font-semibold ${r.priv ? "priv" : ""}`}>{r.value}</span>
                 </div>
               ))}
             </div>
@@ -410,7 +421,7 @@ export function HeroLegend({ rows }: { rows: Row[] }) {
         <div key={i} className="flex items-center gap-2">
           <Swatch color={r.color} />
           <span className="flex-1 text-ink2">{r.label}</span>
-          <span className="font-medium">{r.value}</span>
+          <span className={`font-medium ${r.priv ? "priv" : ""}`}>{r.value}</span>
         </div>
       ))}
     </div>

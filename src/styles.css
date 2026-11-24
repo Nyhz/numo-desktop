@@ -246,6 +246,20 @@ textarea,
   }
 }
 
+/* ── Modo privado ──────────────────────────────────────────────────────────
+   Con data-private en <html> (src/ui/privacy.ts) se emborrona lo que lleve la
+   clase .priv: importes, saldos y unidades. El desenfoque crece con el tamaño
+   de letra para que las cifras grandes tampoco se lean. */
+
+.priv {
+  transition: filter 0.2s;
+}
+html[data-private] .priv {
+  filter: blur(clamp(5px, 0.42em, 14px));
+  user-select: none;
+  -webkit-user-select: none;
+}
+
 /* ── Diálogos ──────────────────────────────────────────────────────────── */
 
 dialog {

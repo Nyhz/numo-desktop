@@ -84,12 +84,12 @@ export function Cuentas() {
               </div>
               <div className="mt-[18px] flex items-end justify-between gap-4">
                 <div>
-                  <div className="text-[30px] leading-[1.1] font-medium tracking-[-0.01em]" style={{ fontStretch: "108%" }}>
+                  <div className="priv text-[30px] leading-[1.1] font-medium tracking-[-0.01em]" style={{ fontStretch: "108%" }}>
                     {vi}
                     <span className="text-mute">{vd}</span>
                   </div>
                   <div className="mt-1" style={{ color: toneOf(r.gain) }}>
-                    {eurSigned(r.gain)} <span className="text-mute">de ganancia total</span>
+                    <span className="priv">{eurSigned(r.gain)}</span> <span className="text-mute">de ganancia total</span>
                   </div>
                 </div>
                 <Trend values={r.trend} color={color} className="h-12 w-[45%] max-w-[220px]" />
@@ -103,7 +103,7 @@ export function Cuentas() {
                 </span>
                 <span>
                   <span className="text-mute">Efectivo</span>{" "}
-                  {r.cash == null ? <span className="text-mute">no se lleva</span> : <span className={r.cash < 0 ? "text-down" : ""}>{money(r.cash, r.account.currency)}</span>}
+                  {r.cash == null ? <span className="text-mute">no se lleva</span> : <span className={`priv ${r.cash < 0 ? "text-down" : ""}`}>{money(r.cash, r.account.currency)}</span>}
                 </span>
                 <button
                   type="button"

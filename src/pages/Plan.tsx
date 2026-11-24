@@ -8,7 +8,7 @@ import { contributionSpan, offAfter } from "../charts/plan-math.ts";
 import { NO_BLOCK, PlanBars, PlanCurve, PlanSplit, type PlanHot } from "../charts/plan.tsx";
 import { assignAsset, derive, removeGoal, saveGoal, useApp } from "../data/store.ts";
 import { eur, num, pct, seriesColor } from "../lib/format.ts";
-import { Btn, Card, Dot, Empty, IconBtn, Kpi, Kpis, toast } from "../ui/kit.tsx";
+import { Btn, Card, Dot, Empty, IconBtn, Kpi, Kpis, Priv, toast } from "../ui/kit.tsx";
 import { L, THead, TRow, Table, Welcome } from "./common.tsx";
 
 const pp = (v: number, d = 1) => `${num(v, d, d)} %`;
@@ -167,7 +167,9 @@ export function Plan() {
               <span className="text-mute">,{offDec} %</span>
             </div>
             <div className="mt-1.5 flex min-h-5 flex-wrap items-baseline gap-2.5 text-[13.5px]">
-              <span className="text-ink2">{eur(offEur, 0)} habría que mover para cumplirlo exactamente</span>
+              <span className="text-ink2">
+                <Priv>{eur(offEur, 0)}</Priv> habría que mover para cumplirlo exactamente
+              </span>
               {sumOff && <span className="font-[550] text-acc">· los objetivos suman {pp(plan.targetSum, 0)}, no 100 %</span>}
             </div>
           </div>
@@ -245,19 +247,19 @@ export function Plan() {
           label="Bloques"
           note={
             <>
-              <span className={sumOff ? "font-[550] text-acc" : ""}>suman {pp(plan.targetSum, 0)}</span> · en el plan {eur(plan.totalEur, 0)}
+              <span className={sumOff ? "font-[550] text-acc" : ""}>suman {pp(plan.targetSum, 0)}</span> · en el plan <Priv>{eur(plan.totalEur, 0)}</Priv>
             </>
           }
         >
           {state.goals.length}
         </Kpi>
-        <Kpi label="Donde más falta" note={under && under.gapEur > 0 ? under.goal!.name : "ningún bloque por debajo"}>
+        <Kpi priv label="Donde más falta" note={under && under.gapEur > 0 ? under.goal!.name : "ningún bloque por debajo"}>
           <span className={under && under.gapEur > 0 ? "text-acc" : ""}>{eur(Math.max(0, under?.gapEur ?? 0), 0)}</span>
         </Kpi>
-        <Kpi label="Donde más sobra" note={over && over.gapEur < 0 ? over.goal!.name : "ningún bloque por encima"}>
+        <Kpi priv label="Donde más sobra" note={over && over.gapEur < 0 ? over.goal!.name : "ningún bloque por encima"}>
           {eur(Math.max(0, -(over?.gapEur ?? 0)), 0)}
         </Kpi>
-        <Kpi label="Sin bloque" note={plan.excluded.length ? `posiciones por asignar · fuera del plan ${eur(plan.excludedEur, 0)} (${plan.excluded.length})` : "posiciones por asignar"}>
+        <Kpi priv label="Sin bloque" note={plan.excluded.length ? <>posiciones por asignar · fuera del plan <Priv>{eur(plan.excludedEur, 0)}</Priv> ({plan.excluded.length})</> : "posiciones por asignar"}>
           {eur(loose?.valueEur ?? 0, 0)}
         </Kpi>
       </Kpis>
@@ -330,7 +332,7 @@ export function Plan() {
                           {a.name}
                         </button>
                       </L>
-                      <span>{eur(p?.valueEur ?? 0, 0)}</span>
+                      <span className="priv">{eur(p?.valueEur ?? 0, 0)}</span>
                       <span className="text-ink2">{a.planExcluded || !plan.totalEur ? "—" : pct((p?.valueEur ?? 0) / plan.totalEur)}</span>
                       <L className="flex items-center gap-2">
                         <Dot color={g ? seriesColor(g.color) : "var(--line2)"} size={8} />

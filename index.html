@@ -10,6 +10,8 @@
       // El tema oscuro es el de por defecto; el claro se aplica antes de pintar para evitar el destello.
       try {
         if (localStorage.getItem("caudal.theme") === "light") document.documentElement.dataset.theme = "light";
+        // El modo privado también: los importes no deben verse ni un instante.
+        if (localStorage.getItem("caudal.private") === "1") document.documentElement.dataset.private = "";
       } catch (e) {}
     </script>
   </head>

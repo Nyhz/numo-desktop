@@ -40,7 +40,8 @@ const LEGEND: Array<[string, string]> = [
 const COLS = "96px 96px 150px minmax(160px,1.6fr) 84px 118px 130px 86px 124px";
 const PAGE = 200;
 
-const describe = (n: NTx) => `${dateShort(n.tx.date)} · ${TX_LABEL[n.tx.type]}${n.asset ? ` · ${n.asset.name}` : ""} · ${eurSigned(n.cashEur)}`;
+const describeHead = (n: NTx) => `${dateShort(n.tx.date)} · ${TX_LABEL[n.tx.type]}${n.asset ? ` · ${n.asset.name}` : ""}`;
+const describe = (n: NTx) => `${describeHead(n)} · ${eurSigned(n.cashEur)}`;
 
 export function Operaciones() {
   const d = useDerived();
@@ -126,7 +127,7 @@ export function Operaciones() {
         </Btn>
       </div>
 
-      <Card title="Flujo de efectivo" note="cada tramo es una operación; su altura, el importe" aside={<span className="truncate text-ink">{hotRow ? describe(hotRow) : ""}</span>}>
+      <Card title="Flujo de efectivo" note="cada tramo es una operación; su altura, el importe" aside={<span className="truncate text-ink">{hotRow && <>{describeHead(hotRow)} · <span className="priv">{eurSigned(hotRow.cashEur)}</span></>}</span>}>
         {dots.length ? <FlowColumns dots={dots} from={since} to={d.today} hot={hot} onHover={setHot} /> : <div className="py-10 text-center text-mute">Ninguna operación mueve efectivo en este periodo.</div>}
         <div className="mt-3 flex flex-wrap gap-4 text-[12px] text-ink2">
           {LEGEND.map(([label, color]) => (
@@ -180,10 +181,10 @@ export function Operaciones() {
                     {n.asset?.name ?? <span className="font-normal text-mute">{tx.note || "—"}</span>}
                     {to && <span className="font-normal text-mute"> → {to}</span>}
                   </L>
-                  <span>{tx.quantity != null ? num(tx.quantity, 6) : ""}</span>
+                  <span className="priv">{tx.quantity != null ? num(tx.quantity, 6) : ""}</span>
                   <span className="text-ink2">{tx.price != null ? money(tx.price, tx.currency, priceDigits(tx.price)) : ""}</span>
-                  <span>{tx.type === "transfer" ? "" : money(gross, tx.currency)}</span>
-                  <span className="text-mute" title={n.taxSourceEur + n.taxHomeEur ? "Incluye retenciones" : undefined}>
+                  <span className="priv">{tx.type === "transfer" ? "" : money(gross, tx.currency)}</span>
+                  <span className="priv text-mute" title={n.taxSourceEur + n.taxHomeEur ? "Incluye retenciones" : undefined}>
                     {costs ? eur(costs) : ""}
                   </span>
                   <span className="font-semibold" style={{ color: n.cashEur > 0.005 ? "var(--up)" : undefined }}>

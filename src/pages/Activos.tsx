@@ -203,8 +203,8 @@ export function Activos() {
                   </div>
                 </L>
                 <div>
-                  <div className={p ? "" : "text-mute"}>{p ? eur(p.valueEur) : "—"}</div>
-                  <div className="text-[11.5px] text-mute">{p ? `${num(p.qty, 6)} uds.` : "sin posición"}</div>
+                  <div className={p ? "priv" : "text-mute"}>{p ? eur(p.valueEur) : "—"}</div>
+                  <div className={`text-[11.5px] text-mute ${p ? "priv" : ""}`}>{p ? `${num(p.qty, 6)} uds.` : "sin posición"}</div>
                 </div>
                 <span className="flex justify-end" onClick={(e) => e.stopPropagation()}>
                   {a.priceSource === "manual" && (

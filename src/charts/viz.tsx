@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { dayNum } from "../../shared/dates.ts";
 import { eur, eurSigned, monthName, pct, pctSigned } from "../lib/format.ts";
+import { usePrivate } from "../ui/privacy.ts";
 
 const toneOf = (v: number): string => (Math.abs(v) < 0.005 ? "var(--ink2)" : v > 0 ? "var(--up)" : "var(--down)");
 
@@ -81,7 +82,7 @@ export function GroupRows({ groups, hot, onHover }: { groups: TreeGroup[]; hot: 
             </div>
           </div>
           <span className="text-right whitespace-nowrap">
-            <span className="font-semibold">{pct(g.share)}</span> <span className="pl-1.5 text-[12px] text-mute">{eur(g.total, 0)}</span>
+            <span className="font-semibold">{pct(g.share)}</span> <span className="priv pl-1.5 text-[12px] text-mute">{eur(g.total, 0)}</span>
           </span>
         </div>
       ))}
@@ -250,7 +251,7 @@ export function ReturnBars({ rows }: { rows: ReturnRow[] }) {
                 />
               </div>
               <span className="text-right whitespace-nowrap" style={{ color: tone }}>
-                <span className="font-semibold">{pctSigned(r.ret)}</span> <span className="pl-1 text-[11.5px] opacity-75">{eurSigned(r.gain)}</span>
+                <span className="font-semibold">{pctSigned(r.ret)}</span> <span className="priv pl-1 text-[11.5px] opacity-75">{eurSigned(r.gain)}</span>
               </span>
             </div>
           );
@@ -305,6 +306,7 @@ function flowBuckets(from: string, to: string): Array<{ key: string; label: stri
  * abajo desde una línea central. Cada tramo es una operación y su altura, el importe.
  */
 export function FlowColumns({ dots, from, to, hot, onHover }: { dots: FlowDot[]; from: string; to: string; hot: string | null; onHover: (key: string | null) => void }) {
+  const hidden = usePrivate();
   const buckets = flowBuckets(from, to);
   const span = buckets.length > 1 ? +buckets[1]!.key - +buckets[0]!.key : 1;
   const cols = buckets.map((b) => ({ ...b, ins: [] as FlowDot[], outs: [] as FlowDot[], inTotal: 0, outTotal: 0 }));
@@ -331,7 +333,8 @@ export function FlowColumns({ dots, from, to, hot, onHover }: { dots: FlowDot[];
         <div
           key={dot.key}
           onMouseEnter={() => onHover(dot.key)}
-          title={dot.label}
+          // El rótulo lleva el importe de la operación.
+          title={hidden ? undefined : dot.label}
           className="w-full max-w-[72px] flex-none rounded-[3px] transition-opacity duration-150"
           style={{ height: `${(Math.abs(dot.amount) / max) * 100}%`, minHeight: 2, background: `color-mix(in oklab, ${dot.color} 78%, var(--card))`, opacity: hot && hot !== dot.key ? 0.35 : 1 }}
         />
@@ -347,17 +350,17 @@ export function FlowColumns({ dots, from, to, hot, onHover }: { dots: FlowDot[];
           <div key={c.key} className="flex min-w-0 flex-1 flex-col items-center">
             <div className="flex h-[112px] w-full flex-col-reverse items-center gap-px pb-px">
               {stack(c.ins)}
-              <span className="pb-[3px] text-[11.5px] font-[550] whitespace-nowrap">{c.inTotal > 0 ? `+${whole(c.inTotal)}` : ""}</span>
+              <span className="priv pb-[3px] text-[11.5px] font-[550] whitespace-nowrap">{c.inTotal > 0 ? `+${whole(c.inTotal)}` : ""}</span>
             </div>
             <div className="w-full border-t border-line2" />
             <div className="flex h-[112px] w-full flex-col items-center gap-px pt-px">
               {stack(c.outs)}
-              <span className="pt-[3px] text-[11.5px] font-[550] whitespace-nowrap text-ink2">{c.outTotal > 0 ? `−${whole(c.outTotal)}` : ""}</span>
+              <span className="priv pt-[3px] text-[11.5px] font-[550] whitespace-nowrap text-ink2">{c.outTotal > 0 ? `−${whole(c.outTotal)}` : ""}</span>
             </div>
             <div className="mt-1.5 w-full border-t border-line pt-1.5 text-center whitespace-nowrap">
               <div className="text-[12px] text-ink2">{c.label}</div>
               <div className="truncate text-[11.5px]" style={{ color: !any ? "var(--mute)" : net >= 0 ? "var(--up)" : "var(--ink2)" }}>
-                {any ? `neto ${net < 0 ? "−" : "+"}${whole(Math.abs(net))}` : "sin movimientos"}
+                {any ? <>neto <span className="priv">{`${net < 0 ? "−" : "+"}${whole(Math.abs(net))}`}</span></> : "sin movimientos"}
               </div>
             </div>
           </div>
@@ -369,10 +372,12 @@ export function FlowColumns({ dots, from, to, hot, onHover }: { dots: FlowDot[];
 
 // ── Lotes vendidos ─────────────────────────────────────────────────────────
 
+/** `detail` (unidades y días) y `result` (ganancia) son datos del usuario: el modo privado los emborrona. */
 export type LotBar = { key: string; name: string; from: string; to: string; detail: string; result: ReactNode; gain: number };
 
 /** Una barra por lote, desde que se compró hasta que se vendió; el ejercicio va sombreado. */
 export function LotsTimeline({ lots, year }: { lots: LotBar[]; year: number }) {
+  const hidden = usePrivate();
   if (!lots.length) return <div className="py-6 text-mute">No hubo ventas en {year}.</div>;
   const first = lots.reduce((m, l) => (l.from < m ? l.from : m), `${year}-01-01`);
   const t0 = dayNum(`${first.slice(0, 4)}-${+first.slice(5, 7) <= 6 ? "01" : "07"}-01`);
@@ -397,7 +402,7 @@ export function LotsTimeline({ lots, year }: { lots: LotBar[]; year: number }) {
         return (
           <div key={l.key} className="relative h-10">
             <div
-              title={`${l.name} · ${l.detail}`}
+              title={hidden ? l.name : `${l.name} · ${l.detail}`}
               className="absolute inset-y-[5px] flex items-center gap-2.5 overflow-hidden rounded-lg px-3 text-[12.5px] whitespace-nowrap transition-transform duration-150 hover:-translate-y-px"
               style={{
                 left: `${a}%`,
@@ -407,8 +412,8 @@ export function LotsTimeline({ lots, year }: { lots: LotBar[]; year: number }) {
               }}
             >
               <span className="font-[550]">{l.name}</span>
-              <span className="text-ink2">{l.detail}</span>
-              <span className="ml-auto font-semibold" style={{ color: tone }}>
+              <span className="priv text-ink2">{l.detail}</span>
+              <span className="priv ml-auto font-semibold" style={{ color: tone }}>
                 {l.result}
               </span>
             </div>
@@ -460,6 +465,7 @@ export function Trend({ values, color, className = "" }: { values: ArrayLike<num
 
 // ── Barra repartida ────────────────────────────────────────────────────────
 
+/** `display` es el importe de la parte: el modo privado lo emborrona. */
 export type Part = { key: string; label: string; value: number; color: string; display: ReactNode };
 
 /** Un total repartido en partes: barra de 40 px y, debajo, cada cifra con su porcentaje. */
@@ -489,7 +495,7 @@ export function SplitBar({ parts, height = 40 }: { parts: Part[]; height?: numbe
               <span className="size-2 rounded-[2px]" style={{ background: p.color }} />
               {p.label} · {pct(p.value / total)}
             </div>
-            <div className="mt-[3px] text-[20px] font-[550]" style={{ fontStretch: "106%" }}>
+            <div className="priv mt-[3px] text-[20px] font-[550]" style={{ fontStretch: "106%" }}>
               {p.display}
             </div>
           </div>

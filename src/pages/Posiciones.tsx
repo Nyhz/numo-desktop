@@ -89,7 +89,7 @@ export function Posiciones() {
       <div className="flex flex-wrap items-stretch gap-5">
         <section className="min-w-0 flex-[1_1_520px] px-1 pt-2">
           <div className="text-[12px] text-mute">Valor de la cartera · {dateShort(d.today)}</div>
-          <div className="mt-0.5 text-[56px] leading-[1.05] font-medium tracking-[-0.02em]" style={{ fontStretch: "108%" }}>
+          <div className="priv mt-0.5 text-[56px] leading-[1.05] font-medium tracking-[-0.02em]" style={{ fontStretch: "108%" }}>
             {totalI}
             <span className="text-mute">{totalD}</span>
           </div>
@@ -103,7 +103,7 @@ export function Posiciones() {
                 <span className="flex items-center gap-2 whitespace-nowrap">
                   <span className="size-2 rounded-[2px] bg-acc" />
                   <span className="text-ink2">Invertido</span>
-                  <span className="font-semibold">{eur(value)}</span>
+                  <span className="priv font-semibold">{eur(value)}</span>
                   <span className="text-mute">
                     {pct(value / total)} · {rows.length} {rows.length === 1 ? "posición" : "posiciones"}
                   </span>
@@ -112,7 +112,7 @@ export function Posiciones() {
                   <span className="flex items-center gap-2 whitespace-nowrap">
                     <span className="size-2 rounded-[2px] bg-ink2" />
                     <span className="text-ink2">Efectivo</span>
-                    <span className="font-semibold">{eur(cashTotal)}</span>
+                    <span className="priv font-semibold">{eur(cashTotal)}</span>
                     <span className="text-mute">{pct(cashTotal / total)} · sin invertir</span>
                   </span>
                 )}
@@ -147,10 +147,12 @@ export function Posiciones() {
                     <Dot color={seriesColor(c.account.color)} />
                   </span>
                   <span className="min-w-0 flex-1 truncate font-[550]">{c.account.name}</span>
-                  <span className={`font-semibold whitespace-nowrap ${c.eur < 0 ? "text-down" : ""}`}>{eur(c.eur)}</span>
+                  <span className={`priv font-semibold whitespace-nowrap ${c.eur < 0 ? "text-down" : ""}`}>{eur(c.eur)}</span>
                 </div>
                 <div className="mt-0.5 ml-4 flex justify-between gap-2.5 text-[11.5px] text-mute">
-                  <span>saldo {money(c.balance, c.account.currency)}</span>
+                  <span>
+                    saldo <span className="priv">{money(c.balance, c.account.currency)}</span>
+                  </span>
                   <span>{cashTotal > 0 ? `${pct(Math.max(0, c.eur) / cashTotal)} del efectivo` : ""}</span>
                 </div>
                 <div className="mt-2 ml-4 h-1 rounded-[2px] bg-line">
@@ -207,7 +209,7 @@ export function Posiciones() {
                         <span>· {ASSET_KIND_LABEL[p.asset.kind]}</span>
                       </div>
                     </L>
-                    <span>{num(p.qty, 6)}</span>
+                    <span className="priv">{num(p.qty, 6)}</span>
                     <span className="text-ink2">{p.price == null ? "—" : money(p.price, p.asset.currency, priceDigits(p.price))}</span>
                     <span style={{ color: toneOf(p.dayChangePct, 0.0005) }}>{p.dayChangePct == null ? "—" : pctSigned(p.dayChangePct)}</span>
                     {series.length > 1 ? <Spark values={series} color={toneOf(trend, 1e-9)} /> : <span className="text-mute">—</span>}
@@ -215,10 +217,12 @@ export function Posiciones() {
                       <div className="font-semibold">
                         <Money value={p.valueEur} />
                       </div>
-                      <div className="text-[11.5px] text-mute">coste {eur(p.costEur)}</div>
+                      <div className="text-[11.5px] text-mute">
+                        coste <span className="priv">{eur(p.costEur)}</span>
+                      </div>
                     </div>
                     <div style={{ color: toneOf(p.unrealizedEur) }}>
-                      <div>{eurSigned(p.unrealizedEur)}</div>
+                      <div className="priv">{eurSigned(p.unrealizedEur)}</div>
                       <div className="text-[11.5px] opacity-80">{p.unrealizedPct == null ? "" : pctSigned(p.unrealizedPct)}</div>
                     </div>
                     <div className="flex items-center justify-end gap-2">
@@ -238,8 +242,10 @@ export function Posiciones() {
                 <span />
                 <span />
                 <span />
-                <span>{eur(value)}</span>
-                <span style={{ color: toneOf(value - cost) }}>{eurSigned(value - cost)}</span>
+                <span className="priv">{eur(value)}</span>
+                <span className="priv" style={{ color: toneOf(value - cost) }}>
+                  {eurSigned(value - cost)}
+                </span>
                 <span style={{ color: toneOf(value - cost) }}>{cost > 0 ? pctSigned((value - cost) / cost) : "—"}</span>
               </TFoot>
             </Table>

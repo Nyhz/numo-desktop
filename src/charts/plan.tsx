@@ -2,6 +2,7 @@ import { useMemo, useState, type KeyboardEvent, type PointerEvent, type ReactNod
 import type { Allocation, Plan, PlanBucket } from "../../shared/engine/plan.ts";
 import type { Goal } from "../../shared/types.ts";
 import { eur, num } from "../lib/format.ts";
+import { usePrivate } from "../ui/privacy.ts";
 import { barScale, deviationCurve, offAfter, scaleTicks } from "./plan-math.ts";
 
 // Visualizaciones de la pantalla Plan: una barra por bloque sobre una escala
@@ -49,13 +50,19 @@ export function PlanBars({
   /** Sube o baja un punto el objetivo del bloque. */
   onStep: (goal: Goal, delta: number) => void;
 }) {
+  const hidden = usePrivate();
   const scale = barScale(plan, alloc);
   const after = new Map(alloc.map((a) => [a.goal.id, a.weightAfterPct]));
   const x = (v: number) => pos((v / scale) * 100);
   const hotBucket = hot ? plan.buckets.find((b) => bucketKey(b) === hot.block) : undefined;
-  const info = hotBucket
-    ? [hotBucket.goal?.name ?? "Sin bloque", eur(hotBucket.valueEur, 0), hotBucket.positions.map((p) => `${p.asset.name} ${pp(plan.totalEur > 0 ? (p.valueEur / plan.totalEur) * 100 : 0)}`).join(" · ") || "sin posiciones"].join(" · ")
-    : "Pasa el cursor por un bloque para ver qué lo compone";
+  const info = hotBucket ? (
+    <>
+      {hotBucket.goal?.name ?? "Sin bloque"} · <span className="priv">{eur(hotBucket.valueEur, 0)}</span> ·{" "}
+      {hotBucket.positions.map((p) => `${p.asset.name} ${pp(plan.totalEur > 0 ? (p.valueEur / plan.totalEur) * 100 : 0)}`).join(" · ") || "sin posiciones"}
+    </>
+  ) : (
+    "Pasa el cursor por un bloque para ver qué lo compone"
+  );
 
   return (
     <>
@@ -92,7 +99,17 @@ export function PlanBars({
                   {goal?.name ?? "Sin bloque"}
                 </div>
                 <div className={`truncate text-[12px] ${!goal || near ? "text-mute" : b.gapEur > 0 ? "text-acc" : "text-ink2"}`}>
-                  {!goal ? `${eur(b.valueEur, 0)} sin asignar` : near ? "en su sitio" : b.gapEur > 0 ? `faltan ${eur(b.gapEur, 0)}` : `sobran ${eur(-b.gapEur, 0)}`}
+                  {!goal ? (
+                    <>
+                      <span className="priv">{eur(b.valueEur, 0)}</span> sin asignar
+                    </>
+                  ) : near ? (
+                    "en su sitio"
+                  ) : (
+                    <>
+                      {b.gapEur > 0 ? "faltan" : "sobran"} <span className="priv">{eur(Math.abs(b.gapEur), 0)}</span>
+                    </>
+                  )}
                 </div>
               </div>
 
@@ -105,7 +122,7 @@ export function PlanBars({
                     return (
                       <div
                         key={p.asset.id}
-                        title={`${p.asset.name} · ${eur(p.valueEur, 0)} · ${pp(share)}`}
+                        title={hidden ? `${p.asset.name} · ${pp(share)}` : `${p.asset.name} · ${eur(p.valueEur, 0)} · ${pp(share)}`}
                         onMouseEnter={() => onHover({ block: key, asset: p.asset.id })}
                         className="flex min-w-[2px] items-center overflow-hidden rounded-[5px] text-[12px] transition-[background] duration-150"
                         style={{ flex: `${Math.max(p.valueEur, 0)} 1 0`, background: `color-mix(in oklab, ${tint} ${strength}%, var(--card))` }}

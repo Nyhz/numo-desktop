@@ -29,6 +29,8 @@ Requisitos para compilar en local: Node 22+, pnpm, Rust y, en macOS, las herrami
 | Activos | Todo lo que sigues, lo tengas o no en cartera: de qué día es cada precio, de dónde sale y qué no se está actualizando. Aquí se añaden activos nuevos. |
 | Cuentas · Ajustes | Cuentas, copias de seguridad, conexiones con servicios de datos y tema. |
 
+**Modo privado.** El ojo de la barra lateral (o la tecla `P`) emborrona importes, saldos y unidades en todas las pantallas, para enseñar la app sin enseñar cuánto hay; porcentajes, precios de mercado y fechas se siguen viendo. Se recuerda entre aperturas. Es solo visual (`src/ui/privacy.ts` y la clase `.priv`): no afecta a los datos ni a lo que se exporta, y lo que se escribe en los formularios no se oculta.
+
 Al abrir, una animación de carga («Marea») acompaña a la actualización de precios y termina convirtiendo una de las ondas del logo en la curva de la cartera. Tiene dos variantes: completa, con el avance activo a activo, cuando hay precios que actualizar; y corta cuando la app se abrió hace poco y están al día. Se salta con un clic y no se muestra si el sistema pide reducir el movimiento. Para verla en `pnpm dev:web`: `?splash=full` enseña la completa con la cartera de ejemplo y `?splash=off` la quita.
 
 ## Cómo está hecha

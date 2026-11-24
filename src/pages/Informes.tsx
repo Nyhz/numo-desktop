@@ -7,7 +7,7 @@ import { LotsTimeline, SplitBar } from "../charts/viz.tsx";
 import { useApp, useDerived } from "../data/store.ts";
 import { cashSheet, gainsSheet, holdingsSheet, incomeSheet, operationsSheet, saveCsv, saveXlsx, summarySheet, txsOfYear, type Sheet } from "../lib/export.ts";
 import { dateNumeric, dateShort, eur, eurSigned, money, num, priceDigits } from "../lib/format.ts";
-import { Btn, Card, HeaderSlot, Kpi, Kpis, Money, Pills, Tag, toast, toneOf } from "../ui/kit.tsx";
+import { Btn, Card, HeaderSlot, Kpi, Kpis, Money, Pills, Priv, Tag, toast, toneOf } from "../ui/kit.tsx";
 import { L, TFoot, THead, TRow, Table, Welcome } from "./common.tsx";
 
 type Tab = "pat" | "div" | "pos";
@@ -96,15 +96,21 @@ export function Informes() {
       </section>
 
       <Kpis>
-        <Kpi label="Resultado de ventas" note={`ganancias ${eur(t.gainsEur, 0)} · pérdidas ${eur(t.lossesEur, 0)}`} tone={t.netGainEur}>
+        <Kpi label="Resultado de ventas" note={<>ganancias <Priv>{eur(t.gainsEur, 0)}</Priv> · pérdidas <Priv>{eur(t.lossesEur, 0)}</Priv></>} tone={t.netGainEur}>
           <Money value={t.netGainEur} signed dim="soft" />
         </Kpi>
-        <Kpi label="Dividendos brutos">{eur(t.dividendsGrossEur)}</Kpi>
-        <Kpi label="Intereses brutos">{eur(t.interestGrossEur)}</Kpi>
-        <Kpi label="Retenciones" note={`origen ${eur(t.taxSourceEur)} · España ${eur(t.taxHomeEur)}`}>
+        <Kpi priv label="Dividendos brutos">
+          {eur(t.dividendsGrossEur)}
+        </Kpi>
+        <Kpi priv label="Intereses brutos">
+          {eur(t.interestGrossEur)}
+        </Kpi>
+        <Kpi priv label="Retenciones" note={<>origen <Priv>{eur(t.taxSourceEur)}</Priv> · España <Priv>{eur(t.taxHomeEur)}</Priv></>}>
           {eur(t.taxSourceEur + t.taxHomeEur)}
         </Kpi>
-        <Kpi label="Comisiones y gastos">{eur(t.feesEur)}</Kpi>
+        <Kpi priv label="Comisiones y gastos">
+          {eur(t.feesEur)}
+        </Kpi>
       </Kpis>
 
       {tab === "pat" && (
@@ -155,12 +161,12 @@ export function Informes() {
                       <div className="selectable text-[11.5px] text-mute">{[g.asset.isin, ASSET_KIND_LABEL[g.asset.kind]].filter(Boolean).join(" · ")}</div>
                     </L>
                     <L className="truncate">{g.account.name}</L>
-                    <span>{num(g.qty, 6)}</span>
+                    <span className="priv">{num(g.qty, 6)}</span>
                     <span className="text-ink2">{g.acqDate ? dateNumeric(g.acqDate) : <span className="text-acc">sin compra</span>}</span>
-                    <span>{eur(g.acqValueEur)}</span>
+                    <span className="priv">{eur(g.acqValueEur)}</span>
                     <span className="text-ink2">{dateNumeric(g.sellDate)}</span>
-                    <span>{eur(g.saleValueEur)}</span>
-                    <span className="font-semibold" style={{ color: toneOf(g.gainEur) }}>
+                    <span className="priv">{eur(g.saleValueEur)}</span>
+                    <span className="priv font-semibold" style={{ color: toneOf(g.gainEur) }}>
                       {eurSigned(g.gainEur)}
                     </span>
                   </TRow>
@@ -170,10 +176,12 @@ export function Informes() {
                   <span />
                   <span />
                   <span />
-                  <span>{eur(t.acqValueEur)}</span>
+                  <span className="priv">{eur(t.acqValueEur)}</span>
                   <span />
-                  <span>{eur(t.saleValueEur)}</span>
-                  <span style={{ color: toneOf(t.netGainEur) }}>{eurSigned(t.netGainEur)}</span>
+                  <span className="priv">{eur(t.saleValueEur)}</span>
+                  <span className="priv" style={{ color: toneOf(t.netGainEur) }}>
+                    {eurSigned(t.netGainEur)}
+                  </span>
                 </TFoot>
               </Table>
             )}
@@ -193,7 +201,7 @@ export function Informes() {
       {tab === "div" && (
         <>
           {gross > 0 && (
-            <Card title="Del bruto al neto" aside={`${eur(gross)} brutos`}>
+            <Card title="Del bruto al neto" aside={<span><Priv>{eur(gross)}</Priv> brutos</span>}>
               <SplitBar
                 parts={[
                   { key: "net", label: "Cobrado neto", value: Math.max(0, t.incomeNetEur), color: "var(--acc)", display: eur(t.incomeNetEur) },
@@ -226,12 +234,12 @@ export function Informes() {
                       <span className="font-medium">{r.asset?.name ?? TX_LABEL[r.type]}</span> <span className="text-mute">· {r.account.name}</span>
                     </L>
                     <L className="text-ink2">{r.country || "—"}</L>
-                    <span>{r.currency === "EUR" ? "" : money(r.grossNative, r.currency)}</span>
+                    <span className="priv">{r.currency === "EUR" ? "" : money(r.grossNative, r.currency)}</span>
                     <span className="text-mute">{r.currency === "EUR" ? "" : num(r.fxRate, 4, 4)}</span>
-                    <span>{eur(r.grossEur)}</span>
-                    <span className="text-mute">{r.taxSourceEur ? eur(r.taxSourceEur) : ""}</span>
-                    <span className="text-mute">{r.taxHomeEur ? eur(r.taxHomeEur) : ""}</span>
-                    <span className="font-semibold">{eur(r.netEur)}</span>
+                    <span className="priv">{eur(r.grossEur)}</span>
+                    <span className="priv text-mute">{r.taxSourceEur ? eur(r.taxSourceEur) : ""}</span>
+                    <span className="priv text-mute">{r.taxHomeEur ? eur(r.taxHomeEur) : ""}</span>
+                    <span className="priv font-semibold">{eur(r.netEur)}</span>
                   </TRow>
                 ))}
                 <TFoot>
@@ -240,10 +248,10 @@ export function Informes() {
                   <span />
                   <span />
                   <span />
-                  <span>{eur(gross)}</span>
-                  <span>{eur(t.taxSourceEur)}</span>
-                  <span>{eur(t.taxHomeEur)}</span>
-                  <span>{eur(t.incomeNetEur)}</span>
+                  <span className="priv">{eur(gross)}</span>
+                  <span className="priv">{eur(t.taxSourceEur)}</span>
+                  <span className="priv">{eur(t.taxHomeEur)}</span>
+                  <span className="priv">{eur(t.incomeNetEur)}</span>
                 </TFoot>
               </Table>
             )}
@@ -275,10 +283,10 @@ export function Informes() {
                       {h.asset.isin && <div className="selectable text-[11.5px] text-mute">{h.asset.isin}</div>}
                     </L>
                     <L className="text-ink2">{h.country || "—"}</L>
-                    <span>{num(h.qty, 6)}</span>
+                    <span className="priv">{num(h.qty, 6)}</span>
                     <span className="text-ink2">{h.price == null ? <span className="text-acc">sin precio</span> : money(h.price, h.currency, priceDigits(h.price))}</span>
                     <span className="text-mute">{h.currency === "EUR" ? "" : num(h.fxRate, 4, 4)}</span>
-                    <span className="font-semibold">{eur(h.valueEur)}</span>
+                    <span className="priv font-semibold">{eur(h.valueEur)}</span>
                   </TRow>
                 ))}
                 <TFoot>
@@ -288,7 +296,7 @@ export function Informes() {
                   <span />
                   <span />
                   <span />
-                  <span>{eur(t.holdingsEur)}</span>
+                  <span className="priv">{eur(t.holdingsEur)}</span>
                 </TFoot>
               </Table>
             )}
@@ -308,9 +316,9 @@ export function Informes() {
                   <TRow key={c.account.id}>
                     <L className="truncate font-[550]">{c.account.name}</L>
                     <L className="truncate text-ink2">{c.account.institution}</L>
-                    <span>{money(c.balance, c.account.currency)}</span>
-                    <span>{eur(c.balanceEur)}</span>
-                    <span>{eur(c.avgQ4Eur)}</span>
+                    <span className="priv">{money(c.balance, c.account.currency)}</span>
+                    <span className="priv">{eur(c.balanceEur)}</span>
+                    <span className="priv">{eur(c.avgQ4Eur)}</span>
                   </TRow>
                 ))}
               </Table>

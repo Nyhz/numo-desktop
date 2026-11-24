@@ -7,7 +7,7 @@ import { HeroChart, lineModel } from "../charts/hero.tsx";
 import { useDerived } from "../data/store.ts";
 import { dateShort, eur, eurSigned, money, num, priceDigits, seriesColor, splitMoney } from "../lib/format.ts";
 import { openDialog } from "../ui/dialogs.ts";
-import { Btn, Card, Dot, Empty, Kpi, Kpis, Money, Tag, toneOf } from "../ui/kit.tsx";
+import { Btn, Card, Dot, Empty, Kpi, Kpis, Money, Priv, Tag, toneOf } from "../ui/kit.tsx";
 import { L, THead, TRow, Table } from "./common.tsx";
 
 export function Activo({ id }: { id: string }) {
@@ -71,17 +71,19 @@ export function Activo({ id }: { id: string }) {
               <span>· {asset.priceSource === "yahoo" ? "precio de Yahoo Finance" : asset.priceSource === "ft" ? "precio de Financial Times" : "precio manual"}</span>
               {goal && <span>· plan: {goal.name}</span>}
             </div>
-            <div className="mt-1 text-[56px] leading-[1.05] font-medium tracking-[-0.02em]" style={{ fontStretch: "108%" }}>
+            <div className="priv mt-1 text-[56px] leading-[1.05] font-medium tracking-[-0.02em]" style={{ fontStretch: "108%" }}>
               {heroI}
               <span className="text-mute">{heroD}</span>
             </div>
             <div className="mt-1.5 flex items-baseline gap-2.5 text-[13.5px]">
               {pos ? (
                 <>
-                  <span className="font-[550]" style={{ color: toneOf(pos.unrealizedEur) }}>
+                  <span className="priv font-[550]" style={{ color: toneOf(pos.unrealizedEur) }}>
                     {eurSigned(pos.unrealizedEur)}
                   </span>
-                  <span className="text-mute">de plusvalía latente sobre un coste de {eur(pos.costEur)}</span>
+                  <span className="text-mute">
+                    de plusvalía latente sobre un coste de <Priv>{eur(pos.costEur)}</Priv>
+                  </span>
                 </>
               ) : (
                 <span className="text-mute">Sin posición abierta en las cuentas seleccionadas</span>
@@ -123,7 +125,9 @@ export function Activo({ id }: { id: string }) {
       </section>
 
       <Kpis>
-        <Kpi label="Unidades">{num(pos?.qty ?? 0, 6)}</Kpi>
+        <Kpi priv label="Unidades">
+          {num(pos?.qty ?? 0, 6)}
+        </Kpi>
         <Kpi label="Último precio" note={pos?.priceDate ? dateShort(pos.priceDate) : "último precio de operación"}>
           {pos?.price != null ? money(pos.price, asset.currency, priceDigits(pos.price)) : data.last != null ? money(data.last, asset.currency) : "—"}
         </Kpi>
@@ -131,7 +135,7 @@ export function Activo({ id }: { id: string }) {
           {avg == null ? "—" : eur(avg, priceDigits(avg))}
         </Kpi>
         <Kpi label="Peso en la cartera">{pos ? `${num(pos.weight * 100, 1, 1)} %` : "—"}</Kpi>
-        <Kpi label="Realizado y cobrado" note={`ventas ${eur(data.realized, 0)} · dividendos ${eur(data.income, 0)}`} tone={data.realized + data.income}>
+        <Kpi label="Realizado y cobrado" note={<>ventas <Priv>{eur(data.realized, 0)}</Priv> · dividendos <Priv>{eur(data.income, 0)}</Priv></>} tone={data.realized + data.income}>
           <Money value={data.realized + data.income} signed dim="soft" />
         </Kpi>
       </Kpis>
@@ -150,11 +154,11 @@ export function Activo({ id }: { id: string }) {
             {data.lots.map((l, i) => (
               <TRow key={i}>
                 <L className="text-ink2">{dateShort(l.acqDate)}</L>
-                <span>{num(l.qty, 6)}</span>
-                <span>{eur(l.costEur)}</span>
+                <span className="priv">{num(l.qty, 6)}</span>
+                <span className="priv">{eur(l.costEur)}</span>
                 <span className="text-mute">{eur(l.costEur / l.qty, 4)}</span>
-                <span>{eur(l.valueEur)}</span>
-                <span className="font-semibold" style={{ color: toneOf(l.valueEur - l.costEur) }}>
+                <span className="priv">{eur(l.valueEur)}</span>
+                <span className="priv font-semibold" style={{ color: toneOf(l.valueEur - l.costEur) }}>
                   {eurSigned(l.valueEur - l.costEur)}
                 </span>
               </TRow>
@@ -184,7 +188,7 @@ export function Activo({ id }: { id: string }) {
                   <Dot color={seriesColor(n.account.color)} />
                   {n.account.name}
                 </L>
-                <span>{n.tx.quantity != null ? num(n.tx.quantity, 6) : ""}</span>
+                <span className="priv">{n.tx.quantity != null ? num(n.tx.quantity, 6) : ""}</span>
                 <span className="text-ink2">{n.tx.price != null ? money(n.tx.price, n.tx.currency, priceDigits(n.tx.price)) : ""}</span>
                 <span className="font-semibold" style={{ color: n.cashEur > 0 ? "var(--up)" : undefined }}>
                   {n.tx.type === "transfer" && !n.cashEur ? <span className="font-normal text-mute">sin efecto</span> : <Money value={n.cashEur} signed dim="soft" />}

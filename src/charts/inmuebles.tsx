@@ -38,7 +38,7 @@ export function HomeChart({ model, hot, onHover }: { model: HomeModel; hot: numb
       <div className="relative h-[240px]" role="img" aria-label={hasLoan ? "Columnas por año: parte del inmueble que es tuya y parte que es del banco. Las cifras están en el cuadro por años." : "Columnas por año con el valor del inmueble."}>
         {ticks.map((t) => (
           <div key={t.value} className="absolute inset-x-0 border-t border-line" style={{ top: t.top }}>
-            <span className="absolute -top-2 left-full pl-2 text-[11px] whitespace-nowrap text-mute">{eurAxis(t.value)}</span>
+            <span className="priv absolute -top-2 left-full pl-2 text-[11px] whitespace-nowrap text-mute">{eurAxis(t.value)}</span>
           </div>
         ))}
         <div className="absolute inset-0 flex gap-1">
@@ -88,6 +88,7 @@ export function HomeChart({ model, hot, onHover }: { model: HomeModel; hot: numb
   );
 }
 
+/** `display` es el importe de la parte: el modo privado lo emborrona. */
 export type PaidPart = { key: string; label: string; value: number; color: string; display: ReactNode };
 
 /** Un total repartido en partes: barra de 40 px y, debajo, cada cifra con su porcentaje. */
@@ -109,7 +110,7 @@ export function PaidSplit({ parts }: { parts: PaidPart[] }) {
               <span className="size-2 rounded-[2px]" style={{ background: p.color }} />
               {p.label} · {pct(p.value / total)}
             </div>
-            <div className="mt-[3px] text-[17px] font-[550]" style={{ fontStretch: "106%" }}>
+            <div className="priv mt-[3px] text-[17px] font-[550]" style={{ fontStretch: "106%" }}>
               {p.display}
             </div>
           </div>

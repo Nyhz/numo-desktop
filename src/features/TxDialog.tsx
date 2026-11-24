@@ -288,7 +288,7 @@ export function TxDialog({ tx, preset }: { tx?: Tx; preset?: { type?: TxType; as
         </div>
 
         {needsAsset(f.type) && (
-          <Field label="Activo" hint={held != null && asset ? `Tienes ${num(held, 6)} en esta cuenta` : undefined}>
+          <Field label="Activo" hint={held != null && asset ? <>Tienes <span className="priv">{num(held, 6)}</span> en esta cuenta</> : undefined}>
             <AssetPicker value={f.assetId} onChange={(assetId) => set({ assetId })} autoFocus={!tx && !preset?.assetId} />
           </Field>
         )}

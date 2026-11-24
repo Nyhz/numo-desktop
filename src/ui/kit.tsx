@@ -129,12 +129,12 @@ export function Kpis({ children }: { children: ReactNode }) {
   return <section className="card flex flex-wrap overflow-hidden">{children}</section>;
 }
 
-export function Kpi({ label, children, note, tone }: { label: string; children: ReactNode; note?: ReactNode; tone?: number | null }) {
+export function Kpi({ label, children, note, tone, priv = false }: { label: string; children: ReactNode; note?: ReactNode; tone?: number | null; /** La cifra es un importe o unas unidades del usuario: el modo privado la emborrona. */ priv?: boolean }) {
   const color = tone == null || Math.abs(tone) < 0.005 ? undefined : tone > 0 ? "var(--up)" : "var(--down)";
   return (
     <div className="min-w-0 flex-[1_1_180px] px-5 py-4 shadow-[0_0_0_.5px_var(--line)]">
       <div className="text-[12px] text-mute">{label}</div>
-      <div className="mt-1 truncate text-[20px] font-[550]" style={{ fontStretch: "106%", color }}>
+      <div className={`mt-1 truncate text-[20px] font-[550] ${priv ? "priv" : ""}`} style={{ fontStretch: "106%", color }}>
         {children}
       </div>
       {note && <div className="mt-0.5 text-[11.5px] text-pretty text-mute">{note}</div>}
@@ -144,16 +144,22 @@ export function Kpi({ label, children, note, tone }: { label: string; children: 
 
 // ── Cifras ─────────────────────────────────────────────────────────────────
 
+/**
+ * Dato del usuario que el modo privado emborrona: importes, saldos y unidades
+ * (ver src/ui/privacy.ts). Donde ya hay un elemento basta con ponerle la clase `priv`.
+ */
+export const Priv = ({ children }: { children: ReactNode }) => <span className="priv">{children}</span>;
+
 /** Importe con los decimales y el «€» atenuados: manda la parte entera. */
 export function Money({ value, signed = false, digits = 2, dim = "mute" }: { value: number; signed?: boolean; digits?: number; dim?: "mute" | "soft" }) {
   const text = signed ? eurSigned(value, digits) : eur(value, digits);
   const cut = digits > 0 ? text.lastIndexOf(",") : -1;
-  if (cut < 0) return <>{text}</>;
+  if (cut < 0) return <Priv>{text}</Priv>;
   return (
-    <>
+    <Priv>
       {text.slice(0, cut)}
       <span className={dim === "mute" ? "font-normal text-mute" : "font-normal opacity-60"}>{text.slice(cut)}</span>
-    </>
+    </Priv>
   );
 }
 
@@ -164,7 +170,7 @@ export function Delta({ value, ratio, className = "" }: { value?: number; ratio?
   const tone = value != null ? toneOf(value) : toneOf(ratio, 0.0005);
   return (
     <span className={`whitespace-nowrap ${className}`} style={{ color: tone }}>
-      {value != null && eurSigned(value)}
+      {value != null && <Priv>{eurSigned(value)}</Priv>}
       {value != null && ratio != null && " "}
       {ratio != null && <span className={value != null ? "text-[0.92em] opacity-80" : ""}>{pctSigned(ratio)}</span>}
     </span>

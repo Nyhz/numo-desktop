@@ -7,7 +7,7 @@ import { GroupRows, MonthColumns, ReturnBars, treeGroups, type TreeCell, type Tr
 import { rangeBase, useApp, useDerived, type Derived } from "../data/store.ts";
 import { dateShort, eur, eurAxis, eurSigned, num, pct, pctSigned, seriesColor, splitMoney } from "../lib/format.ts";
 import { openDialog } from "../ui/dialogs.ts";
-import { Btn, Card, Delta, Empty, HeaderSlot, Kpi, Kpis, Money, Pills, toneOf } from "../ui/kit.tsx";
+import { Btn, Card, Delta, Empty, HeaderSlot, Kpi, Kpis, Money, Pills, Priv, toneOf } from "../ui/kit.tsx";
 import { KIND_ORDER, PeriodPills, RANGE_PHRASE, Welcome, kindColor, kindLabel } from "./common.tsx";
 
 type Mode = "valor" | "cuenta" | "tipo" | "rent";
@@ -123,6 +123,7 @@ export function Resumen() {
         dates,
         axis: eurAxis,
         format: (v) => eur(v, 0),
+        priv: true,
         lane,
         series: d.state.accounts.filter((a) => tl.byAccount.has(a.id)).map((a) => ({ label: a.name, color: seriesColor(a.color), values: tl.byAccount.get(a.id)!.subarray(i0) })),
       });
@@ -132,6 +133,7 @@ export function Resumen() {
         dates,
         axis: eurAxis,
         format: (v) => eur(v, 0),
+        priv: true,
         lane,
         series: KIND_ORDER.filter((k) => tl.byKind.has(k)).map((k) => ({ label: kindLabel(k), color: kindColor(k), values: tl.byKind.get(k)!.subarray(i0) })),
       });
@@ -141,6 +143,7 @@ export function Resumen() {
       top: V,
       base: C,
       axis: eurAxis,
+      priv: true,
       lane,
       rows: (i): Row[] => [
         { color: "var(--acc)", label: "Valor", value: eur(V[i]!) },
@@ -197,12 +200,12 @@ export function Resumen() {
         <div className="flex flex-wrap items-end justify-between gap-5">
           <div>
             <div className="text-[12px] text-mute">Valor de la cartera · {dateShort(dates[at]!)}</div>
-            <div className="mt-0.5 text-[56px] leading-[1.05] font-medium tracking-[-0.02em]" style={{ fontStretch: "108%" }}>
+            <div className="priv mt-0.5 text-[56px] leading-[1.05] font-medium tracking-[-0.02em]" style={{ fontStretch: "108%" }}>
               {heroI}
               <span className="text-mute">{heroD}</span>
             </div>
             <div className="mt-1.5 flex min-h-5 items-baseline gap-2.5 text-[13.5px]">
-              <span className="font-[550]" style={{ color: toneOf(stats.gain) }}>
+              <span className="priv font-[550]" style={{ color: toneOf(stats.gain) }}>
                 {eurSigned(stats.gain)}
               </span>
               <span style={{ color: toneOf(stats.twr, 0.00005) }}>{pctSigned(stats.twr, 2)}</span>
@@ -220,7 +223,7 @@ export function Resumen() {
       </section>
 
       <Kpis>
-        <Kpi label="Aportado neto" note="desde el inicio">
+        <Kpi priv label="Aportado neto" note="desde el inicio">
           {eur(invested[to]!, 0)}
         </Kpi>
         <Kpi label="Ganancia total" note="valor menos aportado" tone={all.gain}>
@@ -229,7 +232,7 @@ export function Resumen() {
         <Kpi label="Plusvalía latente" note={cost > 0 ? `${pctSigned(unrealized / cost)} sobre el coste` : "sin posiciones"} tone={unrealized}>
           <Money value={unrealized} signed dim="soft" />
         </Kpi>
-        <Kpi label="Realizado y cobrado" note={`ventas ${eur(totals.realizedEur, 0)} · rentas ${eur(totals.dividendsEur + totals.interestEur, 0)} · ${RANGE_PHRASE[range]}`} tone={totals.realizedEur + totals.dividendsEur + totals.interestEur}>
+        <Kpi label="Realizado y cobrado" note={<>ventas <Priv>{eur(totals.realizedEur, 0)}</Priv> · rentas <Priv>{eur(totals.dividendsEur + totals.interestEur, 0)}</Priv> · {RANGE_PHRASE[range]}</>} tone={totals.realizedEur + totals.dividendsEur + totals.interestEur}>
           <Money value={totals.realizedEur + totals.dividendsEur + totals.interestEur} signed dim="soft" />
         </Kpi>
         <Kpi label="TIR anualizada" note={xirr == null ? "hace falta más historia" : stats.xirr != null ? RANGE_PHRASE[range] : "desde el inicio"} tone={xirr}>
@@ -241,7 +244,7 @@ export function Resumen() {
         <Card
           className="col-span-full"
           title="Reparto"
-          aside={<span className="truncate">{cell ? `${cell.name} · ${eur(cell.value, 0)} · ${pct(cell.share)}` : "pasa el cursor para ver el detalle"}</span>}
+          aside={<span className="truncate">{cell ? <>{cell.name} · <Priv>{eur(cell.value, 0)}</Priv> · {pct(cell.share)}</> : "pasa el cursor para ver el detalle"}</span>}
           note={<Pills size="sm" label="Repartir por" value={group} onChange={setGroup} options={[["Tipo", "Tipo"], ["Cuenta", "Cuenta"], ["Divisa", "Divisa"]]} />}
         >
           <GroupRows groups={groups} hot={cell?.key ?? null} onHover={setCell} />

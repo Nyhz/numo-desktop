@@ -1,5 +1,5 @@
 import { Pencil, Plus, X } from "lucide-react";
-import { useMemo, useState, type CSSProperties } from "react";
+import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { viewProperties, type PropertyView } from "../../shared/engine/realestate.ts";
 import { RATE_TYPE_LABEL, type MortgageEvent } from "../../shared/types.ts";
 import { HOME_COLOR, HomeChart, PaidMiniBar, PaidSplit } from "../charts/inmuebles.tsx";
@@ -7,7 +7,7 @@ import { homeModel, type HomeYear } from "../charts/inmuebles-model.ts";
 import { derive, removeMortgageEvent, removeValuation, useApp, type Result } from "../data/store.ts";
 import { dateShort, eur, num, pct, splitMoney } from "../lib/format.ts";
 import { openDialog } from "../ui/dialogs.ts";
-import { Btn, Card, Empty, HeaderSlot, IconBtn, Kpi, Kpis, Pills, Swatch, toast } from "../ui/kit.tsx";
+import { Btn, Card, Empty, HeaderSlot, IconBtn, Kpi, Kpis, Pills, Priv, Swatch, toast } from "../ui/kit.tsx";
 
 const EVENT_LABEL: Record<MortgageEvent["type"], string> = {
   early_repayment: "Amortización anticipada",
@@ -20,7 +20,8 @@ const monthsText = (n: number) => {
   return [y ? `${y} ${y === 1 ? "año" : "años"}` : "", m ? `${m} ${m === 1 ? "mes" : "meses"}` : ""].filter(Boolean).join(" y ") || "0 meses";
 };
 
-type LegendRow = { color: string; label: string; value: string };
+/** `value` es un importe (el modo privado lo emborrona); `extra`, lo que le sigue y sí se ve. */
+type LegendRow = { color: string; label: string; value: string; extra?: string };
 
 const YEAR_COLS: CSSProperties = { gridTemplateColumns: "52px 1fr 1fr 1fr minmax(70px,.8fr) 1.1fr" };
 
@@ -47,11 +48,11 @@ function YearTable({ years, hot, onHover, total, all, onToggle }: { years: HomeY
         {years.map((y) => (
           <div key={y.year} className={`trow ${hot === y.year ? "linked" : y.isNow ? "hot" : ""}`} style={YEAR_COLS} role="row" onMouseEnter={() => onHover(y.year)}>
             <span className={`text-left ${y.isNow ? "font-[650]" : ""}`}>{y.year}</span>
-            <span>{eur(y.paid, 0)}</span>
-            <span className="text-ink2">{eur(y.interest, 0)}</span>
-            <span>{eur(y.principal, 0)}</span>
+            <span className="priv">{eur(y.paid, 0)}</span>
+            <span className="priv text-ink2">{eur(y.interest, 0)}</span>
+            <span className="priv">{eur(y.principal, 0)}</span>
             <PaidMiniBar principal={y.principal} interest={y.interest} />
-            <span className="font-semibold">{eur(y.remaining, 0)}</span>
+            <span className="priv font-semibold">{eur(y.remaining, 0)}</span>
           </div>
         ))}
       </div>
@@ -59,7 +60,7 @@ function YearTable({ years, hot, onHover, total, all, onToggle }: { years: HomeY
   );
 }
 
-type HistoryItem = { key: string; date: string; label: string; detail: string; tail: string; purchase?: boolean; remove?: () => Promise<Result> };
+type HistoryItem = { key: string; date: string; label: string; detail: ReactNode; tail: ReactNode; purchase?: boolean; remove?: () => Promise<Result> };
 
 function History({ v }: { v: PropertyView }) {
   const { property, loan } = v;
@@ -67,11 +68,22 @@ function History({ v }: { v: PropertyView }) {
     key: `e-${e.id}`,
     date: e.date,
     label: EVENT_LABEL[e.type],
-    detail: e.type === "rate_change" ? `nuevo tipo ${num(e.ratePct ?? 0, 3, 2)} %` : e.type === "early_repayment" ? `${eur(e.amount ?? 0)} · ${e.mode === "reduce_installment" ? "reduce cuota" : "reduce plazo"}` : `${eur(e.amount ?? 0)} al mes`,
+    detail:
+      e.type === "rate_change" ? (
+        `nuevo tipo ${num(e.ratePct ?? 0, 3, 2)} %`
+      ) : e.type === "early_repayment" ? (
+        <>
+          <Priv>{eur(e.amount ?? 0)}</Priv> · {e.mode === "reduce_installment" ? "reduce cuota" : "reduce plazo"}
+        </>
+      ) : (
+        <>
+          <Priv>{eur(e.amount ?? 0)}</Priv> al mes
+        </>
+      ),
     tail: e.note,
     remove: () => removeMortgageEvent(e.id),
   }));
-  const valuations: HistoryItem[] = v.valuations.map((x) => ({ key: `v-${x.id}`, date: x.date, label: "Valoración", detail: eur(x.value, 0), tail: x.note, remove: () => removeValuation(x.id) }));
+  const valuations: HistoryItem[] = v.valuations.map((x) => ({ key: `v-${x.id}`, date: x.date, label: "Valoración", detail: <Priv>{eur(x.value, 0)}</Priv>, tail: x.note, remove: () => removeValuation(x.id) }));
   const items: HistoryItem[] = [
     ...events,
     ...valuations,
@@ -79,8 +91,22 @@ function History({ v }: { v: PropertyView }) {
       key: "compra",
       date: property.purchaseDate,
       label: "Compra",
-      detail: eur(property.purchasePrice, 0),
-      tail: [property.purchaseCosts > 0 ? `${eur(property.purchaseCosts, 0)} de gastos` : "", loan ? `hipoteca de ${eur(loan.mortgage.principal, 0)}` : ""].filter(Boolean).join(" · "),
+      detail: <Priv>{eur(property.purchasePrice, 0)}</Priv>,
+      tail: (property.purchaseCosts > 0 || !!loan) && (
+        <>
+          {property.purchaseCosts > 0 && (
+            <>
+              <Priv>{eur(property.purchaseCosts, 0)}</Priv> de gastos
+            </>
+          )}
+          {property.purchaseCosts > 0 && loan && " · "}
+          {loan && (
+            <>
+              hipoteca de <Priv>{eur(loan.mortgage.principal, 0)}</Priv>
+            </>
+          )}
+        </>
+      ),
       purchase: true,
     },
   ].sort((a, b) => b.date.localeCompare(a.date) || Number(!!a.purchase) - Number(!!b.purchase));
@@ -148,7 +174,7 @@ function PropertyPanel({ v, today, portfolio }: { v: PropertyView; today: string
   const legend: LegendRow[] = hot
     ? loan
       ? [
-          { color: HOME_COLOR.own, label: "Ya es tuyo", value: `${eur(hot.own, 0)} · ${pct(hot.value > 0 ? hot.own / hot.value : 0)}` },
+          { color: HOME_COLOR.own, label: "Ya es tuyo", value: eur(hot.own, 0), extra: ` · ${pct(hot.value > 0 ? hot.own / hot.value : 0)}` },
           { color: "var(--line2)", label: "Del banco", value: eur(hot.bank, 0) },
           { color: HOME_COLOR.principal, label: "Capital pagado ese año", value: eur(hot.principal, 0) },
           { color: HOME_COLOR.interest, label: "Intereses ese año", value: eur(hot.interest, 0) },
@@ -177,16 +203,21 @@ function PropertyPanel({ v, today, portfolio }: { v: PropertyView; today: string
         <div className="mt-1.5 flex flex-wrap items-end justify-between gap-5">
           <div className="min-w-[300px] flex-[1_1_0]">
             <div className="text-[12px] text-mute">{loan ? "Lo que ya es tuyo · valor menos hipoteca pendiente" : "Lo que ya es tuyo · sin hipoteca, el valor entero"}</div>
-            <div className="mt-0.5 text-[56px] leading-[1.05] font-medium tracking-[-0.02em]" style={{ fontStretch: "108%" }}>
+            <div className="priv mt-0.5 text-[56px] leading-[1.05] font-medium tracking-[-0.02em]" style={{ fontStretch: "108%" }}>
               {heroI}
               <span className="text-mute">{heroD}</span>
             </div>
             <div className="mt-1.5 flex flex-wrap items-baseline gap-2.5 text-[13.5px]">
               <span className="font-[550] text-acc">{pct(v.ownedShare)} del inmueble</span>
               <span className="text-mute">
-                valor {eur(v.value, 0)}
+                valor <Priv>{eur(v.value, 0)}</Priv>
                 {v.valueAsOf ? ` (valorado el ${dateShort(v.valueAsOf)})` : " (precio de compra)"}
-                {portfolio > 0 ? ` · con tu cartera, ${eur(v.equity + portfolio, 0)} de patrimonio neto` : ""}
+                {portfolio > 0 && (
+                  <>
+                    {" "}
+                    · con tu cartera, <Priv>{eur(v.equity + portfolio, 0)}</Priv> de patrimonio neto
+                  </>
+                )}
               </span>
             </div>
           </div>
@@ -196,7 +227,10 @@ function PropertyPanel({ v, today, portfolio }: { v: PropertyView; today: string
               <div key={r.label} className="flex items-center gap-2">
                 <Swatch color={r.color} />
                 <span className="flex-1 text-ink2">{r.label}</span>
-                <span className="font-medium">{r.value}</span>
+                <span className="font-medium">
+                  <Priv>{r.value}</Priv>
+                  {r.extra}
+                </span>
               </div>
             ))}
           </div>
@@ -207,16 +241,16 @@ function PropertyPanel({ v, today, portfolio }: { v: PropertyView; today: string
       {loan ? (
         <>
           <Kpis>
-            <Kpi label="Cuota mensual" note={loan.nextPayment ? `próxima el ${dateShort(loan.nextPayment.date)} · ${eur(loan.nextPayment.interest, 0)} son intereses` : "hipoteca terminada"}>
+            <Kpi priv label="Cuota mensual" note={loan.nextPayment ? <>próxima el {dateShort(loan.nextPayment.date)} · <Priv>{eur(loan.nextPayment.interest, 0)}</Priv> son intereses</> : "hipoteca terminada"}>
               {eur(loan.payment)}
             </Kpi>
-            <Kpi label="Hipoteca pendiente" note={`${pct(loan.progress)} devuelto de ${eur(loan.mortgage.principal, 0)}`}>
+            <Kpi priv label="Hipoteca pendiente" note={<>{pct(loan.progress)} devuelto de <Priv>{eur(loan.mortgage.principal, 0)}</Priv></>}>
               {eur(loan.outstanding, 0)}
             </Kpi>
-            <Kpi label="Pagado hasta hoy" note={`entrada ${eur(v.downPayment, 0)} · gastos ${eur(property.purchaseCosts, 0)} · cuotas ${eur(loan.paidToDate, 0)}`}>
+            <Kpi priv label="Pagado hasta hoy" note={<>entrada <Priv>{eur(v.downPayment, 0)}</Priv> · gastos <Priv>{eur(property.purchaseCosts, 0)}</Priv> · cuotas <Priv>{eur(loan.paidToDate, 0)}</Priv></>}>
               {eur(v.totalPaid, 0)}
             </Kpi>
-            <Kpi label="Intereses pagados" note={`quedan ${eur(loan.interestRemaining, 0)} por pagar`}>
+            <Kpi priv label="Intereses pagados" note={<>quedan <Priv>{eur(loan.interestRemaining, 0)}</Priv> por pagar</>}>
               {eur(loan.interestPaid, 0)}
             </Kpi>
             <Kpi label="Última cuota" note={`quedan ${loan.paymentsLeft} cuotas · ${monthsText(loan.paymentsLeft)}`}>
@@ -225,7 +259,7 @@ function PropertyPanel({ v, today, portfolio }: { v: PropertyView; today: string
           </Kpis>
 
           <div className="grid items-start gap-5" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))" }}>
-            <Card title="A dónde ha ido lo pagado" aside={`${eur(v.totalPaid, 0)} en total`}>
+            <Card title="A dónde ha ido lo pagado" aside={<span><Priv>{eur(v.totalPaid, 0)}</Priv> en total</span>}>
               <PaidSplit
                 parts={[
                   { key: "down", label: "Entrada", value: v.downPayment, color: HOME_COLOR.own, display: eur(v.downPayment, 0) },
@@ -236,18 +270,20 @@ function PropertyPanel({ v, today, portfolio }: { v: PropertyView; today: string
               />
               <p className="mt-3.5 text-[12px] text-pretty text-mute">
                 Tipo {RATE_TYPE_LABEL[loan.mortgage.rateType].toLowerCase()} al {num(loan.schedule.find((r) => r.date > today)?.ratePct ?? loan.mortgage.ratePct, 3, 2)} % TIN
-                {loan.mortgage.lender ? ` · ${loan.mortgage.lender}` : ""} · {monthsText(loan.mortgage.termMonths)} · intereses totales previstos {eur(loan.totalInterest, 0)}
+                {loan.mortgage.lender ? ` · ${loan.mortgage.lender}` : ""} · {monthsText(loan.mortgage.termMonths)} · intereses totales previstos <Priv>{eur(loan.totalInterest, 0)}</Priv>
               </p>
             </Card>
           </div>
         </>
       ) : (
         <Kpis>
-          <Kpi label="Valor">{eur(v.value, 0)}</Kpi>
-          <Kpi label="Precio de compra" note={`más ${eur(property.purchaseCosts, 0)} de gastos`}>
+          <Kpi priv label="Valor">
+            {eur(v.value, 0)}
+          </Kpi>
+          <Kpi priv label="Precio de compra" note={<>más <Priv>{eur(property.purchaseCosts, 0)}</Priv> de gastos</>}>
             {eur(property.purchasePrice, 0)}
           </Kpi>
-          <Kpi label="Revalorización" tone={v.appreciation}>
+          <Kpi priv label="Revalorización" tone={v.appreciation}>
             {eur(v.appreciation, 0)}
           </Kpi>
           <Kpi label="Hipoteca" note="edita el inmueble para añadirla">
@@ -289,7 +325,9 @@ export function Inmuebles() {
         <Btn size="sm" onClick={() => openDialog({ kind: "property" })}>
           <Plus size={12} /> Inmueble
         </Btn>
-        {views.length > 1 && <span className="text-[12px] text-mute">{eur(totalEquity, 0)} entre los {views.length}</span>}
+        {views.length > 1 && <span className="text-[12px] text-mute">
+            <Priv>{eur(totalEquity, 0)}</Priv> entre los {views.length}
+          </span>}
       </HeaderSlot>
       <PropertyPanel key={current.property.id} v={current} today={d.today} portfolio={portfolio} />
     </div>

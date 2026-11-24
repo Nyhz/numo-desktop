@@ -1,4 +1,4 @@
-import { ArrowLeftRight, Check, ChevronDown, FileText, House, Landmark, Layers, LineChart, Moon, Plus, Radar, RefreshCw, Settings, Sun, Target } from "lucide-react";
+import { ArrowLeftRight, Check, ChevronDown, Eye, EyeOff, FileText, House, Landmark, Layers, LineChart, Moon, Plus, Radar, RefreshCw, Settings, Sun, Target } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, Route, Router, Switch, useLocation } from "wouter";
 import { useHashLocation } from "wouter/use-hash-location";
@@ -18,6 +18,7 @@ import { Resumen } from "./pages/Resumen.tsx";
 import { openDialog, useDialog } from "./ui/dialogs.ts";
 import { Btn, Dot, Toaster } from "./ui/kit.tsx";
 import { Logo } from "./ui/Logo.tsx";
+import { togglePrivate, usePrivate } from "./ui/privacy.ts";
 import { Splash } from "./ui/Splash.tsx";
 
 type Nav = { href: string; label: string; icon: typeof LineChart; scoped?: boolean };
@@ -167,6 +168,7 @@ function Shell({ children }: { children: ReactNode }) {
   const example = useApp((s) => isExample(s));
   const dialog = useDialog();
   const [light, flipTheme] = useTheme();
+  const hidden = usePrivate();
   const { attention, fxLate } = useHealth();
   const here = [...NAV_MAIN, ...NAV_SUB].find((n) => matches(n, loc));
 
@@ -176,7 +178,7 @@ function Shell({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("focus", syncOnFocus);
   }, []);
 
-  // «N» abre una operación nueva desde cualquier pantalla.
+  // «N» abre una operación nueva desde cualquier pantalla; «P» pone o quita el modo privado.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement;
@@ -185,6 +187,7 @@ function Shell({ children }: { children: ReactNode }) {
         e.preventDefault();
         openDialog({ kind: "tx" });
       }
+      if (e.key.toLowerCase() === "p") togglePrivate();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -207,6 +210,16 @@ function Shell({ children }: { children: ReactNode }) {
         ))}
         <div className="my-1.5 h-px w-6 bg-line2" />
         <SyncButton />
+        <button
+          type="button"
+          title={`${hidden ? "Mostrar los importes" : "Modo privado: emborronar los importes"} · atajo: P`}
+          aria-label="Modo privado"
+          aria-pressed={hidden}
+          onClick={togglePrivate}
+          className={`grid size-10 place-items-center rounded-[11px] transition-colors hover:text-ink ${hidden ? "text-acc" : "text-mute"}`}
+        >
+          {hidden ? <EyeOff size={18} strokeWidth={1.8} /> : <Eye size={18} strokeWidth={1.8} />}
+        </button>
         <button
           type="button"
           title={light ? "Cambiar a tema oscuro" : "Cambiar a tema claro"}
