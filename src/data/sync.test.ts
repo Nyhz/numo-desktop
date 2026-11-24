@@ -188,6 +188,14 @@ describe("sincronización entre equipos", () => {
     expect(sealedDevice(cifrado)).toBe("Mac");
     expect(sealedDevice("no es json")).toBe("Otro equipo");
     expect(() => parseSnapshot(cifrado)).toThrow(/versión más nueva/);
+    // Un equipo sin actualizar puede publicar cuentas del tipo «banco», que ya no existe: sin
+    // inversiones se leen como fondo de emergencia (con su saldo) y, con ellas, como bróker.
+    const cuenta = snap.records.accounts[0]!;
+    const viejo = { ...snap, records: { ...snap.records, accounts: [{ ...cuenta, kind: "bank", trackCash: false }, { ...cuenta, id: "ahorro", name: "Ahorro", kind: "bank", trackCash: false }] } };
+    expect(parseSnapshot(JSON.stringify(viejo))!.records.accounts.map((a) => [a.id, a.kind, a.trackCash])).toEqual([
+      ["cuenta", "broker", false],
+      ["ahorro", "emergency", true],
+    ]);
     // La hora de escritura no cuenta para decidir si hay que volver a publicar.
     expect(snapshotBody({ ...snap, writtenAt: t(20) })).toBe(snapshotBody(snap));
   });

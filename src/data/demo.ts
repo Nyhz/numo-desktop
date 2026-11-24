@@ -47,7 +47,7 @@ export function makeDemo(today: string): AppState {
     createdAt: at,
   });
   const broker = account(1, "Bróker Atlas", "Atlas Valores", "broker", "EUR", true);
-  const funds = account(2, "Fondos Norte", "Banco Norte", "bank", "EUR", false);
+  const funds = account(2, "Fondos Norte", "Banco Norte", "broker", "EUR", false);
   const usd = account(3, "Bróker Meridian", "Meridian Securities", "broker", "USD", true);
   const crypto = account(4, "Cripto", "Exchange Boreal", "crypto", "EUR", false);
   const cushion = account(5, "Fondo de emergencia", "Banco Litoral", "emergency", "EUR", true);

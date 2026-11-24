@@ -36,6 +36,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/001_init.sql"),
     include_str!("../migrations/002_plan_inmuebles.sql"),
     include_str!("../migrations/003_sync.sql"),
+    include_str!("../migrations/004_sin_cuenta_banco.sql"),
 ];
 
 /// Únicos servidores a los que la app puede conectarse.
@@ -773,6 +774,27 @@ mod tests {
         assert_eq!(count("mortgages") + count("mortgage_events") + count("property_valuations"), 0);
         let goal: Option<String> = conn.query_row("SELECT goal_id FROM assets WHERE id = 'a'", [], |r| r.get(0)).unwrap();
         assert_eq!(goal, None, "al borrar un bloque el activo queda sin asignar, no se borra");
+    }
+
+    #[test]
+    fn bank_accounts_become_emergency_funds_or_brokers() {
+        let conn = memory_db();
+        conn.execute_batch(
+            "INSERT INTO accounts (id, name, kind, currency, color, track_cash, created_at) VALUES
+               ('ahorro', 'Cuenta remunerada', 'bank', 'EUR', 1, 0, 'x'),
+               ('fondos', 'Banco con fondos', 'bank', 'EUR', 2, 0, 'x'),
+               ('broker', 'Bróker', 'broker', 'EUR', 3, 0, 'x');
+             INSERT INTO assets (id, name, kind, currency, price_source, created_at) VALUES ('a', 'Fondo', 'fund', 'EUR', 'manual', 'x');
+             INSERT INTO txs (id, date, type, account_id, amount, currency, fee_currency, created_at) VALUES ('t1', '2024-01-01', 'deposit', 'ahorro', 100, 'EUR', 'EUR', 'x');
+             INSERT INTO txs (id, date, type, account_id, asset_id, quantity, price, currency, fee_currency, created_at) VALUES ('t2', '2024-01-01', 'buy', 'fondos', 'a', 1, 10, 'EUR', 'EUR', 'x');",
+        )
+        .unwrap();
+        // La migración ya se aplicó sobre la base vacía; aquí se repite sobre datos de antes.
+        conn.execute_batch(MIGRATIONS[3]).unwrap();
+        let kind = |id: &str| -> (String, i64) { conn.query_row("SELECT kind, track_cash FROM accounts WHERE id = ?1", [id], |r| Ok((r.get(0)?, r.get(1)?))).unwrap() };
+        assert_eq!(kind("ahorro"), ("emergency".to_owned(), 1), "sin inversiones: fondo de emergencia, con su saldo");
+        assert_eq!(kind("fondos"), ("broker".to_owned(), 0), "con inversiones: bróker");
+        assert_eq!(kind("broker"), ("broker".to_owned(), 0));
     }
 
     #[test]

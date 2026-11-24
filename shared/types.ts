@@ -4,9 +4,10 @@
 
 /**
  * `emergency` es el fondo de emergencia: efectivo que cuenta para el patrimonio
- * pero no es cartera (no se invierte ni entra en su rentabilidad).
+ * pero no es cartera (no se invierte ni entra en su rentabilidad). Es el único
+ * dinero del banco que se registra: no hay un tipo de cuenta «banco».
  */
-export type AccountKind = "broker" | "bank" | "crypto" | "pension" | "emergency" | "other";
+export type AccountKind = "broker" | "crypto" | "pension" | "emergency" | "other";
 export type AssetKind = "stock" | "etf" | "fund" | "crypto" | "bond" | "other";
 export type TxType =
   | "buy"
@@ -221,7 +222,7 @@ export const TX_TYPES: TxType[] = [
   "transfer",
 ];
 export const ASSET_KINDS: AssetKind[] = ["stock", "etf", "fund", "crypto", "bond", "other"];
-export const ACCOUNT_KINDS: AccountKind[] = ["broker", "bank", "crypto", "pension", "emergency", "other"];
+export const ACCOUNT_KINDS: AccountKind[] = ["broker", "crypto", "pension", "emergency", "other"];
 
 export const TX_LABEL: Record<TxType, string> = {
   buy: "Compra",
@@ -244,7 +245,6 @@ export const ASSET_KIND_LABEL: Record<AssetKind, string> = {
 export const RATE_TYPE_LABEL: Record<RateType, string> = { fixed: "Fijo", variable: "Variable", mixed: "Mixto" };
 export const ACCOUNT_KIND_LABEL: Record<AccountKind, string> = {
   broker: "Bróker",
-  bank: "Banco",
   crypto: "Exchange cripto",
   pension: "Plan de pensiones",
   emergency: "Fondo de emergencia",
