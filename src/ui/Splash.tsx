@@ -5,7 +5,7 @@ import { Logo } from "./Logo.tsx";
 // Pantalla de carga «Marea» y su transición al Resumen. Todo se calcula a partir
 // de un único reloj T (segundos desde que se abre la app):
 //
-//   Carga    el logo se dibuja y un anillo avanza activo a activo    (variable)
+//   Carga    el logo late y un anillo avanza activo a activo         (variable)
 //   Listo    el anillo se completa y el logo late                     0,5 s
 //   Onda     el anillo se expande; una onda sale del logo a los lados 0,6 s
 //   Gráfico  la onda se convierte en la curva de valor del Resumen,
@@ -193,17 +193,18 @@ export function Splash() {
       )}
 
       {full && rip < 1 && (
-        <svg viewBox="0 0 124 124" className="absolute size-[124px]" style={{ left: cx - 62, top: cy - 62, opacity: 1 - rip, transform: `scale(${1 + 0.9 * rip})` }}>
-          <g transform="rotate(-90 62 62)" fill="none" strokeWidth="2">
-            <circle cx="62" cy="62" r="58" stroke="var(--line)" />
+        <svg viewBox="0 0 148 148" className="absolute size-[148px]" style={{ left: cx - 74, top: cy - 74, opacity: 1 - rip, transform: `scale(${1 + 0.9 * rip})` }}>
+          {/* El anillo rodea la ficha del logo (92 px, con sus esquinas) sin tocarla. */}
+          <g transform="rotate(-90 74 74)" fill="none" strokeWidth="2">
+            <circle cx="74" cy="74" r="70" stroke="var(--line)" />
             <circle
-              cx="62"
-              cy="62"
-              r="58"
+              cx="74"
+              cy="74"
+              r="70"
               stroke="var(--acc)"
               strokeLinecap="round"
-              strokeDasharray="364.4"
-              strokeDashoffset={364.4 * (1 - ring)}
+              strokeDasharray="439.8"
+              strokeDashoffset={439.8 * (1 - ring)}
               style={{ transition: "stroke-dashoffset .4s cubic-bezier(.2,.8,.2,1)" }}
             />
           </g>
@@ -211,7 +212,7 @@ export function Splash() {
       )}
 
       {full && textOut > 0 && (
-        <div className="absolute inset-x-0 text-center" style={{ top: cy + 88, opacity: textOut }}>
+        <div className="absolute inset-x-0 text-center" style={{ top: cy + 100, opacity: textOut }}>
           <div className="wide text-[15px] font-semibold">{loading ? "Actualizando precios" : "Precios al día"}</div>
           <div className="mt-1 text-[12.5px] text-mute">
             {loading ? (load && load.total ? `${load.name} · ${load.done} de ${load.total}` : " ") : count ? `${count} ${count === 1 ? "activo" : "activos"} · ahora mismo` : " "}
@@ -220,12 +221,11 @@ export function Splash() {
       )}
 
       <div
-        className="absolute size-9 rounded-full"
+        className="absolute size-9"
         style={{
           left: cx - 18,
           top: cy - 18,
           transform: `translate(${(to.x - cx) * g}px, ${(to.y - cy) * g}px) scale(${scale})`,
-          boxShadow: `0 0 0 1px color-mix(in oklab, var(--line2) ${Math.round(g * 100)}%, transparent)`,
         }}
       >
         <Logo size={36} flow={!cues || T < cues.data} />

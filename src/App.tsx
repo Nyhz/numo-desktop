@@ -284,7 +284,7 @@ function Shell({ children }: { children: ReactNode }) {
       {/* Rail: solo iconos. En macOS se ensancha y deja hueco arriba: los botones de la ventana
           ocupan unos 70 px de ancho y no deben quedar sobre el panel. */}
       <nav data-tauri-drag-region className={`flex flex-none flex-col items-center gap-1.5 pb-3.5 ${backend.native && isMac ? "w-[78px] pt-[46px]" : "w-16 pt-3.5"}`} aria-label="Secciones">
-        <div data-tauri-drag-region data-splash-logo className="mb-3.5 size-9 rounded-full" style={{ boxShadow: "0 0 0 1px var(--line2), var(--shadow)" }} title="Numo App">
+        <div data-tauri-drag-region data-splash-logo className="mb-3.5 size-9" title="Numo App">
           <Logo size={36} className="pointer-events-none" />
         </div>
         {NAV_MAIN.map((n) => (

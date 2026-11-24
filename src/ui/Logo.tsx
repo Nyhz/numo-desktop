@@ -1,16 +1,20 @@
-// El logo de Numo App: la «N» de un solo trazo dentro de un círculo. Es la misma
-// marca en el menú, en el icono de la app y en la pantalla de carga, donde el
-// trazo se dibuja una y otra vez. Va en el color del texto, sin acento: la marca
-// es neutra y el acento lo elige cada uno.
+import logo from "../assets/logo.png";
 
-const N = "M11.5 22.5V9.5L20.5 22.5V9.5";
+// El logo de Numo App: una «N» cuyo pie es la curva de una cartera que sube,
+// sobre una ficha casi negra. Es la misma imagen en el menú, en la pantalla de
+// carga (donde late mientras se actualizan los precios) y en el icono de la app,
+// que sale de `src-tauri/icons/source.png`.
+//
+// La imagen es dorada, como el acento de serie. Con otro acento elegido, dentro
+// de la app se tiñe de ese color (ver `.logo` en styles.css): se pasa a grises y
+// se multiplica por el acento, recortado con la propia silueta de la ficha.
 
 export function Logo({ size = 36, flow = false, className = "" }: { size?: number; flow?: boolean; className?: string }) {
+  const mask = `url(${logo})`;
   return (
-    <svg viewBox="0 0 32 32" width={size} height={size} className={className} aria-hidden>
-      <circle cx="16" cy="16" r="16" fill="var(--raised)" />
-      {/* pathLength=1 deja animar el trazo de 0 a 1 sin medirlo. */}
-      <path d={N} pathLength={1} fill="none" stroke="var(--ink)" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" className={flow ? "logo-flow" : undefined} />
-    </svg>
+    <span className={`logo ${flow ? "logo-flow" : ""} ${className}`} style={{ width: size, height: size }} aria-hidden>
+      <img src={logo} width={size} height={size} alt="" draggable={false} />
+      <span className="logo-tint" style={{ maskImage: mask, WebkitMaskImage: mask }} />
+    </span>
   );
 }
