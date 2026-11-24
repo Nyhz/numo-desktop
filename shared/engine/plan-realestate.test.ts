@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type { Asset, Goal, Mortgage } from "../types.ts";
+import type { AppState, Asset, Goal, Mortgage } from "../types.ts";
 import { buildPlan, planContribution } from "./plan.ts";
-import { annuity, buildSchedule, scheduleByYear, viewMortgage } from "./realestate.ts";
+import { annuity, buildSchedule, equitySeries, scheduleByYear, viewMortgage, viewProperties } from "./realestate.ts";
 import type { Position } from "./timeline.ts";
 
 const goal = (id: string, targetPct: number, sortOrder = 0): Goal => ({ id, name: id, targetPct, color: 1, sortOrder, createdAt: "" });
@@ -123,5 +123,26 @@ describe("hipoteca", () => {
     const years = scheduleByYear(v.schedule);
     expect(years[0]).toMatchObject({ year: 2024, payments: 11 });
     expect(years.reduce((s, y) => s + y.principal, 0)).toBeCloseTo(200000, 6);
+  });
+
+  it("lo que ya es tuyo, fecha a fecha: nada antes de comprar, la entrada el día de la compra y hoy lo mismo que la ficha", () => {
+    const state: AppState = {
+      accounts: [], assets: [], txs: [], prices: {}, fx: {}, splits: {}, goals: [], lastSync: null,
+      properties: [{ id: "p", name: "Casa", address: "", purchaseDate: "2024-01-10", purchasePrice: 250000, purchaseCosts: 20000, note: "", createdAt: "" }],
+      mortgages: [m],
+      mortgageEvents: [],
+      valuations: [{ id: "v", propertyId: "p", date: "2025-06-01", value: 280000, note: "" }],
+    };
+    const today = "2026-02-05";
+    const views = viewProperties(state, today);
+    const series = equitySeries(views, ["2024-01-09", "2024-01-10", "2024-02-05", "2025-06-01", today]);
+    expect(series[0]).toBe(0);
+    expect(series[1]).toBe(50000);
+    expect(series[2]).toBeCloseTo(250000 - views[0]!.loan!.schedule[0]!.remaining, 6);
+    // El 1 de junio de 2025 van 16 cuotas (la de junio se paga el día 5) y ya cuenta la valoración.
+    expect(series[3]).toBeCloseTo(280000 - views[0]!.loan!.schedule[15]!.remaining, 6);
+    expect(series[4]).toBeCloseTo(views[0]!.equity, 6);
+    // Sin inmuebles (o con las cuentas filtradas) no suma nada.
+    expect([...equitySeries([], [today])]).toEqual([0]);
   });
 });

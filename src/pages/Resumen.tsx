@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { isoOf } from "../../shared/dates.ts";
+import { equitySeries, viewProperties } from "../../shared/engine/realestate.ts";
 import { monthlyReturns, netInvested, periodStats, returnIndex, totalsIn } from "../../shared/engine/timeline.ts";
 import { HeroChart, HeroLegend, bandModel, lineModel, stackModel, type HeroModel, type Row } from "../charts/hero.tsx";
 import { GroupRows, MonthColumns, ReturnBars, treeGroups, type TreeCell, type TreeItem } from "../charts/viz.tsx";
@@ -10,7 +11,7 @@ import { openDialog } from "../ui/dialogs.ts";
 import { Btn, Card, Delta, Empty, HeaderSlot, Kpi, Kpis, Money, Pills, Priv, toneOf } from "../ui/kit.tsx";
 import { KIND_ORDER, PeriodPills, RANGE_PHRASE, Welcome, kindColor, kindLabel } from "./common.tsx";
 
-type Mode = "valor" | "cuenta" | "tipo" | "rent";
+type Mode = "valor" | "pat" | "cuenta" | "tipo" | "rent";
 type Group = "Tipo" | "Cuenta" | "Divisa";
 
 function treeItems(d: Derived, g: Group): TreeItem[] {
@@ -74,11 +75,16 @@ export function Resumen() {
   const d = useDerived();
   const range = useApp((s) => s.range);
   const [, go] = useLocation();
-  const [mode, setMode] = useState<Mode>("valor");
+  const [picked, setMode] = useState<Mode>("valor");
   const [group, setGroup] = useState<Group>("Tipo");
   const [hover, setHover] = useState<{ src: number; k: number } | null>(null);
   const [cell, setCell] = useState<TreeCell | null>(null);
   const tl = d.timeline;
+  // Con todas las cuentas a la vista, el Resumen es el del patrimonio: la cartera más
+  // lo que ya es tuyo de los inmuebles. Con cuentas filtradas, solo esas cuentas.
+  const homes = useMemo(() => (d.scope ? [] : viewProperties(d.state, d.today)), [d.state, d.scope, d.today]);
+  const withHomes = homes.length > 0;
+  const mode: Mode = picked === "pat" && !withHomes ? "valor" : picked;
 
   const view = useMemo(() => {
     if (tl.n === 0) return null;
@@ -97,18 +103,20 @@ export function Resumen() {
       dates,
       V,
       C,
+      // Lo que ya es tuyo de los inmuebles en cada fecha (ceros si no hay ninguno).
+      E: equitySeries(homes, dates),
       invested,
       stats: periodStats(tl, from, to),
       all: periodStats(tl, -1, to),
       totals: totalsIn(d.ledger, d.scope, start, d.today),
       ret: returnIndex(d.returns, from, to),
     };
-  }, [tl, range, d]);
+  }, [tl, range, d, homes]);
 
   // La geometría del gráfico solo depende del periodo y del modo: el hover no la recalcula.
   const model = useMemo<HeroModel | null>(() => {
     if (!view || view.dates.length < 2) return null;
-    const { dates, V, C, i0, ret } = view;
+    const { dates, V, C, E, i0, ret } = view;
     const lane = (a: number, b: number) => {
       const g = V[b]! - V[a]! - (C[b]! - C[a]!);
       return { up: Math.max(g, 0), down: Math.max(-g, 0) };
@@ -117,6 +125,18 @@ export function Resumen() {
       // returnIndex puede traer un punto menos cuando el periodo empieza con la cartera.
       const off = dates.length - ret.length;
       return lineModel({ dates: dates.slice(off), values: ret, label: "Rentabilidad acumulada", format: (v) => pctSigned(v / 100, 2), axis: (v) => `${num(v, 0)} %`, zero: true, lane: (a, b) => lane(a + off, b + off) });
+    }
+    if (mode === "pat") {
+      return stackModel({
+        dates,
+        axis: eurAxis,
+        format: (v) => eur(v, 0),
+        priv: true,
+        series: [
+          { label: "Inmuebles · lo que ya es tuyo", color: "var(--s8)", values: E },
+          { label: "Cartera", color: "var(--acc)", values: V },
+        ],
+      });
     }
     if (mode === "cuenta") {
       return stackModel({
@@ -146,12 +166,12 @@ export function Resumen() {
       priv: true,
       lane,
       rows: (i): Row[] => [
-        { color: "var(--acc)", label: "Valor", value: eur(V[i]!) },
+        { color: "var(--acc)", label: withHomes ? "Valor de la cartera" : "Valor", value: eur(V[i]!) },
         { color: "var(--mute)", label: "Aportado neto", value: eur(C[i]!, 0) },
         { color: "transparent", label: "Ganancia", value: eurSigned(V[i]! - C[i]!) },
       ],
     });
-  }, [view, mode, d.state.accounts, tl]);
+  }, [view, mode, withHomes, d.state.accounts, tl]);
 
   const groups = useMemo(() => treeGroups(treeItems(d, group), group === "Cuenta"), [d, group]);
   const months = useMemo(() => monthlyReturns(tl), [tl]);
@@ -171,7 +191,9 @@ export function Resumen() {
   // Con el cursor sobre el gráfico, la cifra principal pasa a ser la de esa fecha.
   const off = mode === "rent" ? dates.length - view.ret.length : 0;
   const at = hover ? Math.min(V.length - 1, hover.src + off) : V.length - 1;
-  const [heroI, heroD] = splitMoney(eur(!hover && counted != null ? counted : V[at]!));
+  const portfolioAt = !hover && counted != null ? counted : V[at]!;
+  const homesAt = view.E[at]!;
+  const [heroI, heroD] = splitMoney(eur(portfolioAt + homesAt));
   const unrealized = d.positions.reduce((s, p) => s + p.unrealizedEur, 0);
   const cost = d.positions.reduce((s, p) => s + p.costEur, 0);
   const xirr = stats.xirr ?? all.xirr;
@@ -189,6 +211,7 @@ export function Resumen() {
           }}
           options={[
             ["valor", "Valor y aportado"],
+            ...(withHomes ? ([["pat", "Patrimonio"]] as const) : []),
             ["cuenta", "Por cuenta"],
             ["tipo", "Por tipo"],
             ["rent", "Rentabilidad"],
@@ -199,17 +222,26 @@ export function Resumen() {
       <section className="px-1 pt-2">
         <div className="flex flex-wrap items-end justify-between gap-5">
           <div>
-            <div className="text-[12px] text-mute">Valor de la cartera · {dateShort(dates[at]!)}</div>
+            <div className="text-[12px] text-mute">
+              {withHomes ? "Patrimonio neto" : "Valor de la cartera"} · {dateShort(dates[at]!)}
+            </div>
             <div className="priv mt-0.5 text-[56px] leading-[1.05] font-medium tracking-[-0.02em]" style={{ fontStretch: "108%" }}>
               {heroI}
               <span className="text-mute">{heroD}</span>
             </div>
+            {withHomes && (
+              <div className="mt-1.5 text-[13.5px] text-ink2">
+                cartera <Priv>{eur(portfolioAt)}</Priv> · inmuebles <Priv>{eur(homesAt)}</Priv> <span className="text-mute">que ya son tuyos</span>
+              </div>
+            )}
             <div className="mt-1.5 flex min-h-5 items-baseline gap-2.5 text-[13.5px]">
               <span className="priv font-[550]" style={{ color: toneOf(stats.gain) }}>
                 {eurSigned(stats.gain)}
               </span>
               <span style={{ color: toneOf(stats.twr, 0.00005) }}>{pctSigned(stats.twr, 2)}</span>
-              <span className="text-mute">{RANGE_PHRASE[range]} · rentabilidad sin contar lo aportado</span>
+              <span className="text-mute">
+                {RANGE_PHRASE[range]} · rentabilidad {withHomes ? "de la cartera, " : ""}sin contar lo aportado
+              </span>
             </div>
           </div>
           <HeroLegend rows={legend} />

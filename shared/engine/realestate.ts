@@ -199,6 +199,29 @@ export function viewProperty(state: AppState, property: Property, today: string)
 export const viewProperties = (state: AppState, today: string): PropertyView[] =>
   [...state.properties].sort((a, b) => a.purchaseDate.localeCompare(b.purchaseDate)).map((p) => viewProperty(state, p, today));
 
+/**
+ * Lo que ya es tuyo de todos los inmuebles (valor menos hipoteca pendiente) en
+ * cada fecha; nada antes de la compra. `dates` va en orden creciente.
+ */
+export function equitySeries(views: PropertyView[], dates: string[]): Float64Array {
+  const out = new Float64Array(dates.length);
+  for (const v of views) {
+    const rows = v.loan?.schedule ?? [];
+    let value = v.property.purchasePrice;
+    let debt = v.loan?.mortgage.principal ?? 0;
+    let nextValuation = 0;
+    let nextRow = 0;
+    for (let i = 0; i < dates.length; i++) {
+      const date = dates[i]!;
+      if (date < v.property.purchaseDate) continue;
+      while (nextValuation < v.valuations.length && v.valuations[nextValuation]!.date <= date) value = v.valuations[nextValuation++]!.value;
+      while (nextRow < rows.length && rows[nextRow]!.date <= date) debt = rows[nextRow++]!.remaining;
+      out[i] = out[i]! + value - debt;
+    }
+  }
+  return out;
+}
+
 /** Un año del cuadro, para leerlo de un vistazo. */
 export type ScheduleYear = { year: number; payments: number; paid: number; interest: number; principal: number; remaining: number };
 

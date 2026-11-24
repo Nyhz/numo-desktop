@@ -20,7 +20,7 @@ Requisitos para compilar en local: Node 22+, pnpm, Rust y, en macOS, las herrami
 
 | Pantalla | Qué responde |
 |---|---|
-| Resumen | Cuánto vale la cartera, cuánto has puesto, cuánto ha ganado y cómo se reparte. |
+| Resumen | Tu patrimonio neto (la cartera más lo que ya es tuyo de los inmuebles), cuánto has puesto, cuánto ha ganado y cómo se reparte. |
 | Posiciones | Qué tienes, cuánto pesa cada cosa y cuánto gana o pierde. |
 | Operaciones | El libro de operaciones y el flujo de efectivo; importar y exportar. |
 | Plan | Cuánto te alejas de tu reparto objetivo y dónde poner la próxima aportación. |
