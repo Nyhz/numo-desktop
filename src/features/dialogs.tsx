@@ -100,20 +100,23 @@ function AccountDialog({ account }: { account?: Account }) {
             <input className="field uppercase" maxLength={3} value={f.currency} onChange={(e) => setF({ ...f, currency: e.target.value.toUpperCase() })} />
           </Field>
         </div>
-        {f.kind === "emergency" && (
+        {f.kind === "emergency" ? (
+          // Un fondo de emergencia es solo su saldo: no hay nada que elegir sobre el efectivo.
           <p className="-mt-1 text-[12px] text-pretty text-mute">
-            El fondo de emergencia cuenta para tu patrimonio, pero queda fuera de la cartera y de su rentabilidad: es dinero que no se invierte. Lleva su efectivo y registra en ella los intereses que te pague.
+            Cuenta para tu patrimonio, pero queda fuera de la cartera y de su rentabilidad: es dinero que no se invierte. Su saldo solo se mueve con lo que registres en ella: ingresos, retiradas y los
+            intereses que te pague. Las compras de tus otras cuentas no lo tocan, y aquí no se pueden registrar compras.
           </p>
-        )}
-        <label className="flex items-start gap-2.5">
-          <input type="checkbox" className="mt-[3px] accent-[var(--acc)]" checked={f.trackCash} onChange={(e) => setF({ ...f, trackCash: e.target.checked })} />
-          <span>
-            Llevar el efectivo de esta cuenta
-            <span className="block text-[12px] text-mute">
-              Actívalo si vas a registrar ingresos y retiradas: las compras restarán del saldo y los dividendos sumarán. Si no, la cuenta solo sigue tus inversiones.
+        ) : (
+          <label className="flex items-start gap-2.5">
+            <input type="checkbox" className="mt-[3px] accent-[var(--acc)]" checked={f.trackCash} onChange={(e) => setF({ ...f, trackCash: e.target.checked })} />
+            <span>
+              Llevar el efectivo de esta cuenta
+              <span className="block text-[12px] text-mute">
+                Actívalo si vas a registrar ingresos y retiradas: las compras restarán del saldo y los dividendos sumarán. Si no, la cuenta solo sigue tus inversiones.
+              </span>
             </span>
-          </span>
-        </label>
+          </label>
+        )}
         {account && (
           <label className="flex items-center gap-2.5">
             <input type="checkbox" className="accent-[var(--acc)]" checked={f.archived} onChange={(e) => setF({ ...f, archived: e.target.checked })} />

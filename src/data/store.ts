@@ -520,6 +520,8 @@ export function saveAccount(input: unknown, id?: string): Promise<Result<Account
   const color = before?.color ?? [1, 2, 3, 4, 5, 6, 7, 8].find((c) => !used.has(c)) ?? 0;
   const row: Account = {
     ...parsed.data,
+    // Un fondo de emergencia es su saldo: siempre lleva efectivo.
+    trackCash: parsed.data.kind === "emergency" ? true : parsed.data.trackCash,
     id: id ?? newId(),
     color,
     createdAt: before?.createdAt ?? new Date().toISOString(),
@@ -603,6 +605,9 @@ function checkTx(t: ReturnType<typeof txInput.parse>, state: AppState): string |
   if (t.assetId && !state.assets.some((a) => a.id === t.assetId)) return "El activo no existe";
   if (t.toAccountId && !state.accounts.some((a) => a.id === t.toAccountId)) return "La cuenta de destino no existe";
   if (t.toAssetId && !state.assets.some((a) => a.id === t.toAssetId)) return "El activo de destino no existe";
+  // El fondo de emergencia no se invierte: nada de lo que se compre puede salir de él.
+  if (account.kind === "emergency" && (t.type === "buy" || t.type === "sell" || t.type === "dividend"))
+    return `«${account.name}» es un fondo de emergencia: solo admite ingresos, retiradas, intereses y comisiones. Registra la operación en la cuenta donde la hiciste.`;
   if ((t.type === "deposit" || t.type === "withdrawal") && !account.trackCash)
     return `«${account.name}» no lleva efectivo. Actívalo en la cuenta para registrar ingresos y retiradas.`;
   if (t.type === "transfer" && (t.toAccountId ?? t.accountId) === t.accountId && (t.toAssetId ?? t.assetId) === t.assetId)
