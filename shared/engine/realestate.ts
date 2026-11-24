@@ -225,19 +225,3 @@ export type WhatIf = {
   paymentBefore: number;
 };
 
-/** Qué pasaría al amortizar `amount` hoy, sin registrar nada. */
-export function simulateRepayment(view: MortgageView, amount: number, mode: "reduce_term" | "reduce_installment", today: string): WhatIf | null {
-  if (!(amount > 0) || view.outstanding <= 0) return null;
-  const extra = { date: today, type: "early_repayment" as const, amount, mode, ratePct: null };
-  const next = buildSchedule(view.mortgage, [...view.events, extra]);
-  const interest = r2(next.reduce((s, r) => s + r.interest, 0));
-  const count = (rows: ScheduleRow[]) => rows.filter((r) => r.kind === "payment").length;
-  const upcoming = next.find((r) => r.kind === "payment" && r.date > today);
-  return {
-    interestSaved: r2(view.totalInterest - interest),
-    monthsSaved: count(view.schedule) - count(next),
-    newEndDate: next.length ? next[next.length - 1]!.date : null,
-    newPayment: upcoming?.payment ?? 0,
-    paymentBefore: view.payment,
-  };
-}

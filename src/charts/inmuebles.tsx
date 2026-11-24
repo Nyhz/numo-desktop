@@ -8,7 +8,6 @@ import type { HomeModel } from "./inmuebles-model.ts";
 export const HOME_COLOR = {
   own: "var(--acc)",
   forecast: "color-mix(in oklab, var(--acc) 45%, var(--card))",
-  sim: "var(--up)",
   bank: "var(--line)",
   principal: "color-mix(in oklab, var(--acc) 55%, var(--card))",
   interest: "color-mix(in oklab, var(--down) 70%, var(--card))",
@@ -46,7 +45,6 @@ export function HomeChart({ model, hot, onHover }: { model: HomeModel; hot: numb
           {years.map((y) => (
             <div key={y.year} onMouseEnter={() => onHover(y.year)} className={`${COL} flex h-full flex-col justify-end gap-px transition-opacity duration-150`} style={{ opacity: dim(y.year) }}>
               <div className="rounded-t-[4px] transition-[height] duration-300" style={{ height: y.hBank, background: HOME_COLOR.bank }} />
-              <div className="transition-[height] duration-300" style={{ height: y.hGain, background: HOME_COLOR.sim }} />
               <div className={hasLoan ? "rounded-b-[1px]" : "rounded-t-[4px] rounded-b-[1px]"} style={{ height: y.hOwn, background: y.future ? HOME_COLOR.forecast : HOME_COLOR.own }} />
             </div>
           ))}
@@ -81,7 +79,6 @@ export function HomeChart({ model, hot, onHover }: { model: HomeModel; hot: numb
           <span className="flex-1" />
           <Key color={HOME_COLOR.own}>tuyo</Key>
           <Key color={HOME_COLOR.forecast}>tuyo, previsto</Key>
-          <Key color={HOME_COLOR.sim}>si amortizas</Key>
           <Key color={HOME_COLOR.bank} ring>
             del banco
           </Key>

@@ -33,16 +33,18 @@ describe("cuentas de la pantalla Plan", () => {
     const expected = (Math.abs(7000 / 105 - 60) + Math.abs(2500 / 105 - 30) + Math.abs(1000 / 105 - 10)) / 2;
     expect(offAfter(plan, 500)).toBeCloseTo(expected, 9);
     expect(offAfter(plan, 500, planContribution(plan, 500))).toBeCloseTo(expected, 9);
-    // Con 10.000 € se llega exactamente al plan.
-    expect(offAfter(plan, 10000)).toBeCloseTo(0, 6);
+    // Con 10.000 € a un solo bloque se pasa de largo: 7000 / 12000 / 1000 sobre 20.000.
+    expect(offAfter(plan, 10000)).toBeCloseTo((25 + 30 + 5) / 2, 6);
   });
 
-  it("la curva empieza en la desviación de hoy y no sube al aportar más", () => {
+  it("la curva empieza en la desviación de hoy, baja hasta un mínimo y vuelve a subir si se aporta de más", () => {
     const curve = deviationCurve(plan, 10000, 20);
     expect(curve).toHaveLength(21);
     expect(curve[0]).toEqual({ amountEur: 0, offPct: plan.offPct });
     expect(curve.at(-1)!.amountEur).toBe(10000);
-    for (let i = 1; i < curve.length; i++) expect(curve[i]!.offPct).toBeLessThanOrEqual(curve[i - 1]!.offPct + 1e-9);
+    const lowest = Math.min(...curve.map((c) => c.offPct));
+    expect(lowest).toBeLessThan(plan.offPct);
+    expect(curve.at(-1)!.offPct).toBeGreaterThan(lowest);
   });
 
   it("cuenta también los bloques con objetivo que no reciben nada", () => {

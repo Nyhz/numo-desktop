@@ -197,7 +197,8 @@ export function PlanCurve({ plan, amount, max, onPick }: { plan: Plan; amount: n
   const points = useMemo(() => deviationCurve(plan, span), [plan, span]);
   const off0 = plan.offPct;
   const off1 = useMemo(() => offAfter(plan, amount), [plan, amount]);
-  const top = Math.max(off0, 0.5) * 1.12;
+  // Con todo a un solo bloque la curva puede acabar por encima de donde empieza: el eje cubre su máximo.
+  const top = Math.max(off0, off1, ...points.map((p) => p.offPct), 0.5) * 1.12;
   const line = points.map((p, i) => `${i ? "L" : "M"}${((p.amountEur / span) * 1000).toFixed(1)} ${(110 - (p.offPct / top) * 110).toFixed(1)}`).join("");
   const frac = span > 0 ? Math.min(1, Math.max(0, amount / span)) : 0;
   const step = span / 100;

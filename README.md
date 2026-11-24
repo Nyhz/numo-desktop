@@ -24,7 +24,7 @@ Requisitos: Node 22+, pnpm, Rust y las herramientas de línea de comandos de Xco
 | Posiciones | Qué tienes, cuánto pesa cada cosa y cuánto gana o pierde. |
 | Operaciones | El libro de operaciones y el flujo de efectivo; importar y exportar. |
 | Plan | Cuánto te alejas de tu reparto objetivo y dónde poner la próxima aportación. |
-| Inmuebles | Cuánto es ya tuyo, cuánto llevas pagado, cuánto queda y qué pasa si amortizas. |
+| Inmuebles | Cuánto es ya tuyo, cuánto llevas pagado y en qué, y cuánto queda. |
 | Informes | Lo que pide Hacienda por ejercicio: ventas emparejadas, rendimientos, posiciones a cierre. |
 | Activos | Todo lo que sigues, lo tengas o no en cartera: de qué día es cada precio, de dónde sale y qué no se está actualizando. Aquí se añaden activos nuevos. |
 | Cuentas · Ajustes | Cuentas, copias de seguridad, conexiones con servicios de datos y tema. |
@@ -52,8 +52,8 @@ Decisiones de cálculo que conviene conocer:
 - **Precios**: cada activo tiene una fuente, todas gratuitas y sin cupo diario. Los cotizados se piden a su propia bolsa: Deutsche Börse (Xetra, por ISIN), BME (Madrid, por ISIN) y Nasdaq (EE. UU., por ticker); los fondos, a fundinfo (por ISIN); las criptomonedas, a Binance; el plan o la cartera de Indexa Capital, a su API con tu token de solo lectura. Si la fuente de un activo falla, se usa un respaldo (Yahoo Finance para cotizados, Financial Times para fondos) y queda anotado. También se puede elegir Yahoo, Financial Times o precio manual. Se actualizan al abrir la app (si han pasado más de 6 horas) para todos los activos dados de alta, con o sin posición. Al añadir un activo se comprueba que su fuente da precio; cada fallo queda anotado por activo y se ve en Activos. Cambiar un activo de fuente conserva su histórico.
 - **Ojo**: las de las bolsas y fundinfo no son APIs documentadas, sino los servicios que usan sus propias webs; pueden cambiar sin aviso. Por eso existen el respaldo y la pantalla Activos.
 - **Token de Indexa**: se pone en Ajustes → Conexiones. Se guarda en la base de datos local y lo añade el núcleo nativo a cada petición; la interfaz solo sabe si existe. Va dentro de las copias de seguridad.
-- **Plan**: el reparto de una aportación va primero a lo más retrasado respecto a su objetivo y nunca propone vender.
-- **Hipoteca**: amortización francesa; el cuadro se deriva de las condiciones y de los eventos (amortización anticipada, revisión del tipo, cuota real).
+- **Plan**: la aportación va entera al bloque más retrasado (al que hoy le faltan más euros), en una sola operación para ahorrar comisiones, aunque lo deje por encima de su objetivo. Nunca propone vender.
+- **Hipoteca**: amortización francesa; el cuadro se deriva de las condiciones y de los eventos (revisión del tipo, cuota real).
 - Caudal **no calcula impuestos**. El informe anual entrega los datos y avisa de pérdidas con recompra cercana, sin decidir nada.
 
 ## Datos y copias

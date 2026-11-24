@@ -1,6 +1,6 @@
 import { addDays, addMonths, dayNum, isoOf } from "../../shared/dates.ts";
 import { txInput } from "../../shared/schema.ts";
-import type { Account, AppState, Asset, AssetKind, Goal, Point, Tx } from "../../shared/types.ts";
+import type { Account, AppState, Asset, AssetKind, Goal, MortgageEvent, Point, Tx } from "../../shared/types.ts";
 
 // Cartera de ejemplo: entidades, empresas y precios inventados. Sirve para
 // enseñar la app sin datos reales; nada de esto se guarda en la base de datos.
@@ -181,11 +181,11 @@ export function makeDemo(today: string): AppState {
   const assign: Record<string, number> = { world: 1, "fund-b": 1, helios: 2, meridian: 2, vertice: 2, textil: 3, banco: 3, north: 3, btc: 4, eth: 4, "fund-a": 5 };
   for (const a of assets) a.goalId = `demo-goal-${assign[a.id.replace("demo-", "")] ?? 1}`;
 
-  // Un inmueble con hipoteca fija, una amortización anticipada y una tasación.
+  // Un inmueble con hipoteca fija y una tasación.
   const bought = addMonths(today, -26);
   const property = { id: "demo-prop-1", name: "Piso de la calle Mayor", address: "Calle Mayor 12, 3.º B", purchaseDate: bought, purchasePrice: 248000, purchaseCosts: 21300, note: "", createdAt: at };
   const mortgage = { id: "demo-mort-1", propertyId: property.id, lender: "Banco Norte", principal: 198400, rateType: "fixed" as const, ratePct: 2.65, termMonths: 300, firstPaymentDate: addMonths(bought, 1), createdAt: at };
-  const mortgageEvents = [{ id: "demo-ev-1", mortgageId: mortgage.id, date: addDays(addMonths(bought, 14), 9), type: "early_repayment" as const, amount: 6000, mode: "reduce_term" as const, ratePct: null, note: "Paga extra", createdAt: at }];
+  const mortgageEvents: MortgageEvent[] = [];
   const valuations = [{ id: "demo-val-1", propertyId: property.id, date: addMonths(bought, 20), value: 262000, note: "Tasación" }];
 
   return { accounts: [broker, funds, usd, crypto], assets, txs, prices, fx, splits: {}, goals, properties: [property], mortgages: [mortgage], mortgageEvents, valuations, lastSync: null };

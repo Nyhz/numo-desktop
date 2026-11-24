@@ -225,7 +225,8 @@ export function Plan() {
                 "elige un importe y verás cuánto corrige"
               ) : after < plan.offPct - 0.005 ? (
                 <>
-                  la desviación bajaría de <span className="font-semibold text-ink">{pp(plan.offPct)}</span> a <span className="font-semibold text-up">{pp(after)}</span>
+                  la desviación {after <= plan.offPct ? "bajaría" : "subiría"} de <span className="font-semibold text-ink">{pp(plan.offPct)}</span> a{" "}
+                  <span className={`font-semibold ${after <= plan.offPct ? "text-up" : "text-down"}`}>{pp(after)}</span>
                 </>
               ) : (
                 <>
@@ -264,14 +265,14 @@ export function Plan() {
       <div className="grid items-start gap-5" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))" }}>
         <Card title="Cuánto corrige cada euro" note="pulsa o arrastra para elegir el importe">
           <PlanCurve plan={plan} amount={amount} max={span} onPick={setAmount} />
-          <p className="mt-3 text-[12px] text-pretty text-mute">Cuanto más baja la curva, más cerca del plan. Aportando solo no siempre se llega a cero: lo que sobra en un bloque no se vende.</p>
+          <p className="mt-3 text-[12px] text-pretty text-mute">Cuanto más baja la curva, más cerca del plan. Como todo va a un solo bloque, a partir de cierto importe ese bloque se pasa de su objetivo y la curva vuelve a subir.</p>
         </Card>
 
-        <Card title={`Dónde poner los ${amountLabel}`} note="sin vender nada">
+        <Card title={`Dónde poner los ${amountLabel}`} note="una sola operación, sin vender nada">
           {receives ? (
             <>
               <PlanSplit alloc={alloc} amount={amount} />
-              <p className="mt-2.5 text-[12px] text-pretty text-mute">Se rellena primero lo más retrasado. Los bloques que ya superan su objetivo no reciben nada.</p>
+              <p className="mt-2.5 text-[12px] text-pretty text-mute">Todo va al bloque al que hoy le faltan más euros, aunque quede por encima de su objetivo: una operación en vez de varias, para ahorrar comisiones.</p>
             </>
           ) : (
             <div className="text-mute">{amount > 0 ? "Ningún bloque tiene objetivo todavía: dale un peso a alguno y verás cómo repartirlo." : "Elige o escribe cuánto vas a aportar y verás cómo repartirlo."}</div>

@@ -1,9 +1,9 @@
 import { Pencil, Plus, X } from "lucide-react";
-import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
-import { simulateRepayment, viewProperties, type PropertyView } from "../../shared/engine/realestate.ts";
+import { useMemo, useState, type CSSProperties } from "react";
+import { viewProperties, type PropertyView } from "../../shared/engine/realestate.ts";
 import { RATE_TYPE_LABEL, type MortgageEvent } from "../../shared/types.ts";
 import { HOME_COLOR, HomeChart, PaidMiniBar, PaidSplit } from "../charts/inmuebles.tsx";
-import { homeModel, type HomeYear, type SimMode } from "../charts/inmuebles-model.ts";
+import { homeModel, type HomeYear } from "../charts/inmuebles-model.ts";
 import { derive, removeMortgageEvent, removeValuation, useApp, type Result } from "../data/store.ts";
 import { dateShort, eur, num, pct, splitMoney } from "../lib/format.ts";
 import { openDialog } from "../ui/dialogs.ts";
@@ -20,81 +20,7 @@ const monthsText = (n: number) => {
   return [y ? `${y} ${y === 1 ? "año" : "años"}` : "", m ? `${m} ${m === 1 ? "mes" : "meses"}` : ""].filter(Boolean).join(" y ") || "0 meses";
 };
 
-/** Tope del deslizador de la simulación. */
-const SIM_MAX = 60_000;
-const SIM_STEP = 1_000;
-
 type LegendRow = { color: string; label: string; value: string };
-
-/** Cifra de resultado bajo su rótulo (simulación). */
-const Figure = ({ label, children, up = false }: { label: string; children: ReactNode; up?: boolean }) => (
-  <div>
-    <div className="text-[12px] text-mute">{label}</div>
-    <div className={`mt-1 text-[20px] font-[550] ${up ? "text-up" : ""}`} style={{ fontStretch: "106%" }}>
-      {children}
-    </div>
-  </div>
-);
-
-function WhatIf({ v, today, extra, setExtra, mode, setMode, max }: { v: PropertyView; today: string; extra: number; setExtra: (n: number) => void; mode: SimMode; setMode: (m: SimMode) => void; max: number }) {
-  const loan = v.loan!;
-  const amount = Math.min(extra, loan.outstanding);
-  const sim = useMemo(() => simulateRepayment(loan, amount, mode, today), [loan, amount, mode, today]);
-  const term = mode === "reduce_term";
-  const newPayment = sim?.newPayment ?? loan.payment;
-  const newEnd = sim ? sim.newEndDate : loan.endDate;
-  // Si la hipoteca pendiente no llega al tope, el deslizador termina en ella y solo se rotulan los extremos.
-  const marks = max === SIM_MAX ? [0, SIM_MAX / 3, (SIM_MAX * 2) / 3, SIM_MAX] : [0, Math.min(max, loan.outstanding)];
-  return (
-    <Card title="¿Y si amortizo?" note="una simulación: no registra nada">
-      <div className="flex flex-wrap items-center gap-4">
-        <span className="min-w-[130px] text-[30px] font-medium tracking-[-0.01em] text-up" style={{ fontStretch: "108%" }}>
-          {eur(amount, 0)}
-        </span>
-        <Pills
-          size="sm"
-          label="Qué reduce la amortización"
-          value={mode}
-          onChange={setMode}
-          options={[
-            ["reduce_term", "Reducir plazo"],
-            ["reduce_installment", "Reducir cuota"],
-          ]}
-        />
-      </div>
-      <input
-        type="range"
-        min={0}
-        max={max}
-        step={SIM_STEP}
-        value={Math.min(extra, max)}
-        onChange={(e) => setExtra(+e.target.value)}
-        aria-label="Importe a amortizar"
-        aria-valuetext={eur(amount, 0)}
-        className="mt-3.5 block w-full"
-        style={{ accentColor: "var(--up)" }}
-      />
-      <div className="flex justify-between text-[11px] text-mute">
-        {marks.map((m) => (
-          <span key={m}>{eur(m, 0)}</span>
-        ))}
-      </div>
-      <div className="mt-4 flex flex-wrap gap-x-8 gap-y-3">
-        <Figure label="Intereses que te ahorras" up>
-          {eur(sim?.interestSaved ?? 0, 0)}
-        </Figure>
-        <Figure label={term ? "Terminas antes" : "La cuota baja a"}>{term ? monthsText(sim?.monthsSaved ?? 0) : eur(newPayment)}</Figure>
-        <Figure label={term ? "Nueva última cuota" : "Bajada mensual"}>{term ? (newEnd ? dateShort(newEnd) : "—") : eur(loan.payment - newPayment)}</Figure>
-      </div>
-      <div className="mt-4 flex flex-wrap items-center gap-x-3.5 gap-y-2">
-        <Btn disabled={!(amount > 0)} onClick={() => openDialog({ kind: "mortgageEvent", mortgage: loan.mortgage, type: "early_repayment", amount, mode })}>
-          Registrar esta amortización…
-        </Btn>
-        <span className="text-[12px] text-mute">en verde en el gráfico de arriba: lo que pasaría a ser tuyo cada año</span>
-      </div>
-    </Card>
-  );
-}
 
 const YEAR_COLS: CSSProperties = { gridTemplateColumns: "52px 1fr 1fr 1fr minmax(70px,.8fr) 1.1fr" };
 
@@ -165,9 +91,6 @@ function History({ v }: { v: PropertyView }) {
         <span className="wide flex-1 font-semibold">Historial</span>
         {loan && (
           <>
-            <Btn size="sm" onClick={() => openDialog({ kind: "mortgageEvent", mortgage: loan.mortgage, type: "early_repayment" })}>
-              <Plus size={12} /> Amortización
-            </Btn>
             <Btn size="sm" onClick={() => openDialog({ kind: "mortgageEvent", mortgage: loan.mortgage, type: "rate_change" })}>
               <Plus size={12} /> Revisión del tipo
             </Btn>
@@ -209,15 +132,10 @@ function History({ v }: { v: PropertyView }) {
 
 function PropertyPanel({ v, today, portfolio }: { v: PropertyView; today: string; portfolio: number }) {
   const { property, loan } = v;
-  const [extra, setExtra] = useState(10_000);
-  const [mode, setMode] = useState<SimMode>("reduce_term");
   const [hy, setHy] = useState<number | null>(null);
   const [allYears, setAllYears] = useState(false);
 
-  const simMax = loan ? Math.max(SIM_STEP, Math.min(SIM_MAX, Math.ceil(loan.outstanding / SIM_STEP) * SIM_STEP)) : 0;
-  const amount = loan ? Math.min(extra, simMax, loan.outstanding) : 0;
-  // La geometría solo cambia con el inmueble, el importe simulado y el modo.
-  const model = useMemo(() => homeModel(v, today, amount, mode), [v, today, amount, mode]);
+  const model = useMemo(() => homeModel(v, today), [v, today]);
 
   const [heroI, heroD] = splitMoney(eur(v.equity));
   const thisYear = +today.slice(0, 4);
@@ -226,11 +144,11 @@ function PropertyPanel({ v, today, portfolio }: { v: PropertyView; today: string
 
   // Sin cursor, la leyenda muestra la situación de hoy; sobre un año, la de final de ese año.
   const hot = hy == null ? undefined : model.years.find((y) => y.year === hy);
-  const legendTitle = hot ? `A final de ${hot.year}${hot.future ? (hot.gain > 0 ? " · previsto si amortizas" : " · previsto") : hot.gain > 0 ? " · si amortizas" : ""}` : `Hoy · ${dateShort(today)}`;
+  const legendTitle = hot ? `A final de ${hot.year}${hot.future ? " · previsto" : ""}` : `Hoy · ${dateShort(today)}`;
   const legend: LegendRow[] = hot
     ? loan
       ? [
-          { color: HOME_COLOR.own, label: "Ya es tuyo", value: `${eur(hot.own + hot.gain, 0)} · ${pct(hot.value > 0 ? (hot.own + hot.gain) / hot.value : 0)}` },
+          { color: HOME_COLOR.own, label: "Ya es tuyo", value: `${eur(hot.own, 0)} · ${pct(hot.value > 0 ? hot.own / hot.value : 0)}` },
           { color: "var(--line2)", label: "Del banco", value: eur(hot.bank, 0) },
           { color: HOME_COLOR.principal, label: "Capital pagado ese año", value: eur(hot.principal, 0) },
           { color: HOME_COLOR.interest, label: "Intereses ese año", value: eur(hot.interest, 0) },
@@ -307,7 +225,6 @@ function PropertyPanel({ v, today, portfolio }: { v: PropertyView; today: string
           </Kpis>
 
           <div className="grid items-start gap-5" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))" }}>
-            {loan.outstanding > 0 && <WhatIf v={v} today={today} extra={extra} setExtra={setExtra} mode={mode} setMode={setMode} max={simMax} />}
             <Card title="A dónde ha ido lo pagado" aside={`${eur(v.totalPaid, 0)} en total`}>
               <PaidSplit
                 parts={[
@@ -357,7 +274,7 @@ export function Inmuebles() {
   if (views.length === 0) {
     return (
       <Empty title="Registra tu vivienda" action={<Btn variant="cta" onClick={() => openDialog({ kind: "property" })}>Añadir un inmueble</Btn>}>
-        Apunta el precio de compra y la hipoteca y verás cuánto es ya tuyo, cuánto llevas pagado, cuánto queda y qué pasaría si amortizas.
+        Apunta el precio de compra y la hipoteca y verás cuánto es ya tuyo, cuánto llevas pagado, cuánto queda.
       </Empty>
     );
   }

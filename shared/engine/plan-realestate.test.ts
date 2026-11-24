@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Asset, Goal, Mortgage } from "../types.ts";
 import { buildPlan, planContribution } from "./plan.ts";
-import { annuity, buildSchedule, scheduleByYear, simulateRepayment, viewMortgage } from "./realestate.ts";
+import { annuity, buildSchedule, scheduleByYear, viewMortgage } from "./realestate.ts";
 import type { Position } from "./timeline.ts";
 
 const goal = (id: string, targetPct: number, sortOrder = 0): Goal => ({ id, name: id, targetPct, color: 1, sortOrder, createdAt: "" });
@@ -40,17 +40,24 @@ describe("plan de inversión", () => {
     expect(plan.buckets.at(-1)).toMatchObject({ goal: null, valueEur: 1000, targetPct: 0 });
   });
 
-  it("una aportación va primero a lo más retrasado y reparte hasta el último céntimo", () => {
+  it("una aportación va entera al bloque más retrasado, aunque lo deje por encima de su objetivo", () => {
     const plan = buildPlan(positions, goals);
     const small = planContribution(plan, 500);
     expect(small.find((a) => a.goal.id === "emergentes")!.amountEur).toBe(500);
     expect(small.find((a) => a.goal.id === "global")!.amountEur).toBe(0);
 
+    // Con 10.000 € no se reparte: todo a emergentes, que pasa del 20 % al 60 % con un objetivo del 30 %.
     const big = planContribution(plan, 10000);
-    expect(big.reduce((s, a) => s + a.amountEur, 0)).toBeCloseTo(10000, 6);
-    // Con 10.000 € más se puede llegar exactamente al plan: 12.000 / 6.000 / 2.000.
-    expect(big.map((a) => a.amountEur)).toEqual([5000, 4000, 1000]);
-    for (const a of big) expect(a.weightAfterPct).toBeCloseTo(a.targetPct, 6);
+    expect(big.map((a) => a.amountEur)).toEqual([0, 10000, 0]);
+    expect(big.find((a) => a.goal.id === "emergentes")!.weightAfterPct).toBeCloseTo(60, 6);
+    expect(big.find((a) => a.goal.id === "global")!.weightAfterPct).toBeCloseTo(35, 6);
+  });
+
+  it("si varios bloques están por debajo, elige el que más euros le faltan", () => {
+    // Sobre 10.000 €: a «b» le faltan 2.000 € (10 % frente a 30 %) y a «c» 1.000 € (0 % frente a 10 %).
+    const plan = buildPlan([pos("a", 9000, "global"), pos("b", 1000, "emergentes")], goals);
+    const out = planContribution(plan, 300);
+    expect(out.filter((a) => a.amountEur > 0).map((a) => a.goal.id)).toEqual(["emergentes"]);
   });
 
   it("nunca propone vender: los bloques pasados de peso no reciben nada", () => {
@@ -113,10 +120,6 @@ describe("hipoteca", () => {
     expect(v.principalPaid + v.outstanding).toBeCloseTo(200000, 6);
     expect(v.interestPaid + v.interestRemaining).toBeCloseTo(v.totalInterest, 6);
     expect(v.nextPayment!.date).toBe("2026-03-05");
-    const sim = simulateRepayment(v, 10000, "reduce_term", "2026-02-10")!;
-    expect(sim.monthsSaved).toBeGreaterThan(20);
-    expect(sim.interestSaved).toBeGreaterThan(5000);
-    expect(sim.newPayment).toBe(843.21);
     const years = scheduleByYear(v.schedule);
     expect(years[0]).toMatchObject({ year: 2024, payments: 11 });
     expect(years.reduce((s, y) => s + y.principal, 0)).toBeCloseTo(200000, 6);

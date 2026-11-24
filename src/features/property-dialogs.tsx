@@ -168,7 +168,7 @@ export function PropertyDialog({ property }: { property?: Property }) {
             </div>
             {property && payment != null && (
               <p className="text-[12px] text-mute">
-                Cuota de las condiciones iniciales: {eur(payment)} al mes. Las amortizaciones y revisiones del tipo se registran aparte y no se pierden al editar.
+                Cuota de las condiciones iniciales: {eur(payment)} al mes. Las revisiones del tipo se registran aparte y no se pierden al editar.
               </p>
             )}
           </>

@@ -80,44 +80,19 @@ export type Allocation = {
 };
 
 /**
- * Reparte una aportación entre los bloques para acercar la cartera al plan sin
- * vender nada: el dinero va primero a lo que más lejos está de su objetivo.
- *
- * Es un reparto «por nivelación»: se sube a la vez el peso relativo de los
- * bloques más retrasados hasta que se acaba el dinero, que es el reparto que
- * deja la menor desviación posible comprando solamente.
+ * A dónde va una aportación: entera al bloque más retrasado, el que hoy está
+ * más euros por debajo de su objetivo. Una sola operación al mes ahorra
+ * comisiones, aunque ese bloque quede algo por encima de su peso; al mes
+ * siguiente le tocará a otro. Nunca se propone vender.
  */
 export function planContribution(plan: Plan, amountEur: number): Allocation[] {
   const buckets = plan.buckets.filter((b): b is PlanBucket & { goal: Goal } => !!b.goal && b.targetPct > 0);
   if (!buckets.length || !(amountEur > 0)) return [];
-  const targetSum = buckets.reduce((s, b) => s + b.targetPct, 0);
   // Lo que no tiene bloque también forma parte del total, pero no recibe dinero.
   const total = plan.totalEur + amountEur;
-  const want = buckets.map((b) => (b.targetPct / targetSum) * total);
-  const have = buckets.map((b) => b.valueEur);
-
-  // Nivel = fracción de su objetivo que tiene cada bloque. Se rellena desde el más bajo.
-  const order = buckets.map((_, i) => i).sort((a, b) => have[a]! / want[a]! - have[b]! / want[b]!);
-  const add = buckets.map(() => 0);
-  let left = amountEur;
-  for (let k = 0; k < order.length && left > 0.005; k++) {
-    const group = order.slice(0, k + 1);
-    const next = k + 1 < order.length ? have[order[k + 1]!]! / want[order[k + 1]!]! : Number.POSITIVE_INFINITY;
-    const level = (i: number) => (have[i]! + add[i]!) / want[i]!;
-    // Dinero para subir todo el grupo hasta el nivel del siguiente bloque (como mucho al 100 %).
-    const cap = Math.min(next, 1);
-    const need = group.reduce((s, i) => s + Math.max(0, cap - level(i)) * want[i]!, 0);
-    const spend = Math.min(left, need);
-    if (need > 0) for (const i of group) add[i]! += (Math.max(0, cap - level(i)) * want[i]! * spend) / need;
-    left -= spend;
-  }
-  // Si todos han llegado a su objetivo y aún sobra, el resto va en proporción al plan.
-  if (left > 0.005) buckets.forEach((b, i) => (add[i]! += (left * b.targetPct) / targetSum));
-
-  // Redondeo a céntimos sin perder ninguno: el ajuste va al bloque que más recibe.
-  const rounded = add.map(r2);
-  const diff = r2(amountEur - rounded.reduce((s, v) => s + v, 0));
-  if (diff !== 0) rounded[rounded.indexOf(Math.max(...rounded))]! += diff;
+  // El hueco es el que se ve hoy en pantalla («faltan N €»). Si ninguno está por debajo, va al menos pasado.
+  const chosen = buckets.reduce((best, b) => (b.gapEur > best.gapEur ? b : best));
+  const rounded = buckets.map((b) => (b === chosen ? r2(amountEur) : 0));
 
   return buckets
     .map((b, i) => ({
