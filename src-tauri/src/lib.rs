@@ -34,7 +34,10 @@ const ALLOWED_HOSTS: &[&str] = &[
     "query2.finance.yahoo.com",
     "data-api.ecb.europa.eu",
     "markets.ft.com",
-    "eodhd.com",
+    "api.boerse-frankfurt.de",
+    "apiweb.bolsasymercados.es",
+    "api.nasdaq.com",
+    "www.fundinfo.com",
     "data-api.binance.vision",
     "api.indexacapital.com",
 ];
@@ -251,7 +254,7 @@ fn reserve_yahoo_slot() -> Duration {
     slot - now
 }
 
-/// Clave guardada para un servicio (`eodhd`, `indexa`), o un error que dice dónde ponerla.
+/// Clave guardada para un servicio (`indexa`), o un error que dice dónde ponerla.
 fn secret(conn: &Connection, name: &str, label: &str) -> Result<String, String> {
     let found: Option<String> = conn
         .query_row(
@@ -267,18 +270,8 @@ fn secret(conn: &Connection, name: &str, label: &str) -> Result<String, String> 
 }
 
 /// Añade a la petición la clave que pide su servidor, si pide alguna.
-fn authorize(conn: &Connection, mut url: reqwest::Url) -> Result<(reqwest::Url, Option<(&'static str, String)>), String> {
+fn authorize(conn: &Connection, url: reqwest::Url) -> Result<(reqwest::Url, Option<(&'static str, String)>), String> {
     match url.host_str().unwrap_or_default() {
-        "eodhd.com" => {
-            let token = secret(conn, "eodhd", "EODHD")?;
-            let kept: Vec<(String, String)> = url
-                .query_pairs()
-                .filter(|(k, _)| k != "api_token")
-                .map(|(k, v)| (k.into_owned(), v.into_owned()))
-                .collect();
-            url.query_pairs_mut().clear().extend_pairs(kept).append_pair("api_token", &token);
-            Ok((url, None))
-        }
         "api.indexacapital.com" => {
             let token = secret(conn, "indexa", "Indexa Capital")?;
             Ok((url, Some(("X-AUTH-TOKEN", token))))
@@ -298,8 +291,9 @@ async fn http_get(db: State<'_, Db>, url: String) -> CmdResult<String> {
         let conn = db.conn.lock().map_err(err)?;
         authorize(&conn, parsed)?
     };
-    // Yahoo y FT bloquean las ráfagas: sus peticiones se espacian.
-    if host.ends_with("finance.yahoo.com") || host == "markets.ft.com" {
+    // Las webs de precios bloquean las ráfagas (Yahoo responde 429): las peticiones
+    // se espacian. El BCE, Binance e Indexa son APIs públicas y no lo necesitan.
+    if !matches!(host.as_str(), "data-api.ecb.europa.eu" | "data-api.binance.vision" | "api.indexacapital.com") {
         tokio::time::sleep(reserve_yahoo_slot()).await;
     }
     let debug = std::env::var_os("CAUDAL_DEBUG").is_some();
@@ -554,7 +548,11 @@ mod tests {
         assert!(check_url("https://query1.finance.yahoo.com/v8/finance/chart/AAPL").is_ok());
         assert!(check_url("https://data-api.ecb.europa.eu/service/data/EXR").is_ok());
         assert!(check_url("https://markets.ft.com/data/funds/tearsheet/summary?s=X").is_ok());
-        assert!(check_url("https://eodhd.com/api/eod/VWCE.XETRA").is_ok());
+        assert!(check_url("https://api.boerse-frankfurt.de/v1/tradingview/history?symbol=XETR:X").is_ok());
+        assert!(check_url("https://apiweb.bolsasymercados.es/Market/v1/EQ/LastHistoricalSharesPrices?isin=X").is_ok());
+        assert!(check_url("https://api.nasdaq.com/api/quote/GOOG/historical").is_ok());
+        assert!(check_url("https://www.fundinfo.com/en/ES-priv/LandingPage/Data?query=X").is_ok());
+        assert!(check_url("https://eodhd.com/api/eod/VWCE.XETRA").is_err());
         assert!(check_url("https://data-api.binance.vision/api/v3/klines").is_ok());
         assert!(check_url("https://api.indexacapital.com/users/me").is_ok());
         assert!(check_url("https://api.binance.com/api/v3/klines").is_err());
@@ -568,12 +566,8 @@ mod tests {
         let conn = memory_db();
         let url = |u: &str| check_url(u).unwrap();
         // Sin clave guardada, el error dice dónde ponerla.
-        assert!(authorize(&conn, url("https://eodhd.com/api/eod/X.US?fmt=json")).unwrap_err().contains("Ajustes"));
-        conn.execute("INSERT INTO meta (key, value) VALUES ('secret:eodhd', ' abc '), ('secret:indexa', 'tok')", []).unwrap();
-        // EODHD: la clave va en la consulta, y una que viniera de la interfaz se descarta.
-        let (u, h) = authorize(&conn, url("https://eodhd.com/api/eod/X.US?fmt=json&api_token=falsa")).unwrap();
-        assert_eq!(u.query(), Some("fmt=json&api_token=abc"));
-        assert!(h.is_none());
+        assert!(authorize(&conn, url("https://api.indexacapital.com/users/me")).unwrap_err().contains("Ajustes"));
+        conn.execute("INSERT INTO meta (key, value) VALUES ('secret:indexa', ' tok ')", []).unwrap();
         // Indexa: va en una cabecera.
         let (u, h) = authorize(&conn, url("https://api.indexacapital.com/users/me")).unwrap();
         assert_eq!(u.query(), None);

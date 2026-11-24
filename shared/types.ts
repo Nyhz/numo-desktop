@@ -14,30 +14,41 @@ export type TxType =
   | "fee"
   | "transfer";
 
-export type PriceSource = "yahoo" | "eodhd" | "binance" | "indexa" | "ft" | "manual";
-export const PRICE_SOURCES: PriceSource[] = ["yahoo", "eodhd", "binance", "indexa", "ft", "manual"];
+export type PriceSource = "xetra" | "bme" | "nasdaq" | "fundinfo" | "binance" | "indexa" | "yahoo" | "ft" | "manual";
+export const PRICE_SOURCES: PriceSource[] = ["xetra", "bme", "nasdaq", "fundinfo", "binance", "indexa", "yahoo", "ft", "manual"];
 export const PRICE_SOURCE_LABEL: Record<PriceSource, string> = {
-  yahoo: "Yahoo Finance (por símbolo)",
-  eodhd: "EODHD (acciones, ETF y fondos; con clave)",
+  xetra: "Deutsche Börse · Xetra (ETF y acciones, por ISIN)",
+  bme: "BME · Bolsa de Madrid (por ISIN)",
+  nasdaq: "Nasdaq (acciones de EE. UU., por ticker)",
+  fundinfo: "fundinfo (fondos, por ISIN)",
   binance: "Binance (criptomonedas en euros)",
-  indexa: "Indexa Capital (tu plan o cartera; con clave)",
+  indexa: "Indexa Capital (tu plan o cartera; con token)",
+  yahoo: "Yahoo Finance (por símbolo)",
   ft: "Financial Times (fondos, por ISIN)",
   manual: "Manual",
 };
 export const PRICE_SOURCE_SHORT: Record<PriceSource, string> = {
-  yahoo: "Yahoo Finance",
-  eodhd: "EODHD",
+  xetra: "Deutsche Börse",
+  bme: "BME",
+  nasdaq: "Nasdaq",
+  fundinfo: "fundinfo",
   binance: "Binance",
   indexa: "Indexa Capital",
+  yahoo: "Yahoo Finance",
   ft: "Financial Times",
   manual: "Manual",
 };
-/** Cómo se llama el identificador del activo en cada fuente, con un ejemplo. */
-export const SOURCE_CODE: Record<PriceSource, { label: string; example: string; required: boolean } | null> = {
-  yahoo: { label: "Símbolo de Yahoo", example: "VWCE.DE", required: true },
-  eodhd: { label: "Código de EODHD", example: "VWCE.XETRA", required: false },
+/** Fuentes que identifican el activo por su ISIN; las demás usan el campo de código. */
+export const SOURCE_BY_ISIN: Record<PriceSource, boolean> = { xetra: true, bme: true, fundinfo: true, ft: true, nasdaq: false, binance: false, indexa: false, yahoo: false, manual: false };
+/** Para qué sirve el campo de código en cada fuente, con un ejemplo. */
+export const SOURCE_CODE: Record<PriceSource, { label: string; example: string; required: boolean; hint?: string } | null> = {
+  xetra: { label: "Símbolo de Yahoo", example: "VWCE.DE", required: false, hint: "respaldo" },
+  bme: { label: "Símbolo de Yahoo", example: "AMP.MC", required: false, hint: "respaldo" },
+  nasdaq: { label: "Ticker", example: "GOOG", required: true },
+  fundinfo: null,
   binance: { label: "Par de Binance", example: "ETHEUR", required: true },
-  indexa: { label: "Identificador en Indexa", example: "se rellena solo", required: false },
+  indexa: { label: "Identificador en Indexa", example: "se rellena solo", required: false, hint: "se rellena solo" },
+  yahoo: { label: "Símbolo de Yahoo", example: "VWCE.DE", required: true },
   ft: null,
   manual: null,
 };

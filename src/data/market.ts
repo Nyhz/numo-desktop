@@ -2,7 +2,8 @@ import { addDays, dayNum, isIsoDate, isoOf, todayIso } from "../../shared/dates.
 import type { AppState, AssetKind, Point, PriceSource } from "../../shared/types.ts";
 import type { Meta, Op } from "./backend.ts";
 
-// Datos de mercado: cotizaciones (Yahoo Finance, EODHD, Binance, Financial Times),
+// Datos de mercado: cotizaciones (Deutsche Börse, BME, Nasdaq, fundinfo, Binance,
+// con Yahoo Finance y Financial Times de respaldo),
 // el valor del plan en Indexa Capital y los tipos de referencia del BCE.
 // A los servicios de mercado solo viajan símbolos y divisas; nunca importes,
 // posiciones ni nombres de cuenta. Indexa es la cuenta del propio usuario: de su
@@ -11,10 +12,8 @@ import type { Meta, Op } from "./backend.ts";
 type Get = (url: string) => Promise<string>;
 
 const FRESH_MS = 6 * 3600_000;
-// EODHD da un cierre al día y la clave tiene un cupo diario: se consulta menos.
-const FRESH_EODHD_MS = 12 * 3600_000;
 const YAHOO_LIMIT = "Yahoo está limitando las peticiones";
-const EODHD_LIMIT = "Se ha agotado el cupo diario de la clave de EODHD";
+const PRIMARY_NAME = { xetra: "Deutsche Börse", bme: "BME", nasdaq: "Nasdaq", fundinfo: "fundinfo" } as const;
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 // Algunas bolsas cotizan en céntimos de su divisa.
@@ -128,12 +127,15 @@ export function parseFtQuote(html: string): { price: number; currency: string; d
   if (!m) throw new Error("FT no muestra precio para este ISIN");
   const price = ftNumber(m[2]!);
   if (!(price > 0)) throw new Error("FT devuelve un precio no válido");
-  const asOf = /as of\s+([A-Za-z]{3,})\s+(\d{1,2})\s+(\d{4})/.exec(html);
-  const month = asOf ? ftMonth(asOf[1]!) : -1;
+  // La ficha trae dos «as of»: el del valor liquidativo y el de la propia página. Vale el más antiguo.
+  const dates = [...html.matchAll(/as of\s+([A-Za-z]{3,})\s+(\d{1,2})\s+(\d{4})/g)]
+    .map((m) => (ftMonth(m[1]!) >= 0 ? iso(m[3]!, ftMonth(m[1]!), m[2]!) : ""))
+    .filter(Boolean)
+    .sort();
   // El identificador interno de FT viene en un bloque de configuración, a veces con las comillas escapadas.
   const xid = /(?:&quot;|")xid(?:&quot;|"):(?:&quot;|")(\d+)/.exec(html)?.[1] ?? null;
   const name = /mod-tearsheet-overview__header__name[^>]*>([^<]+)</.exec(html)?.[1]?.trim().replace(/&amp;/g, "&") ?? null;
-  return { price, currency: m[1]!.toUpperCase(), date: asOf && month >= 0 ? iso(asOf[3]!, month, asOf[2]!) : null, xid, name };
+  return { price, currency: m[1]!.toUpperCase(), date: dates[0] ?? null, xid, name };
 }
 
 /** Histórico de FT: filas con fecha y cuatro cifras (apertura, máximo, mínimo, cierre). */
@@ -171,67 +173,88 @@ export async function ftPrices(get: Get, isin: string, currency: string, from: s
   return points;
 }
 
-// ── EODHD: cierres diarios de acciones, ETF y fondos (con clave) ────────────
-// La clave la añade el núcleo nativo a cada petición; aquí nunca se ve.
+// ── Bolsas: los datos que publican en sus propias webs (sin clave ni cupo) ──
+// No son APIs documentadas: son los servicios que usan sus páginas. Por eso cada
+// activo tiene además un respaldo (Yahoo) por si la bolsa cambia algo.
 
-const EODHD = "https://eodhd.com/api";
-const EODHD_KIND: Record<string, AssetKind> = { "Common Stock": "stock", "Preferred Stock": "stock", ETF: "etf", ETC: "etf", FUND: "fund", "Mutual Fund": "fund", Currency: "crypto", BOND: "bond" };
-// A igualdad de divisa se prefiere el mercado principal a las bolsas regionales alemanas.
-const EODHD_VENUES = ["XETRA", "MC", "US", "EUFUND", "PA", "AS", "MI", "SW", "LSE"];
+const XETRA = "https://api.boerse-frankfurt.de/v1";
+const BME = "https://apiweb.bolsasymercados.es/Market/v1/EQ";
+const NASDAQ = "https://api.nasdaq.com/api/quote";
+const FUNDINFO = "https://www.fundinfo.com/en/ES-priv/LandingPage/Data";
 
-/** Cierres sin ajustar por dividendos; los splits se tratan aparte. */
-export function parseEodhdEod(json: string): Point[] {
-  const data = JSON.parse(json) as unknown;
-  if (!Array.isArray(data)) throw new Error("EODHD no devuelve precios para este código");
-  return (data as Array<{ date?: string; close?: number }>)
-    .filter((r) => typeof r.date === "string" && isIsoDate(r.date) && typeof r.close === "number" && r.close > 0)
-    .map((r) => [r.date!, r.close!] as Point)
-    .sort((a, b) => a[0].localeCompare(b[0]));
+/** Deutsche Börse (Xetra): barras diarias; la de hoy trae el último precio de la sesión. */
+export function parseXetraHistory(json: string): Point[] {
+  const d = JSON.parse(json) as { s?: string; t?: number[]; c?: number[] };
+  if (d.s !== "ok" || !d.t?.length) return [];
+  return d.t.map((t, i) => [isoOf(Math.floor(t / 86_400)), d.c?.[i] ?? 0] as Point).filter(([, v]) => v > 0);
+}
+export function parseXetraQuote(json: string): { currency: string; price: number | null } {
+  const d = JSON.parse(json) as { currency?: { originalValue?: string }; closingPricePrevTradingDay?: number; lastPrice?: number };
+  if (!d.currency?.originalValue) throw new Error("Deutsche Börse no cotiza este ISIN en Xetra");
+  return { currency: d.currency.originalValue.toUpperCase(), price: d.lastPrice ?? d.closingPricePrevTradingDay ?? null };
+}
+export async function xetraPrices(get: Get, isin: string, from: string, today: string): Promise<Point[]> {
+  const out = new Map<string, number>();
+  // Cada respuesta trae como mucho un año de barras: un histórico largo se pide por tramos.
+  for (let start = dayNum(from), n = 0; start <= dayNum(today) && n < 30; start += 300, n++) {
+    const end = Math.min(start + 300, dayNum(today) + 1);
+    const chunk = parseXetraHistory(await get(`${XETRA}/tradingview/history?symbol=XETR:${encodeURIComponent(isin)}&resolution=1D&from=${start * 86_400}&to=${end * 86_400}`));
+    for (const [d, v] of chunk) out.set(d, v);
+  }
+  return [...out.entries()].sort((x, y) => x[0].localeCompare(y[0]));
 }
 
-export type EodhdHit = { code: string; name: string; kind: AssetKind; currency: string; isin: string | null; price: number | null; date: string | null };
-
-export function parseEodhdSearch(json: string): EodhdHit[] {
-  const data = JSON.parse(json) as unknown;
-  if (!Array.isArray(data)) return [];
-  return (data as Array<{ Code?: string; Exchange?: string; Name?: string; Type?: string; Currency?: string; ISIN?: string | null; previousClose?: number; previousCloseDate?: string }>)
-    .filter((r) => r.Code && r.Exchange)
-    .map((r) => ({
-      code: `${r.Code}.${r.Exchange}`,
-      name: r.Name ?? r.Code!,
-      kind: EODHD_KIND[r.Type ?? ""] ?? "other",
-      currency: (r.Currency ?? "").trim(),
-      isin: r.ISIN || null,
-      price: typeof r.previousClose === "number" && r.previousClose > 0 ? r.previousClose : null,
-      date: r.previousCloseDate && isIsoDate(r.previousCloseDate) ? r.previousCloseDate : null,
-    }));
+/** BME (Bolsa de Madrid): hasta el cierre, la fila de hoy trae el último cruce en `last`. */
+export function parseBmePrices(json: string): { points: Point[]; more: boolean } {
+  const d = JSON.parse(json) as { hasMoreResults?: boolean; data?: Array<{ date?: string; close?: number; last?: number }> };
+  const points = (d.data ?? [])
+    .map((r) => [`${r.date?.slice(0, 4)}-${r.date?.slice(4, 6)}-${r.date?.slice(6, 8)}`, r.close && r.close > 0 ? r.close : (r.last ?? 0)] as Point)
+    .filter(([date, v]) => isIsoDate(date) && v > 0)
+    .sort((x, y) => x[0].localeCompare(y[0]));
+  return { points, more: !!d.hasMoreResults };
+}
+export async function bmePrices(get: Get, isin: string, from: string, today: string): Promise<Point[]> {
+  const out = new Map<string, number>();
+  const compact = (iso: string) => iso.replace(/-/g, "");
+  // El histórico solo hace falta si hay más de dos sesiones que recuperar.
+  if (dayNum(today) - dayNum(from) > 9) {
+    for (let page = 0; page < 60; page++) {
+      const chunk = parseBmePrices(await get(`${BME}/HistoricalSharesPrices?isin=${encodeURIComponent(isin)}&from=${compact(from)}&to=${compact(today)}&pageSize=50&page=${page}`));
+      for (const [d, v] of chunk.points) out.set(d, v);
+      if (!chunk.more || !chunk.points.length) break;
+    }
+  }
+  for (const [d, v] of parseBmePrices(await get(`${BME}/LastHistoricalSharesPrices?isin=${encodeURIComponent(isin)}`)).points) out.set(d, v);
+  return [...out.entries()].sort((x, y) => x[0].localeCompare(y[0]));
 }
 
-/** «4.000000/1.000000» → 4 (acciones nuevas por cada antigua). */
-export function parseEodhdSplits(json: string): Point[] {
-  const data = JSON.parse(json) as unknown;
-  if (!Array.isArray(data)) return [];
-  return (data as Array<{ date?: string; split?: string }>)
+/** Nasdaq (también valores del NYSE): «11/23/2026», «$279.53». */
+export function parseNasdaqHistory(json: string): Point[] {
+  const d = JSON.parse(json) as { data?: { tradesTable?: { rows?: Array<{ date?: string; close?: string }> } | null } | null };
+  return (d.data?.tradesTable?.rows ?? [])
     .map((r) => {
-      const [n, d] = (r.split ?? "").split("/").map(Number);
-      return [r.date ?? "", n! / d!] as Point;
+      const [m, day, y] = (r.date ?? "").split("/");
+      return [`${y}-${m}-${day}`, Number((r.close ?? "").replace(/[$,]/g, ""))] as Point;
     })
-    .filter(([date, ratio]) => isIsoDate(date) && Number.isFinite(ratio) && ratio > 0 && ratio !== 1);
+    .filter(([date, v]) => isIsoDate(date) && Number.isFinite(v) && v > 0)
+    .sort((x, y) => x[0].localeCompare(y[0]));
+}
+export async function nasdaqPrices(get: Get, ticker: string, from: string, today: string): Promise<Point[]> {
+  const url = (cls: string) => `${NASDAQ}/${encodeURIComponent(ticker.toUpperCase())}/historical?assetclass=${cls}&fromdate=${from}&todate=${today}&limit=9999`;
+  const stocks = parseNasdaqHistory(await get(url("stocks")));
+  // Los ETF estadounidenses van en otra clase.
+  return stocks.length ? stocks : parseNasdaqHistory(await get(url("etf")));
 }
 
-export const eodhdPrices = async (get: Get, code: string, from: string): Promise<Point[]> =>
-  parseEodhdEod(await get(`${EODHD}/eod/${encodeURIComponent(code)}?from=${from}&fmt=json`));
-export const eodhdSearch = async (get: Get, q: string): Promise<EodhdHit[]> =>
-  parseEodhdSearch(await get(`${EODHD}/search/${encodeURIComponent(q)}?limit=15&fmt=json`));
-
-/** De varias cotizaciones del mismo valor, la de la divisa pedida en el mercado principal. */
-export function bestEodhdHit(hits: EodhdHit[], currency: string): EodhdHit | null {
-  const rank = (h: EodhdHit) => {
-    const venue = EODHD_VENUES.indexOf(h.code.slice(h.code.lastIndexOf(".") + 1));
-    return (h.currency === currency ? 0 : 100) + (h.price == null ? 50 : 0) + (venue < 0 ? EODHD_VENUES.length : venue);
-  };
-  return [...hits].sort((a, b) => rank(a) - rank(b))[0] ?? null;
+/** fundinfo: último valor liquidativo de un fondo por ISIN, con su fecha de valoración. */
+export function parseFundinfo(json: string, isin: string): { price: number; date: string; currency: string; name: string | null } {
+  const d = JSON.parse(json) as { Data?: Array<{ S?: Record<string, string> }> };
+  const row = (d.Data ?? []).find((r) => r.S?.OFST020000 === isin);
+  const [price, date, currency] = (row?.S?.OFDY901035 ?? "").split("|");
+  if (!row || !(Number(price) > 0) || !isIsoDate(date ?? "")) throw new Error("fundinfo no tiene valor liquidativo para este ISIN");
+  return { price: Number(price), date: date!, currency: (currency ?? "").toUpperCase(), name: row.S?.OFST900016 ?? null };
 }
+export const fundinfoQuote = async (get: Get, isin: string) => parseFundinfo(await get(`${FUNDINFO}?skip=0&query=${encodeURIComponent(isin)}&orderdirection=`), isin);
 
 /** Un salto así entre dos cierres seguidos no es mercado: hay que mirar si hubo split. */
 export function splitSuspect(stored: Point[], incoming: Point[]): boolean {
@@ -244,13 +267,6 @@ export function splitSuspect(stored: Point[], incoming: Point[]): boolean {
 
 /** Pasa a unidades actuales los precios anteriores a un split. */
 export const rescaleBefore = (points: Point[], date: string, ratio: number): Point[] => points.map(([d, v]) => (d < date ? [d, v / ratio] : [d, v]) as Point);
-
-/** Estado de la clave: plan y consultas gastadas hoy (esta consulta no gasta). */
-export async function eodhdStatus(get: Get): Promise<string> {
-  const u = JSON.parse(await get(`${EODHD}/user?fmt=json`)) as { subscriptionType?: string; apiRequests?: number; dailyRateLimit?: number; apiRequestsDate?: string | null };
-  const used = u.apiRequestsDate === new Date().toISOString().slice(0, 10) ? (u.apiRequests ?? 0) : 0;
-  return `Plan ${u.subscriptionType === "free" ? "gratuito" : (u.subscriptionType ?? "desconocido")} · ${used} de ${u.dailyRateLimit ?? "?"} consultas usadas hoy`;
-}
 
 // ── Binance: criptomonedas, velas diarias públicas (sin clave) ──────────────
 
@@ -368,17 +384,26 @@ export async function probeSource(get: Get, src: ProbeInput): Promise<Probe> {
       const last = lastOf(q.points, "Yahoo");
       return { price: last[1], date: last[0], currency: q.currency, name: q.name, kind: q.kind };
     }
-    case "eodhd": {
-      // Con ISIN basta una búsqueda: devuelve el código y el último cierre.
-      if (!src.symbol) {
-        if (!src.isin) throw new Error("Falta el código de EODHD o el ISIN");
-        const hit = bestEodhdHit(await eodhdSearch(get, src.isin), src.currency);
-        if (!hit || hit.price == null || !hit.date) throw new Error("EODHD no encuentra ese ISIN");
-        if (MINOR[hit.currency]) throw new Error(`EODHD lo cotiza en ${hit.currency} (céntimos), que aún no se admite; usa otra bolsa u otra fuente`);
-        return { price: hit.price, date: hit.date, currency: hit.currency || src.currency, name: hit.name, kind: hit.kind, code: hit.code };
-      }
-      const last = lastOf(await eodhdPrices(get, src.symbol, addDays(today, -15)), "EODHD");
-      return { price: last[1], date: last[0], currency: src.currency, name: null, kind: null };
+    case "xetra": {
+      if (!src.isin) throw new Error("Falta el ISIN");
+      const q = parseXetraQuote(await get(`${XETRA}/data/price_information/single?isin=${encodeURIComponent(src.isin)}&mic=XETR`));
+      const last = lastOf(await xetraPrices(get, src.isin, addDays(today, -10), today), "Deutsche Börse");
+      return { price: last[1], date: last[0], currency: q.currency, name: null, kind: null };
+    }
+    case "bme": {
+      if (!src.isin) throw new Error("Falta el ISIN");
+      const last = lastOf(await bmePrices(get, src.isin, addDays(today, -3), today), "BME");
+      return { price: last[1], date: last[0], currency: "EUR", name: null, kind: "stock" };
+    }
+    case "nasdaq": {
+      if (!src.symbol) throw new Error("Falta el ticker, por ejemplo GOOG");
+      const last = lastOf(await nasdaqPrices(get, src.symbol, addDays(today, -10), today), "Nasdaq");
+      return { price: last[1], date: last[0], currency: "USD", name: null, kind: null, code: src.symbol.toUpperCase() };
+    }
+    case "fundinfo": {
+      if (!src.isin) throw new Error("Falta el ISIN");
+      const q = await fundinfoQuote(get, src.isin);
+      return { price: q.price, date: q.date, currency: q.currency || src.currency, name: q.name, kind: "fund" };
     }
     case "binance": {
       if (!src.symbol) throw new Error("Falta el par, por ejemplo ETHEUR");
@@ -602,45 +627,82 @@ export async function syncMarket(
     }
   }
 
-  // ── EODHD: un cierre al día por código ──
-  let spent = false;
+  // ── Bolsas y fundinfo: fuente principal y, si falla, respaldo ──
   for (const a of state.assets) {
-    if (a.priceSource !== "eodhd" || !a.symbol) continue;
+    const src = a.priceSource;
+    if (src !== "xetra" && src !== "bme" && src !== "nasdaq" && src !== "fundinfo") continue;
+    const id = src === "nasdaq" ? a.symbol : a.isin;
+    if (!id) continue;
     const stored = state.prices[a.id] ?? [];
     const have = span(stored);
-    if (have && fresh(meta, `fetched:asset:${a.id}`, force, FRESH_EODHD_MS)) continue;
-    if (spent) {
-      failed(a.id, EODHD_LIMIT);
-      continue;
-    }
-    const from = have ? addDays(have.max, -7) : addDays(firstByAsset.get(a.id) ?? floor, -10);
+    if (have && fresh(meta, `fetched:asset:${a.id}`, force)) continue;
+    const first = firstByAsset.get(a.id) ?? today;
+    const from = have ? addDays(have.max, -7) : addDays(first < floor ? first : floor, -10);
+    let pts: Point[] = [];
+    let via: string | null = null;
+    let why = "";
     try {
-      const pts = await eodhdPrices(get, a.symbol, from);
-      // EODHD da cierres tal como se negociaron: tras un split hay que reescalar lo anterior.
-      const known = state.splits[a.id] ?? [];
-      const found = a.kind !== "fund" && splitSuspect(stored, pts) ? parseEodhdSplits(await get(`${EODHD}/splits/${encodeURIComponent(a.symbol)}?from=${from}&fmt=json`)) : [];
-      const added = mergeSplits(known, found).filter((sp) => !known.some((k) => k[0] === sp[0]));
-      if (added.length) {
-        let all = [...stored.filter(([d]) => !pts.some((p) => p[0] === d)), ...pts].sort((x, y) => x[0].localeCompare(y[0]));
-        for (const [date, ratio] of added) all = rescaleBefore(all, date, ratio);
-        ops.push({ op: "splits", assetId: a.id, points: mergeSplits(known, found) });
-        ops.push({ op: "prices", assetId: a.id, points: all, replace: true });
-      } else {
-        ops.push({ op: "prices", assetId: a.id, points: pts });
+      if (src === "xetra") pts = await xetraPrices(get, id, from, today);
+      else if (src === "bme") pts = await bmePrices(get, id, from, today);
+      else if (src === "nasdaq") pts = await nasdaqPrices(get, id, from, today);
+      else {
+        const q = await fundinfoQuote(get, id);
+        if (q.currency && q.currency !== a.currency) throw new Error(`fundinfo lo da en ${q.currency}, no en ${a.currency}`);
+        pts = [[q.date, q.price]];
+        // fundinfo solo da el último valor: lo que falte de histórico se pide a FT, si lo tiene.
+        if (!have || have.max < addDays(q.date, -7)) {
+          try {
+            pts = [...(await ftPrices(get, id, a.currency, have ? have.max : from, today)).filter(([d]) => d < q.date), ...pts];
+          } catch {
+            // Sin histórico se conserva al menos el valor de hoy.
+          }
+        }
       }
-      fetched(a.id);
+      if (!pts.length) throw new Error("no devuelve precios");
     } catch (e) {
-      const msg = message(e);
-      if (/HTTP 40[29]/.test(msg)) {
-        issues.push({ what: "EODHD", message: `${EODHD_LIMIT}. Se conservan los últimos precios guardados; mañana se reanuda.` });
-        failed(a.id, EODHD_LIMIT);
-        spent = true;
-        continue;
+      why = `${PRIMARY_NAME[src]}: ${message(e)}`;
+      pts = [];
+      try {
+        if (src === "fundinfo") {
+          pts = await ftPrices(get, id, a.currency, have ? null : from, today);
+          via = "Financial Times";
+        } else if (a.symbol && !limited) {
+          pts = (await yahooChart(get, a.symbol, from, today)).points;
+          via = "Yahoo Finance";
+        }
+      } catch (e2) {
+        if (message(e2).includes("429")) limited = true;
+        why += ` · respaldo: ${message(e2)}`;
       }
-      const why = msg.includes("404") ? `EODHD no conoce el código ${a.symbol}` : msg;
+    }
+    if (!pts.length) {
       issues.push({ what: a.name, message: why });
       failed(a.id, why);
+      continue;
     }
+    // Cierres tal como se negociaron: tras un split hay que reescalar lo anterior.
+    if (a.kind !== "fund" && a.symbol && !limited && splitSuspect(stored, pts)) {
+      try {
+        const known = state.splits[a.id] ?? [];
+        const all = mergeSplits(known, (await yahooChart(get, a.symbol, from, today)).splits);
+        const added = all.filter((sp) => !known.some((k) => k[0] === sp[0]));
+        if (added.length) {
+          let series = [...stored.filter(([d]) => !pts.some((x) => x[0] === d)), ...pts].sort((x, y) => x[0].localeCompare(y[0]));
+          for (const [date, ratio] of added) series = rescaleBefore(series, date, ratio);
+          ops.push({ op: "splits", assetId: a.id, points: all });
+          ops.push({ op: "prices", assetId: a.id, points: series, replace: true });
+          pts = [];
+        }
+      } catch {
+        issues.push({ what: a.name, message: "El precio ha dado un salto que parece un split y no se ha podido confirmar. Revisa el activo." });
+      }
+    }
+    if (pts.length) ops.push({ op: "prices", assetId: a.id, points: pts });
+    fetched(a.id);
+    // Queda anotado si el precio vino del respaldo, para que se vea en Activos.
+    const note = via ? JSON.stringify({ at: stamp(), source: via, message: why }) : "";
+    if (note || meta[`backup:asset:${a.id}`]) ops.push({ op: "meta", key: `backup:asset:${a.id}`, value: note });
+    if (via) issues.push({ what: a.name, message: `${why}. Se ha usado el respaldo (${via}).` });
   }
 
   // ── Binance: criptomonedas ──

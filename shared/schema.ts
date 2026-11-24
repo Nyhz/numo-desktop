@@ -32,7 +32,7 @@ export const assetInput = z.object({
     .nullable()
     .default(null),
   currency,
-  priceSource: z.enum(["yahoo", "eodhd", "binance", "indexa", "ft", "manual"]).default("manual"),
+  priceSource: z.enum(["xetra", "bme", "nasdaq", "fundinfo", "binance", "indexa", "yahoo", "ft", "manual"]).default("manual"),
   goalId: z.string().min(1).nullable().default(null),
   planExcluded: z.boolean().default(false),
 });

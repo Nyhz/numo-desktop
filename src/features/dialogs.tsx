@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { detectCsv, matchSeries, parseNumber, parseSeriesCsv, parseTxCsv, planImport, type ImportPlan } from "../../shared/csv.ts";
 import { todayIso } from "../../shared/dates.ts";
 import { looksLikeExtras } from "../../shared/extras.ts";
-import { ACCOUNT_KINDS, ACCOUNT_KIND_LABEL, ASSET_KINDS, ASSET_KIND_LABEL, PRICE_SOURCES, PRICE_SOURCE_LABEL, PRICE_SOURCE_SHORT, SOURCE_CODE, type Account, type Asset } from "../../shared/types.ts";
+import { ACCOUNT_KINDS, ACCOUNT_KIND_LABEL, ASSET_KINDS, ASSET_KIND_LABEL, PRICE_SOURCES, PRICE_SOURCE_LABEL, PRICE_SOURCE_SHORT, SOURCE_BY_ISIN, SOURCE_CODE, type Account, type Asset, type PriceSource } from "../../shared/types.ts";
 import { probeSource, searchMarket, type Probe, type ProbeInput, type SearchHit } from "../data/market.ts";
 import { backend, getApp, importExtras, importPlan, importSeries, isExample, sync, syncSoon, removeAccount, removeAsset, saveAccount, saveAsset, setPrice, useApp, useDerived } from "../data/store.ts";
 import { dateBrief, dateShort, money, num, priceDigits } from "../lib/format.ts";
@@ -127,19 +127,18 @@ function AccountDialog({ account }: { account?: Account }) {
 
 const ISIN = /^[A-Z]{2}[A-Z0-9]{9}\d$/;
 type AssetForm = { name: string; kind: Asset["kind"]; symbol: string; isin: string; currency: string; priceSource: Asset["priceSource"] };
-const sourceKey = (f: Pick<AssetForm, "priceSource" | "symbol" | "isin" | "currency">) => {
-  const code = f.priceSource === "manual" ? "" : f.priceSource === "ft" ? f.isin.trim() : f.symbol.trim() || (f.priceSource === "eodhd" ? `isin:${f.isin.trim()}` : "");
-  return `${f.priceSource}|${code}|${f.currency}`;
-};
+const sourceKey = (f: Pick<AssetForm, "priceSource" | "symbol" | "isin" | "currency">) =>
+  `${f.priceSource}|${f.priceSource === "manual" ? "" : SOURCE_BY_ISIN[f.priceSource] ? f.isin.trim() : f.symbol.trim()}|${f.currency}`;
 /** Qué le falta al formulario para poder preguntar a la fuente elegida. */
 const missing = (f: Pick<AssetForm, "priceSource" | "symbol" | "isin">): string | null => {
-  const [symbol, isin] = [f.symbol.trim(), f.isin.trim()];
-  if (f.priceSource === "yahoo" && !symbol) return "Para usar Yahoo Finance hace falta el símbolo";
-  if (f.priceSource === "binance" && !symbol) return "Para usar Binance hace falta el par, por ejemplo ETHEUR";
-  if (f.priceSource === "ft" && !isin) return "Para usar Financial Times hace falta el ISIN";
-  if (f.priceSource === "eodhd" && !symbol && !isin) return "Para usar EODHD hace falta su código o el ISIN";
-  return null;
+  const src = f.priceSource;
+  if (src === "manual" || src === "indexa") return null;
+  if (SOURCE_BY_ISIN[src]) return f.isin.trim() ? null : `Para usar ${PRICE_SOURCE_SHORT[src]} hace falta el ISIN`;
+  return f.symbol.trim() ? null : `Para usar ${PRICE_SOURCE_SHORT[src]} hace falta ${src === "binance" ? "el par, por ejemplo ETHEUR" : src === "nasdaq" ? "el ticker" : "el símbolo"}`;
 };
+/** A qué bolsa corresponde un resultado de la búsqueda, para preferirla a Yahoo. */
+const exchangeFor = (symbol: string, hasIsin: boolean): PriceSource | null =>
+  /\.(DE|F)$/i.test(symbol) ? (hasIsin ? "xetra" : null) : /\.MC$/i.test(symbol) ? (hasIsin ? "bme" : null) : /^[A-Z][A-Z.-]{0,5}$/.test(symbol) && !symbol.includes(".") ? "nasdaq" : null;
 
 /**
  * Alta y edición de un activo. Se puede buscar en el mercado para rellenarlo y,
@@ -170,7 +169,7 @@ function AssetDialog({ asset, stay }: { asset?: Asset; stay?: boolean }) {
   const key = sourceKey(f);
   const verified = check?.key === key ? check.probe : null;
   const code = SOURCE_CODE[f.priceSource];
-  const needsKey = !example && (f.priceSource === "eodhd" || f.priceSource === "indexa") && !meta[`connected:${f.priceSource}`];
+  const needsKey = !example && f.priceSource === "indexa" && !meta["connected:indexa"];
   const term = q.trim();
   const termIsin = ISIN.test(term.toUpperCase()) ? term.toUpperCase() : null;
 
@@ -197,11 +196,20 @@ function AssetDialog({ asset, stay }: { asset?: Asset; stay?: boolean }) {
   }, [term, example, assets, asset?.id]);
 
   /** Rellena el formulario con lo que dice la fuente y lo deja comprobado. */
-  const adopt = async (next: AssetForm, takeName: boolean) => {
+  const adopt = async (next: AssetForm, takeName: boolean, fallback?: PriceSource) => {
     setBusy(true);
     setError(null);
     try {
-      const probe = await probeSource(backend.httpGet, { priceSource: next.priceSource as ProbeInput["priceSource"], symbol: next.symbol || null, isin: next.isin || null, currency: next.currency });
+      const ask = (f: AssetForm) => probeSource(backend.httpGet, { priceSource: f.priceSource as ProbeInput["priceSource"], symbol: f.symbol || null, isin: f.isin || null, currency: f.currency });
+      let probe: Probe;
+      try {
+        probe = await ask(next);
+      } catch (e) {
+        // La bolsa no lo reconoce: se queda con la fuente de respaldo si la hay.
+        if (!fallback) throw e;
+        next = { ...next, priceSource: fallback };
+        probe = await ask(next);
+      }
       const filled = { ...next, symbol: probe.code ?? next.symbol, currency: probe.currency, kind: probe.kind ?? next.kind, name: takeName && probe.name ? probe.name : next.name };
       setF(filled);
       setCheck({ key: sourceKey(filled), probe });
@@ -213,8 +221,13 @@ function AssetDialog({ asset, stay }: { asset?: Asset; stay?: boolean }) {
       setBusy(false);
     }
   };
-  const pickHit = (h: SearchHit) => adopt({ ...f, name: asset ? f.name : h.name, kind: h.kind, symbol: h.symbol, priceSource: "yahoo", isin: termIsin ?? f.isin }, false);
-  const pickFt = () => adopt({ ...f, kind: "fund", symbol: "", isin: termIsin!, priceSource: "ft" }, !asset || !f.name.trim());
+  const pickHit = (h: SearchHit) => {
+    const isin = termIsin ?? f.isin;
+    // Si se sabe en qué bolsa cotiza, el precio se pide a la bolsa y Yahoo queda de respaldo.
+    const exchange = h.kind === "crypto" || h.kind === "fund" ? null : exchangeFor(h.symbol, !!isin);
+    return adopt({ ...f, name: asset ? f.name : h.name, kind: h.kind, symbol: h.symbol, priceSource: exchange ?? "yahoo", isin }, false, exchange ? "yahoo" : undefined);
+  };
+  const pickFund = () => adopt({ ...f, kind: "fund", symbol: "", isin: termIsin!, priceSource: "fundinfo" }, !asset || !f.name.trim(), "ft");
 
   const save = async () => {
     setError(null);
@@ -232,7 +245,7 @@ function AssetDialog({ asset, stay }: { asset?: Asset; stay?: boolean }) {
       } catch (e) {
         setFailedKey(key);
         return setError(
-          `${PRICE_SOURCE_SHORT[data.priceSource]} no da precio${data.priceSource === "ft" ? ` para ${data.isin} en ${data.currency}` : data.symbol ? ` para ${data.symbol}` : ""}: ${e instanceof Error ? e.message : e}. Corrige el dato, o guárdalo igualmente y quedará con aviso en Activos.`,
+          `${PRICE_SOURCE_SHORT[data.priceSource]} no da precio${SOURCE_BY_ISIN[data.priceSource] ? ` para ${data.isin}` : data.symbol ? ` para ${data.symbol}` : ""}: ${e instanceof Error ? e.message : e}. Corrige el dato, o guárdalo igualmente y quedará con aviso en Activos.`,
         );
       } finally {
         setBusy(false);
@@ -295,7 +308,7 @@ function AssetDialog({ asset, stay }: { asset?: Asset; stay?: boolean }) {
                   if (e.key === "Enter" && term) {
                     e.preventDefault();
                     if (hits[0]) void pickHit(hits[0]);
-                    else if (termIsin) void pickFt();
+                    else if (termIsin) void pickFund();
                   }
                 }}
               />
@@ -312,8 +325,8 @@ function AssetDialog({ asset, stay }: { asset?: Asset; stay?: boolean }) {
                 ))}
                 {termIsin && (
                   <li>
-                    <button type="button" className="flex w-full items-baseline gap-2 rounded-lg px-2.5 py-1.5 text-left hover:bg-wash" onClick={() => void pickFt()}>
-                      <span className="text-ink2">Buscar el fondo {termIsin} en Financial Times</span>
+                    <button type="button" className="flex w-full items-baseline gap-2 rounded-lg px-2.5 py-1.5 text-left hover:bg-wash" onClick={() => void pickFund()}>
+                      <span className="text-ink2">Buscar {termIsin} como fondo de inversión</span>
                       <span className="ml-auto shrink-0 text-[12px] text-mute">en {f.currency}</span>
                     </button>
                   </li>
@@ -351,10 +364,10 @@ function AssetDialog({ asset, stay }: { asset?: Asset; stay?: boolean }) {
           </select>
         </Field>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="ISIN" hint={f.priceSource === "ft" ? "necesario" : f.priceSource === "eodhd" ? "sirve para buscarlo" : "opcional"}>
+          <Field label="ISIN" hint={SOURCE_BY_ISIN[f.priceSource] ? "necesario" : "opcional"}>
             <input className="field uppercase" maxLength={12} value={f.isin} onChange={(e) => setF({ ...f, isin: e.target.value.toUpperCase() })} />
           </Field>
-          <Field label={code?.label ?? "Código en la fuente"} hint={!code ? "no se usa" : code.required ? "necesario" : "se rellena solo"}>
+          <Field label={code?.label ?? "Código en la fuente"} hint={!code ? "no se usa" : code.required ? "necesario" : (code.hint ?? "opcional")}>
             <input className="field" placeholder={code ? `p. ej. ${code.example}` : ""} disabled={!code} value={f.symbol} onChange={(e) => setF({ ...f, symbol: e.target.value })} />
           </Field>
         </div>
@@ -371,7 +384,7 @@ function AssetDialog({ asset, stay }: { asset?: Asset; stay?: boolean }) {
             {f.priceSource === "manual"
               ? "Con precio manual el activo no se actualiza solo: tendrás que poner tú cada precio y aparecerá con aviso en Activos."
               : needsKey
-                ? `${PRICE_SOURCE_SHORT[f.priceSource]} necesita tu clave: ponla antes en Ajustes → Conexiones.`
+                ? "Indexa necesita tu token: ponlo antes en Ajustes → Conexiones."
                 : "Al guardar se comprueba que la fuente da precio. Después se actualiza solo, lo tengas o no en cartera."}
           </p>
         )}

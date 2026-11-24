@@ -2,14 +2,14 @@ import { describe, expect, it } from "vitest";
 import type { Asset } from "../../shared/types.ts";
 import { EMPTY_STATE, type Op } from "./backend.ts";
 import {
-  bestEodhdHit,
   binanceCurrency,
   mergeSplits,
   parseBinanceKlines,
   parseEcbCsv,
-  parseEodhdEod,
-  parseEodhdSearch,
-  parseEodhdSplits,
+  parseBmePrices,
+  parseFundinfo,
+  parseNasdaqHistory,
+  parseXetraHistory,
   parseFtHistory,
   parseFtQuote,
   parseIndexaAccounts,
@@ -175,71 +175,128 @@ describe("actualización", () => {
   });
 });
 
-describe("EODHD", () => {
-  const eod = JSON.stringify([
-    { date: "2026-11-20", open: 160, high: 161, low: 158, close: 159.34, adjusted_close: 159.34, volume: 10 },
-    { date: "2026-11-23", open: 160, high: 166, low: 160, close: 165.04, adjusted_close: 165.04, volume: 12 },
-    { date: "2026-11-24", close: 0 },
-  ]);
-  const search = JSON.stringify([
-    { Code: "NGXA", Exchange: "F", Name: "WisdomTree Brent 3x", Type: "ETF", Currency: "EUR", ISIN: "IE00BMTM6D55", previousClose: 48.1, previousCloseDate: "2026-11-23" },
-    { Code: "3BRL", Exchange: "LSE", Name: "WisdomTree Brent 3x", Type: "ETF", Currency: "USD", ISIN: "IE00BMTM6D55", previousClose: 52.8, previousCloseDate: "2026-11-23" },
-    { Code: "NGXA", Exchange: "XETRA", Name: "WisdomTree Brent 3x", Type: "ETF", Currency: "EUR", ISIN: "IE00BMTM6D55", previousClose: 48.266, previousCloseDate: "2026-11-23" },
-  ]);
+describe("bolsas y fundinfo", () => {
+  const xetra = JSON.stringify({ s: "ok", c: [159.34, 165.04, 162.7], t: [1795136400, 1795395600, 1795482000] });
+  const bmeLast = JSON.stringify({
+    hasMoreResults: false,
+    data: [
+      { date: "20261124", close: 0, last: 0.885 },
+      { date: "20261123", close: 0.899, last: 0.899 },
+    ],
+  });
+  const nasdaq = JSON.stringify({
+    data: {
+      symbol: "GOOG",
+      tradesTable: {
+        rows: [
+          { date: "11/23/2026", close: "$279.53" },
+          { date: "11/20/2026", close: "$1,264.00" },
+        ],
+      },
+    },
+  });
+  const fundinfo = JSON.stringify({ Total: 1, Data: [{ S: { OFST020000: "ES0146309002", OFST900016: "Fondo de Prueba", OFDY901035: "208.185300|2026-11-20|EUR" } }] });
 
-  it("lee los cierres y descarta los que no valen", () => {
-    expect(parseEodhdEod(eod)).toEqual([
+  it("lee las barras diarias de Deutsche Börse con su fecha", () => {
+    expect(parseXetraHistory(xetra)).toEqual([
       ["2026-11-20", 159.34],
       ["2026-11-23", 165.04],
+      ["2026-11-24", 162.7],
     ]);
-    expect(() => parseEodhdEod('{"error":"x"}')).toThrow();
+    expect(parseXetraHistory('{"s":"no_data"}')).toEqual([]);
   });
 
-  it("de un ISIN con varias cotizaciones elige la divisa pedida en el mercado principal", () => {
-    const hits = parseEodhdSearch(search);
-    expect(hits).toHaveLength(3);
-    expect(bestEodhdHit(hits, "EUR")).toMatchObject({ code: "NGXA.XETRA", kind: "etf", price: 48.266, date: "2026-11-23" });
-    expect(bestEodhdHit(hits, "USD")?.code).toBe("3BRL.LSE");
-  });
-
-  it("resuelve el código a partir del ISIN al comprobar la fuente", async () => {
-    const probe = await probeSource(async () => search, { priceSource: "eodhd", symbol: null, isin: "IE00BMTM6D55", currency: "EUR" });
-    expect(probe).toMatchObject({ code: "NGXA.XETRA", price: 48.266, currency: "EUR" });
-  });
-
-  it("detecta un split por el salto de precio y reescala lo anterior", () => {
-    const stored: Array<[string, number]> = [
-      ["2026-06-01", 400],
-      ["2026-06-02", 404],
-    ];
-    expect(splitSuspect(stored, [["2026-06-03", 101]])).toBe(true);
-    expect(splitSuspect(stored, [["2026-06-03", 380]])).toBe(false);
-    expect(parseEodhdSplits(JSON.stringify([{ date: "2026-06-03", split: "4.000000/1.000000" }]))).toEqual([["2026-06-03", 4]]);
-    expect(rescaleBefore([...stored, ["2026-06-03", 101]], "2026-06-03", 4)).toEqual([
-      ["2026-06-01", 100],
-      ["2026-06-02", 101],
-      ["2026-06-03", 101],
+  it("en BME usa el último cruce mientras la sesión de hoy no tiene cierre", () => {
+    expect(parseBmePrices(bmeLast).points).toEqual([
+      ["2026-11-23", 0.899],
+      ["2026-11-24", 0.885],
     ]);
   });
 
-  it("al actualizar aplica el split y deja de insistir cuando se agota el cupo", async () => {
-    const asset = (id: string, symbol: string): Asset => ({ id, name: id, kind: "stock", symbol, isin: null, currency: "EUR", priceSource: "eodhd", goalId: null, planExcluded: false, createdAt: "2026-01-01T00:00:00.000Z" });
-    const state = { ...EMPTY_STATE, assets: [asset("a", "AAA.XETRA"), asset("b", "BBB.XETRA"), asset("c", "CCC.XETRA")], prices: { a: [["2026-06-01", 400], ["2026-06-02", 404]] as Array<[string, number]> } };
-    const asked: string[] = [];
+  it("lee las fechas y los importes con formato estadounidense de Nasdaq", () => {
+    expect(parseNasdaqHistory(nasdaq)).toEqual([
+      ["2026-11-20", 1264],
+      ["2026-11-23", 279.53],
+    ]);
+    expect(parseNasdaqHistory('{"data":null}')).toEqual([]);
+  });
+
+  it("de fundinfo saca el valor liquidativo con su fecha de valoración, solo del ISIN pedido", () => {
+    expect(parseFundinfo(fundinfo, "ES0146309002")).toEqual({ price: 208.1853, date: "2026-11-20", currency: "EUR", name: "Fondo de Prueba" });
+    expect(() => parseFundinfo(fundinfo, "ES0000000000")).toThrow();
+  });
+
+  it("en la ficha de FT toma la fecha del valor y no la de la página", () => {
+    const sheet = `<span>as of Nov 24 2026</span><span class="mod-ui-data-list__label">Price (EUR)</span><span class="mod-ui-data-list__value">290.53</span><div>Data delayed, as of Nov 20 2026.</div>`;
+    expect(parseFtQuote(sheet).date).toBe("2026-11-20");
+  });
+
+  const asset = (id: string, patch: Partial<Asset>): Asset => ({ id, name: id, kind: "etf", symbol: null, isin: null, currency: "EUR", priceSource: "xetra", goalId: null, planExcluded: false, createdAt: "2026-01-01T00:00:00.000Z", ...patch });
+  const yahoo = (symbol: string, close: number, splits?: object) =>
+    JSON.stringify({ chart: { error: null, result: [{ meta: { currency: "EUR", symbol, gmtoffset: 0 }, timestamp: [Date.UTC(2026, 10, 23) / 1000], events: splits ? { splits } : undefined, indicators: { quote: [{ close: [close] }] } }] } });
+
+  it("pide cada activo a su bolsa y usa Yahoo de respaldo cuando la bolsa falla", async () => {
+    const state = {
+      ...EMPTY_STATE,
+      assets: [
+        asset("x", { isin: "IE00BK5BQT80", symbol: "VWCE.DE" }),
+        asset("m", { priceSource: "bme", isin: "ES0126962069", symbol: "NXT.MC", kind: "stock" }),
+        asset("u", { priceSource: "nasdaq", symbol: "GOOG", currency: "USD", kind: "stock" }),
+        asset("f", { priceSource: "fundinfo", isin: "ES0146309002", kind: "fund" }),
+        asset("z", { isin: "IE00SINRESPALDO" }),
+      ],
+      // Con histórico reciente no hace falta pedir más que lo último.
+      prices: { m: [["2026-11-20", 0.868]] as Array<[string, number]>, f: [["2026-11-19", 212.2882]] as Array<[string, number]> },
+    };
     const get = async (url: string) => {
-      asked.push(url);
-      if (url.includes("/splits/AAA.XETRA")) return JSON.stringify([{ date: "2026-06-03", split: "4.000000/1.000000" }]);
-      if (url.includes("/eod/AAA.XETRA")) return JSON.stringify([{ date: "2026-06-02", close: 404 }, { date: "2026-06-03", close: 101 }]);
-      throw new Error("HTTP 402");
+      if (url.includes("boerse-frankfurt")) throw new Error("HTTP 503");
+      if (url.includes("bolsasymercados")) return bmeLast;
+      if (url.includes("api.nasdaq.com")) return nasdaq;
+      if (url.includes("fundinfo.com")) return fundinfo;
+      if (url.includes("finance.yahoo.com")) return yahoo("VWCE.DE", 165.04);
+      throw new Error("inesperado: " + url);
     };
     const { ops, issues } = await syncMarket(state, {}, get, true);
-    const prices = ops.find((o) => o.op === "prices" && o.assetId === "a");
-    expect(prices).toMatchObject({ replace: true, points: [["2026-06-01", 100], ["2026-06-02", 101], ["2026-06-03", 101]] });
-    expect(ops.find((o) => o.op === "splits" && o.assetId === "a")).toMatchObject({ points: [["2026-06-03", 4]] });
-    expect(asked.filter((u) => u.includes("CCC"))).toHaveLength(0);
-    expect(issues.map((i) => i.what)).toEqual(["EODHD"]);
-    const failed = ops.filter((o) => o.op === "meta" && o.key.startsWith("failed:asset:") && o.value).map((o) => (o.op === "meta" ? o.key : ""));
-    expect(failed).toEqual(["failed:asset:b", "failed:asset:c"]);
+    const prices = Object.fromEntries(ops.flatMap((o) => (o.op === "prices" ? [[o.assetId, o.points]] : [])));
+    expect(prices.x).toEqual([["2026-11-23", 165.04]]);
+    expect(prices.m).toEqual([["2026-11-23", 0.899], ["2026-11-24", 0.885]]);
+    expect(prices.u).toEqual([["2026-11-20", 1264], ["2026-11-23", 279.53]]);
+    expect(prices.f).toEqual([["2026-11-20", 208.1853]]);
+    const meta = Object.fromEntries(ops.flatMap((o) => (o.op === "meta" ? [[o.key, o.value]] : [])));
+    expect(JSON.parse(meta["backup:asset:x"]!)).toMatchObject({ source: "Yahoo Finance", message: "Deutsche Börse: HTTP 503" });
+    expect(meta["backup:asset:m"]).toBeUndefined();
+    // Sin símbolo de respaldo, el fallo queda anotado en el activo.
+    expect(JSON.parse(meta["failed:asset:z"]!).message).toBe("Deutsche Börse: HTTP 503");
+    expect(meta["fetched:asset:z"]).toBeUndefined();
+    // (El tipo de cambio del dólar también falla aquí: la prueba no simula el BCE.)
+    expect(issues.map((i) => i.what).filter((w) => w !== "USD").sort()).toEqual(["x", "z"]);
+  });
+
+  it("detecta un split por el salto de precio, lo confirma y reescala lo anterior", async () => {
+    const stored: Array<[string, number]> = [
+      ["2026-11-19", 400],
+      ["2026-11-20", 404],
+    ];
+    expect(splitSuspect(stored, [["2026-11-23", 101]])).toBe(true);
+    expect(splitSuspect(stored, [["2026-11-23", 380]])).toBe(false);
+    expect(rescaleBefore([...stored, ["2026-11-23", 101]], "2026-11-23", 4)).toEqual([
+      ["2026-11-19", 100],
+      ["2026-11-20", 101],
+      ["2026-11-23", 101],
+    ]);
+    const state = { ...EMPTY_STATE, assets: [asset("u", { priceSource: "nasdaq", symbol: "GOOG", currency: "USD", kind: "stock" })], prices: { u: stored } };
+    const get = async (url: string) =>
+      url.includes("api.nasdaq.com")
+        ? JSON.stringify({ data: { tradesTable: { rows: [{ date: "11/23/2026", close: "$101.00" }, { date: "11/20/2026", close: "$404.00" }] } } })
+        : yahoo("GOOG", 101, { a: { date: Date.UTC(2026, 10, 23) / 1000, numerator: 4, denominator: 1 } });
+    const { ops } = await syncMarket(state, {}, get, true);
+    expect(ops.find((o) => o.op === "splits")).toMatchObject({ assetId: "u", points: [["2026-11-23", 4]] });
+    expect(ops.find((o) => o.op === "prices")).toMatchObject({ replace: true, points: [["2026-11-19", 100], ["2026-11-20", 101], ["2026-11-23", 101]] });
+  });
+
+  it("comprueba un fondo por ISIN antes de guardarlo", async () => {
+    const probe = await probeSource(async () => fundinfo, { priceSource: "fundinfo", symbol: null, isin: "ES0146309002", currency: "EUR" });
+    expect(probe).toMatchObject({ price: 208.1853, date: "2026-11-20", currency: "EUR", name: "Fondo de Prueba", kind: "fund" });
   });
 });
 

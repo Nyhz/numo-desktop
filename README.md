@@ -38,7 +38,7 @@ Una idea manda sobre todo lo demás: **solo se guarda lo que tú registras** (cu
 | `shared/` | Modelo de datos, validación y el **motor de cálculo** (funciones puras, con tests): libro de operaciones y lotes FIFO, serie diaria y rentabilidad, informe anual, plan, hipoteca, formato CSV. |
 | `src/data/` | Almacén de estado, datos de mercado y la frontera con el núcleo nativo. La interfaz describe cambios (`Op`); nunca escribe SQL. |
 | `src/charts/`, `src/ui/`, `src/features/`, `src/pages/` | Interfaz (React). Gráficos propios en HTML/SVG; tokens visuales en `src/styles.css`. |
-| `src-tauri/` | Núcleo nativo en Rust. Hace tres cosas: SQLite (lecturas y lotes de escritura en una transacción), HTTPS limitado a los servidores de datos (Yahoo Finance, EODHD, Binance, Indexa Capital, Financial Times y el BCE), y guardar archivos. |
+| `src-tauri/` | Núcleo nativo en Rust. Hace tres cosas: SQLite (lecturas y lotes de escritura en una transacción), HTTPS limitado a los servidores de datos (Deutsche Börse, BME, Nasdaq, fundinfo, Binance, Indexa Capital, Yahoo Finance, Financial Times y el BCE), y guardar archivos. |
 
 Decisiones de cálculo que conviene conocer:
 
@@ -47,8 +47,9 @@ Decisiones de cálculo que conviene conocer:
 - **Traspasos** entre fondos: no son una venta; el destino hereda fecha y coste de adquisición.
 - **Splits**: las operaciones se registran tal como se ejecutaron; las unidades se ajustan solas.
 - **Rentabilidad**: TWR (ponderada por tiempo) para el porcentaje y TIR anualizada (ponderada por dinero).
-- **Precios**: cada activo tiene una fuente. Yahoo Finance (por símbolo), EODHD (acciones, ETF y fondos, con clave), Binance (criptomonedas en euros, velas diarias públicas), Indexa Capital (el valor de tu plan o cartera, con tu token de solo lectura), Financial Times (fondos por ISIN) o manual. Se actualizan al abrir la app (si han pasado más de 6 horas; 12 en EODHD, que tiene cupo diario) para todos los activos dados de alta, con o sin posición. Al añadir un activo se comprueba que su fuente da precio; cada fallo de descarga queda anotado por activo y se ve en Activos. Cambiar un activo de fuente conserva su histórico.
-- **Claves**: las de EODHD e Indexa se ponen en Ajustes → Conexiones. Se guardan en la base de datos local y las añade el núcleo nativo a cada petición; la interfaz solo sabe si existen. Van dentro de las copias de seguridad.
+- **Precios**: cada activo tiene una fuente, todas gratuitas y sin cupo diario. Los cotizados se piden a su propia bolsa: Deutsche Börse (Xetra, por ISIN), BME (Madrid, por ISIN) y Nasdaq (EE. UU., por ticker); los fondos, a fundinfo (por ISIN); las criptomonedas, a Binance; el plan o la cartera de Indexa Capital, a su API con tu token de solo lectura. Si la fuente de un activo falla, se usa un respaldo (Yahoo Finance para cotizados, Financial Times para fondos) y queda anotado. También se puede elegir Yahoo, Financial Times o precio manual. Se actualizan al abrir la app (si han pasado más de 6 horas) para todos los activos dados de alta, con o sin posición. Al añadir un activo se comprueba que su fuente da precio; cada fallo queda anotado por activo y se ve en Activos. Cambiar un activo de fuente conserva su histórico.
+- **Ojo**: las de las bolsas y fundinfo no son APIs documentadas, sino los servicios que usan sus propias webs; pueden cambiar sin aviso. Por eso existen el respaldo y la pantalla Activos.
+- **Token de Indexa**: se pone en Ajustes → Conexiones. Se guarda en la base de datos local y lo añade el núcleo nativo a cada petición; la interfaz solo sabe si existe. Va dentro de las copias de seguridad.
 - **Plan**: el reparto de una aportación va primero a lo más retrasado respecto a su objetivo y nunca propone vender.
 - **Hipoteca**: amortización francesa; el cuadro se deriva de las condiciones y de los eventos (amortización anticipada, revisión del tipo, cuota real).
 - Caudal **no calcula impuestos**. El informe anual entrega los datos y avisa de pérdidas con recompra cercana, sin decidir nada.

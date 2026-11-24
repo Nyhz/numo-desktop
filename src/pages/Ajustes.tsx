@@ -156,15 +156,11 @@ export function Ajustes() {
       </Group>
 
       <Group title="Conexiones">
-        <Connection service="eodhd" title="EODHD" placeholder="Clave de la API">
-          Cierres diarios de acciones, ETF y fondos con API documentada. La clave se crea en eodhd.com; la gratuita da 20 consultas al día.
-        </Connection>
         <Connection service="indexa" title="Indexa Capital" placeholder="Token de solo lectura">
           Valor de tu plan o de tus fondos, directamente de la gestora. De su respuesta solo se guarda el precio y la fecha.
         </Connection>
         <div className="border-t border-line px-5 py-3 text-[12px] text-pretty text-mute">
-          Las claves se guardan en tu base de datos, en este ordenador, y solo viajan al servicio al que pertenecen. Van incluidas en las copias de seguridad: no compartas una copia sin
-          quitarlas antes.
+          El token se guarda en tu base de datos, en este ordenador, y solo viaja a Indexa. Va incluido en las copias de seguridad: no compartas una copia sin quitarlo antes.
         </div>
       </Group>
 
@@ -189,7 +185,7 @@ export function Ajustes() {
       </Group>
 
       <p className="m-0 px-1 text-[12px] text-pretty text-mute">
-        Caudal {info?.version}. Sin cuentas de usuario ni servidores propios: la app solo se conecta a las fuentes de precios (Yahoo Finance, EODHD, Binance, Financial Times), al BCE y, si pones tu token, a Indexa Capital. A las fuentes de precios solo envía símbolos y divisas.
+        Caudal {info?.version}. Sin cuentas de usuario ni servidores propios: la app solo se conecta a las fuentes de precios (Deutsche Börse, BME, Nasdaq, fundinfo y Binance, con Yahoo Finance y Financial Times de respaldo), al BCE y, si pones tu token, a Indexa Capital. A las fuentes de precios solo envía símbolos y divisas.
       </p>
     </div>
   );

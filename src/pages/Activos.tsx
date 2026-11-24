@@ -1,8 +1,8 @@
 import { CirclePlus, Pencil, Plus, RefreshCw, TriangleAlert } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
-import { fxHealth, needsAttention, type HealthStatus, type PriceHealth } from "../../shared/engine/health.ts";
-import { ASSET_KIND_LABEL, PRICE_SOURCE_SHORT, type Asset } from "../../shared/types.ts";
+import { fxHealth, needsAttention, parseFailure, type Failure, type HealthStatus, type PriceHealth } from "../../shared/engine/health.ts";
+import { ASSET_KIND_LABEL, PRICE_SOURCE_SHORT, SOURCE_BY_ISIN, type Asset } from "../../shared/types.ts";
 import { derive, isExample, sync, useApp, useHealth } from "../data/store.ts";
 import { ago, dateBrief, eur, money, num, priceDigits } from "../lib/format.ts";
 import { openDialog } from "../ui/dialogs.ts";
@@ -41,6 +41,7 @@ const COLS = "minmax(230px,2.1fr) 150px 118px 112px minmax(200px,1.5fr) 118px 64
 
 export function Activos() {
   const state = useApp((s) => (s.demo ?? s.loaded).state);
+  const meta = useApp((s) => (s.demo ?? s.loaded).meta);
   const example = useApp((s) => isExample(s));
   const syncing = useApp((s) => s.syncing);
   const issues = useApp((s) => s.issues);
@@ -174,7 +175,9 @@ export function Activos() {
           </THead>
           {shown.map(({ asset: a, health: h, position: p }) => {
             const st = STATUS[h.status];
-            const why = reason(a, h, example);
+            // Si la fuente principal falló y el precio vino del respaldo, se dice.
+            const backup = parseFailure(meta[`backup:asset:${a.id}`]) as (Failure & { source?: string }) | null;
+            const why = backup && h.status === "ok" ? `por respaldo (${backup.source ?? "otra fuente"}) · ${backup.message}` : reason(a, h, example);
             return (
               <TRow key={a.id} onClick={() => go(`/activo/${a.id}`)}>
                 <L>
@@ -183,7 +186,7 @@ export function Activos() {
                 </L>
                 <L>
                   <div className={a.priceSource === "manual" ? "text-mute" : "text-ink2"}>{PRICE_SOURCE_SHORT[a.priceSource]}</div>
-                  <div className="selectable truncate text-[11.5px] text-mute">{a.priceSource === "manual" ? "sin fuente automática" : a.priceSource === "ft" ? `${a.isin}:${a.currency}` : (a.symbol ?? "—")}</div>
+                  <div className="selectable truncate text-[11.5px] text-mute">{a.priceSource === "manual" ? "sin fuente automática" : ((SOURCE_BY_ISIN[a.priceSource] ? a.isin : a.symbol) ?? "—")}</div>
                 </L>
                 <span className={h.status === "ok" ? "" : "text-ink2"}>{h.price == null ? "—" : money(h.price, a.currency, priceDigits(h.price))}</span>
                 <div>
@@ -192,7 +195,7 @@ export function Activos() {
                 </div>
                 <L>
                   <div className="flex items-center gap-2">
-                    <Dot color={st.color} size={7} />
+                    <Dot color={backup && h.status === "ok" ? "var(--acc)" : st.color} size={7} />
                     <span className={h.status === "ok" ? "text-ink2" : "font-[550]"}>{st.label}</span>
                   </div>
                   <div className="truncate pl-[15px] text-[11.5px] text-mute" title={why}>

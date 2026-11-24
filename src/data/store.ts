@@ -24,11 +24,12 @@ import {
   txInput,
   valuationInput,
 } from "../../shared/schema.ts";
+import { SOURCE_BY_ISIN } from "../../shared/types.ts";
 import type { Account, AppState, Asset, Goal, Mortgage, MortgageEvent, Point, Property, PropertyValuation, Tx } from "../../shared/types.ts";
 import { EMPTY_STATE, reduce, type AppInfo, type Backend, type Loaded, type Op } from "./backend.ts";
 import { browserBackend } from "./browser.ts";
 import { makeDemo } from "./demo.ts";
-import { eodhdStatus, fxOn, indexaStatus, syncMarket, type SyncIssue } from "./market.ts";
+import { fxOn, indexaStatus, syncMarket, type SyncIssue } from "./market.ts";
 import { tauriBackend } from "./tauri.ts";
 
 export const backend: Backend = "__TAURI_INTERNALS__" in window ? tauriBackend : browserBackend;
@@ -201,8 +202,8 @@ export async function ecbRate(currency: string, date: string): Promise<{ rate: n
 
 // ── Conexiones (claves de servicios) ───────────────────────────────────────
 
-export type Service = "eodhd" | "indexa";
-const serviceStatus = (name: Service) => (name === "eodhd" ? eodhdStatus(backend.httpGet) : indexaStatus(backend.httpGet));
+export type Service = "indexa";
+const serviceStatus = (_name: Service) => indexaStatus(backend.httpGet);
 
 /** Estado de una conexión ya guardada, preguntando al servicio. */
 export const connectionStatus = (name: Service): Promise<Result<string>> =>
@@ -279,14 +280,14 @@ export function saveAsset(input: unknown, id?: string): Promise<Result<Asset>> {
     planExcluded: "planExcluded" in raw ? d.planExcluded : (before?.planExcluded ?? false),
     symbol: d.symbol || null,
     isin: d.isin || null,
-    // Cada fuente necesita su dato: FT el ISIN; Yahoo, EODHD y Binance su código. Sin él, manual.
-    priceSource: d.priceSource === "ft" ? (d.isin ? "ft" : "manual") : (d.priceSource === "yahoo" || d.priceSource === "eodhd" || d.priceSource === "binance") && !d.symbol ? "manual" : d.priceSource,
+    // Cada fuente necesita su dato: unas el ISIN, otras su código. Sin él, manual.
+    priceSource: d.priceSource === "manual" || d.priceSource === "indexa" ? d.priceSource : (SOURCE_BY_ISIN[d.priceSource] ? d.isin : d.symbol) ? d.priceSource : "manual",
     id: id ?? newId(),
     createdAt: before?.createdAt ?? new Date().toISOString(),
   };
   const ops: Op[] = [{ op: "putAsset", row }];
   if (before && row.priceSource !== "manual") {
-    const code = (a: Asset) => (a.priceSource === "ft" ? a.isin : a.symbol) ?? "";
+    const code = (a: Asset) => (SOURCE_BY_ISIN[a.priceSource] ? a.isin : a.symbol) ?? "";
     const moved = before.priceSource !== row.priceSource;
     // Corregir el código dentro de la misma fuente, o cambiar la divisa, invalida lo guardado.
     // Cambiar de fuente no: el histórico sigue valiendo y la nueva lo continúa.

@@ -2,6 +2,7 @@ import { isIsoDate } from "./dates.ts";
 import type { AssetInput, AccountInput } from "./schema.ts";
 import {
   PRICE_SOURCES,
+  SOURCE_BY_ISIN,
   ACCOUNT_KINDS,
   ASSET_KINDS,
   TX_LABEL,
@@ -294,6 +295,15 @@ const guessKind = (ref: AssetRef): AssetKind =>
   /-(EUR|USD|USDT|GBP)$/i.test(ref.symbol) ? "crypto" : "other";
 
 /** Qué cuentas y activos habría que crear para importar estas filas. */
+/** Fuente de un activo importado: la indicada si trae el dato que necesita; si no, Yahoo con símbolo o manual. */
+function resolveSource(source: PriceSource | null, ref: { symbol: string; isin: string }): PriceSource {
+  const isin = /^[A-Z]{2}[A-Z0-9]{9}\d$/.test(ref.isin);
+  if (source === "manual" || source === "indexa") return source;
+  if (source && SOURCE_BY_ISIN[source]) return isin ? source : ref.symbol ? "yahoo" : "manual";
+  if (source && ref.symbol) return source;
+  return ref.symbol ? "yahoo" : "manual";
+}
+
 export function planImport(rows: ImportRow[], state: AppState): ImportPlan {
   const haveAccounts = new Set(state.accounts.map((a) => accountKey(a.name)));
   const haveAssets = new Set<string>();
@@ -332,19 +342,7 @@ export function planImport(rows: ImportRow[], state: AppState): ImportPlan {
       symbol: ref.symbol || null,
       isin: /^[A-Z]{2}[A-Z0-9]{9}\d$/.test(ref.isin) ? ref.isin : null,
       currency: ref.currency,
-      // Sin indicación expresa: Yahoo si hay símbolo, manual si no. FT necesita ISIN; EODHD y Binance, su código.
-      priceSource:
-        source === "ft"
-          ? /^[A-Z]{2}[A-Z0-9]{9}\d$/.test(ref.isin)
-            ? "ft"
-            : "manual"
-          : source === "manual" || source === "indexa"
-            ? source
-            : (source === "eodhd" || source === "binance") && ref.symbol
-              ? source
-              : ref.symbol
-                ? "yahoo"
-                : "manual",
+            priceSource: resolveSource(source, ref),
       goalId: null,
       planExcluded: false,
     });
