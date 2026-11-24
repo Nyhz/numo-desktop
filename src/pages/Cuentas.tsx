@@ -35,12 +35,14 @@ export function Cuentas() {
   );
 
   if (state.accounts.length === 0) return <Welcome />;
-  const total = rows.reduce((s, r) => s + Math.max(0, r.value), 0);
+  // El fondo de emergencia no es cartera: los pesos se miden entre las cuentas que sí lo son.
+  const invested = rows.filter((r) => r.account.kind !== "emergency");
+  const total = invested.reduce((s, r) => s + Math.max(0, r.value), 0);
 
   return (
     <div className="screen flex flex-col gap-5">
       <div className="flex flex-wrap items-center justify-between gap-4 px-1 pt-2">
-        <span className="text-ink2">Una cuenta por cada bróker, banco o exchange. Pulsa una para editarla.</span>
+        <span className="text-ink2">Una cuenta por cada bróker o exchange, y otra para tu fondo de emergencia. Pulsa una para editarla.</span>
         <Btn onClick={() => openDialog({ kind: "account" })}>
           <Plus size={14} /> Cuenta
         </Btn>
@@ -48,7 +50,7 @@ export function Cuentas() {
 
       {total > 0 && (
         <div className="flex h-2.5 gap-[3px]">
-          {rows
+          {invested
             .filter((r) => r.value > 0)
             .map((r) => (
               <div key={r.account.id} title={`${r.account.name}: ${pct(r.value / total)}`} className="rounded-[3px]" style={{ flex: `${r.value} 1 0`, background: seriesColor(r.account.color) }} />
@@ -60,6 +62,7 @@ export function Cuentas() {
         {rows.map((r) => {
           const color = seriesColor(r.account.color);
           const [vi, vd] = splitMoney(eur(r.value));
+          const fund = r.account.kind === "emergency";
           return (
             <section
               key={r.account.id}
@@ -80,43 +83,51 @@ export function Cuentas() {
                     {[r.account.institution, ACCOUNT_KIND_LABEL[r.account.kind], r.account.currency !== "EUR" ? r.account.currency : ""].filter(Boolean).join(" · ")}
                   </div>
                 </div>
-                <span className="shrink-0 text-[12px] text-mute">{total > 0 ? `${pct(Math.max(0, r.value) / total)} de la cartera` : ""}</span>
+                <span className="shrink-0 text-[12px] text-mute">{fund ? "aparte de la cartera" : total > 0 ? `${pct(Math.max(0, r.value) / total)} de la cartera` : ""}</span>
               </div>
               <div className="mt-[18px] flex items-end justify-between gap-4">
-                <div>
+                <div className="shrink-0">
                   <div className="priv text-[30px] leading-[1.1] font-medium tracking-[-0.01em]" style={{ fontStretch: "108%" }}>
                     {vi}
                     <span className="text-mute">{vd}</span>
                   </div>
-                  <div className="mt-1" style={{ color: toneOf(r.gain) }}>
-                    <span className="priv">{eurSigned(r.gain)}</span> <span className="text-mute">de ganancia total</span>
+                  <div className="mt-1 whitespace-nowrap" style={{ color: toneOf(r.gain) }}>
+                    <span className="priv">{eurSigned(r.gain)}</span> <span className="text-mute">{fund ? "de intereses" : "de ganancia total"}</span>
                   </div>
                 </div>
-                <Trend values={r.trend} color={color} className="h-12 w-[45%] max-w-[220px]" />
+                <Trend values={r.trend} color={color} className="h-12 max-w-[220px] min-w-0 flex-1" />
               </div>
-              <div className="mt-4 flex flex-wrap gap-x-5 gap-y-1 border-t border-line pt-3 text-[12.5px] whitespace-nowrap">
-                <span>
-                  <span className="text-mute">Posiciones</span> {r.positions}
-                </span>
-                <span>
-                  <span className="text-mute">Operaciones</span> {r.txs}
-                </span>
-                <span>
-                  <span className="text-mute">Efectivo</span>{" "}
-                  {r.cash == null ? <span className="text-mute">no se lleva</span> : <span className={`priv ${r.cash < 0 ? "text-down" : ""}`}>{money(r.cash, r.account.currency)}</span>}
-                </span>
-                <button
-                  type="button"
-                  className="ml-auto text-mute hover:text-ink"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setScope([r.account.id]);
-                    go("/");
-                  }}
-                >
-                  Ver solo esta →
-                </button>
-              </div>
+              {/* Un fondo de emergencia es su saldo, que ya está arriba: no hay nada más que contar. */}
+              {!fund && (
+                <div className="mt-4 flex flex-wrap items-baseline gap-x-6 gap-y-1 border-t border-line pt-3 text-[12.5px] whitespace-nowrap">
+                  <span>
+                    <span className="mr-2 text-mute">Posiciones</span>
+                    <span className="font-medium">{r.positions}</span>
+                  </span>
+                  <span>
+                    <span className="mr-2 text-mute">Operaciones</span>
+                    <span className="font-medium">{r.txs}</span>
+                  </span>
+                  {/* El efectivo solo se menciona en las cuentas que lo llevan. */}
+                  {r.cash != null && (
+                    <span>
+                      <span className="mr-2 text-mute">Efectivo</span>
+                      <span className={`priv font-medium ${r.cash < 0 ? "text-down" : ""}`}>{money(r.cash, r.account.currency)}</span>
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    className="ml-auto text-mute hover:text-ink"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setScope([r.account.id]);
+                      go("/");
+                    }}
+                  >
+                    Ver solo esta →
+                  </button>
+                </div>
+              )}
             </section>
           );
         })}
