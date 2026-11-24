@@ -1,5 +1,6 @@
 {
   "name": "numo-app",
+  "license": "MIT",
   "private": true,
   "version": "0.3.0",
   "packageManager": "pnpm@10.31.0",

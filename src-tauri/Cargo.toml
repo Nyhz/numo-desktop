@@ -2,6 +2,7 @@
 name = "numo-app"
 version = "0.1.0"
 description = "Numo App: seguimiento personal de inversiones"
+license = "MIT"
 edition = "2024"
 rust-version = "1.90"
 
@@ -24,3 +25,6 @@ reqwest = { version = "0.13.5", default-features = false, features = ["gzip", "n
 tokio = { version = "1.54.1", features = ["time"] }
 tauri-plugin-opener = "2.7.3"
 tauri-plugin-updater = "2.14.1"
+argon2 = "0.5"
+chacha20poly1305 = "0.10"
+base64 = "0.22"
