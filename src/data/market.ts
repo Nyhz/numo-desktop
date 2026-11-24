@@ -1,14 +1,20 @@
-import { addDays, dayNum, todayIso } from "../../shared/dates.ts";
-import type { AppState, AssetKind, Point } from "../../shared/types.ts";
+import { addDays, dayNum, isIsoDate, isoOf, todayIso } from "../../shared/dates.ts";
+import type { AppState, AssetKind, Point, PriceSource } from "../../shared/types.ts";
 import type { Meta, Op } from "./backend.ts";
 
-// Datos de mercado: cotizaciones de Yahoo Finance y tipos de referencia del BCE.
-// Solo viajan símbolos y divisas; nunca importes, posiciones ni nombres de cuenta.
+// Datos de mercado: cotizaciones (Yahoo Finance, EODHD, Binance, Financial Times),
+// el valor del plan en Indexa Capital y los tipos de referencia del BCE.
+// A los servicios de mercado solo viajan símbolos y divisas; nunca importes,
+// posiciones ni nombres de cuenta. Indexa es la cuenta del propio usuario: de su
+// respuesta solo se guarda el precio y la fecha de cada instrumento.
 
 type Get = (url: string) => Promise<string>;
 
 const FRESH_MS = 6 * 3600_000;
+// EODHD da un cierre al día y la clave tiene un cupo diario: se consulta menos.
+const FRESH_EODHD_MS = 12 * 3600_000;
 const YAHOO_LIMIT = "Yahoo está limitando las peticiones";
+const EODHD_LIMIT = "Se ha agotado el cupo diario de la clave de EODHD";
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 // Algunas bolsas cotizan en céntimos de su divisa.
@@ -165,27 +171,230 @@ export async function ftPrices(get: Get, isin: string, currency: string, from: s
   return points;
 }
 
-export type Probe = { price: number; date: string; currency: string; name: string | null; kind: AssetKind | null };
+// ── EODHD: cierres diarios de acciones, ETF y fondos (con clave) ────────────
+// La clave la añade el núcleo nativo a cada petición; aquí nunca se ve.
+
+const EODHD = "https://eodhd.com/api";
+const EODHD_KIND: Record<string, AssetKind> = { "Common Stock": "stock", "Preferred Stock": "stock", ETF: "etf", ETC: "etf", FUND: "fund", "Mutual Fund": "fund", Currency: "crypto", BOND: "bond" };
+// A igualdad de divisa se prefiere el mercado principal a las bolsas regionales alemanas.
+const EODHD_VENUES = ["XETRA", "MC", "US", "EUFUND", "PA", "AS", "MI", "SW", "LSE"];
+
+/** Cierres sin ajustar por dividendos; los splits se tratan aparte. */
+export function parseEodhdEod(json: string): Point[] {
+  const data = JSON.parse(json) as unknown;
+  if (!Array.isArray(data)) throw new Error("EODHD no devuelve precios para este código");
+  return (data as Array<{ date?: string; close?: number }>)
+    .filter((r) => typeof r.date === "string" && isIsoDate(r.date) && typeof r.close === "number" && r.close > 0)
+    .map((r) => [r.date!, r.close!] as Point)
+    .sort((a, b) => a[0].localeCompare(b[0]));
+}
+
+export type EodhdHit = { code: string; name: string; kind: AssetKind; currency: string; isin: string | null; price: number | null; date: string | null };
+
+export function parseEodhdSearch(json: string): EodhdHit[] {
+  const data = JSON.parse(json) as unknown;
+  if (!Array.isArray(data)) return [];
+  return (data as Array<{ Code?: string; Exchange?: string; Name?: string; Type?: string; Currency?: string; ISIN?: string | null; previousClose?: number; previousCloseDate?: string }>)
+    .filter((r) => r.Code && r.Exchange)
+    .map((r) => ({
+      code: `${r.Code}.${r.Exchange}`,
+      name: r.Name ?? r.Code!,
+      kind: EODHD_KIND[r.Type ?? ""] ?? "other",
+      currency: (r.Currency ?? "").trim(),
+      isin: r.ISIN || null,
+      price: typeof r.previousClose === "number" && r.previousClose > 0 ? r.previousClose : null,
+      date: r.previousCloseDate && isIsoDate(r.previousCloseDate) ? r.previousCloseDate : null,
+    }));
+}
+
+/** «4.000000/1.000000» → 4 (acciones nuevas por cada antigua). */
+export function parseEodhdSplits(json: string): Point[] {
+  const data = JSON.parse(json) as unknown;
+  if (!Array.isArray(data)) return [];
+  return (data as Array<{ date?: string; split?: string }>)
+    .map((r) => {
+      const [n, d] = (r.split ?? "").split("/").map(Number);
+      return [r.date ?? "", n! / d!] as Point;
+    })
+    .filter(([date, ratio]) => isIsoDate(date) && Number.isFinite(ratio) && ratio > 0 && ratio !== 1);
+}
+
+export const eodhdPrices = async (get: Get, code: string, from: string): Promise<Point[]> =>
+  parseEodhdEod(await get(`${EODHD}/eod/${encodeURIComponent(code)}?from=${from}&fmt=json`));
+export const eodhdSearch = async (get: Get, q: string): Promise<EodhdHit[]> =>
+  parseEodhdSearch(await get(`${EODHD}/search/${encodeURIComponent(q)}?limit=15&fmt=json`));
+
+/** De varias cotizaciones del mismo valor, la de la divisa pedida en el mercado principal. */
+export function bestEodhdHit(hits: EodhdHit[], currency: string): EodhdHit | null {
+  const rank = (h: EodhdHit) => {
+    const venue = EODHD_VENUES.indexOf(h.code.slice(h.code.lastIndexOf(".") + 1));
+    return (h.currency === currency ? 0 : 100) + (h.price == null ? 50 : 0) + (venue < 0 ? EODHD_VENUES.length : venue);
+  };
+  return [...hits].sort((a, b) => rank(a) - rank(b))[0] ?? null;
+}
+
+/** Un salto así entre dos cierres seguidos no es mercado: hay que mirar si hubo split. */
+export function splitSuspect(stored: Point[], incoming: Point[]): boolean {
+  const first = incoming[0]?.[0];
+  if (!first) return false;
+  const before = [...stored].reverse().find(([d]) => d < first);
+  const series = before ? [before, ...incoming] : incoming;
+  return series.some(([, v], i) => i > 0 && (v / series[i - 1]![1] > 1.9 || v / series[i - 1]![1] < 0.52));
+}
+
+/** Pasa a unidades actuales los precios anteriores a un split. */
+export const rescaleBefore = (points: Point[], date: string, ratio: number): Point[] => points.map(([d, v]) => (d < date ? [d, v / ratio] : [d, v]) as Point);
+
+/** Estado de la clave: plan y consultas gastadas hoy (esta consulta no gasta). */
+export async function eodhdStatus(get: Get): Promise<string> {
+  const u = JSON.parse(await get(`${EODHD}/user?fmt=json`)) as { subscriptionType?: string; apiRequests?: number; dailyRateLimit?: number; apiRequestsDate?: string | null };
+  const used = u.apiRequestsDate === new Date().toISOString().slice(0, 10) ? (u.apiRequests ?? 0) : 0;
+  return `Plan ${u.subscriptionType === "free" ? "gratuito" : (u.subscriptionType ?? "desconocido")} · ${used} de ${u.dailyRateLimit ?? "?"} consultas usadas hoy`;
+}
+
+// ── Binance: criptomonedas, velas diarias públicas (sin clave) ──────────────
+
+const BINANCE = "https://data-api.binance.vision/api/v3";
+
+/** Cierre de cada vela diaria (UTC). La de hoy viene con el último precio. */
+export function parseBinanceKlines(json: string): Point[] {
+  const data = JSON.parse(json) as unknown;
+  if (!Array.isArray(data)) throw new Error("Binance no devuelve precios para este par");
+  return (data as Array<[number, string, string, string, string]>)
+    .map((k) => [isoOf(Math.floor(k[0] / 86_400_000)), Number(k[4])] as Point)
+    .filter(([, v]) => Number.isFinite(v) && v > 0);
+}
+
+export async function binancePrices(get: Get, pair: string, from: string, today: string): Promise<Point[]> {
+  const out: Point[] = [];
+  let start = dayNum(from);
+  // Mil velas por petición: un histórico largo se pide por tramos.
+  for (let page = 0; page < 8 && start <= dayNum(today); page++) {
+    let chunk: Point[];
+    try {
+      chunk = parseBinanceKlines(await get(`${BINANCE}/klines?symbol=${encodeURIComponent(pair.toUpperCase())}&interval=1d&startTime=${start * 86_400_000}&limit=1000`));
+    } catch (e) {
+      throw new Error(message(e).includes("400") ? `Binance no tiene el par ${pair.toUpperCase()}` : message(e));
+    }
+    if (!chunk.length) break;
+    out.push(...chunk);
+    if (chunk.length < 1000) break;
+    start = dayNum(chunk[chunk.length - 1]![0]) + 1;
+  }
+  return out;
+}
+
+/** Divisa en la que cotiza un par: ETHEUR → EUR. */
+export const binanceCurrency = (pair: string): string => {
+  const p = pair.toUpperCase();
+  return p.endsWith("EUR") ? "EUR" : p.endsWith("GBP") ? "GBP" : p.endsWith("TRY") ? "TRY" : "USD";
+};
+
+// ── Indexa Capital: valor del plan o de los fondos de la cartera (con clave) ─
+
+const INDEXA = "https://api.indexacapital.com";
+export type IndexaQuote = { identifier: string; name: string; price: number; date: string };
+
+export function parseIndexaAccounts(json: string): string[] {
+  const data = JSON.parse(json) as { accounts?: Array<{ account_number?: string; status?: string }> };
+  return (data.accounts ?? []).filter((a) => a.status === "active" && a.account_number).map((a) => a.account_number!);
+}
+
+/** De la cartera solo interesan el precio y la fecha de cada instrumento. */
+export function parseIndexaPortfolio(json: string): IndexaQuote[] {
+  const data = JSON.parse(json) as {
+    portfolio?: { date?: string };
+    instrument_accounts?: Array<{ positions?: Array<{ price?: number; date?: string; instrument?: { identifier?: string; isin_code?: string; name?: string } }> }>;
+  };
+  const out: IndexaQuote[] = [];
+  for (const ia of data.instrument_accounts ?? []) {
+    for (const p of ia.positions ?? []) {
+      const date = (p.date ?? data.portfolio?.date ?? "").slice(0, 10);
+      const identifier = p.instrument?.identifier || p.instrument?.isin_code || "";
+      if (identifier && typeof p.price === "number" && p.price > 0 && isIsoDate(date)) out.push({ identifier, name: p.instrument?.name ?? identifier, price: p.price, date });
+    }
+  }
+  return out;
+}
+
+export async function indexaQuotes(get: Get): Promise<IndexaQuote[]> {
+  let accounts: string[];
+  try {
+    accounts = parseIndexaAccounts(await get(`${INDEXA}/users/me`));
+  } catch (e) {
+    throw new Error(/40[13]/.test(message(e)) ? "Indexa rechaza la clave: genera una nueva en su web y ponla en Ajustes → Conexiones" : message(e));
+  }
+  const out: IndexaQuote[] = [];
+  for (const n of accounts) out.push(...parseIndexaPortfolio(await get(`${INDEXA}/accounts/${encodeURIComponent(n)}/portfolio`)));
+  return out;
+}
+
+/** La posición que corresponde a un activo: por identificador o, si solo hay una, esa. */
+export function pickIndexa(quotes: IndexaQuote[], identifier: string | null): IndexaQuote {
+  const hit = identifier ? quotes.find((q) => q.identifier === identifier) : quotes.length === 1 ? quotes[0] : undefined;
+  if (hit) return hit;
+  throw new Error(
+    identifier
+      ? `Indexa no tiene ninguna posición con el identificador ${identifier}`
+      : quotes.length
+        ? `Indexa tiene varias posiciones: indica cuál (${quotes.map((q) => q.identifier).join(", ")})`
+        : "Indexa no tiene posiciones en tus cuentas activas",
+  );
+}
+
+export async function indexaStatus(get: Get): Promise<string> {
+  const n = parseIndexaAccounts(await get(`${INDEXA}/users/me`)).length;
+  return n === 1 ? "Conectado · 1 cuenta activa" : `Conectado · ${n} cuentas activas`;
+}
+
+export type Probe = { price: number; date: string; currency: string; name: string | null; kind: AssetKind | null; /** Código en la fuente, si se ha averiguado. */ code?: string };
+export type ProbeInput = { priceSource: Exclude<PriceSource, "manual">; symbol: string | null; isin: string | null; currency: string };
 
 /**
  * Pregunta a la fuente por un activo antes de guardarlo: confirma que existe,
  * en qué divisa cotiza y cuál es su último precio.
  */
-export async function probeSource(
-  get: Get,
-  src: { priceSource: "yahoo" | "ft"; symbol: string | null; isin: string | null; currency: string },
-): Promise<Probe> {
+export async function probeSource(get: Get, src: ProbeInput): Promise<Probe> {
   const today = todayIso();
-  if (src.priceSource === "yahoo") {
-    if (!src.symbol) throw new Error("Falta el símbolo");
-    const q = await yahooChart(get, src.symbol, addDays(today, -10), today);
-    const last = q.points[q.points.length - 1];
-    if (!last) throw new Error("Yahoo no tiene precios recientes de este símbolo");
-    return { price: last[1], date: last[0], currency: q.currency, name: q.name, kind: q.kind };
+  const lastOf = (pts: Point[], who: string): Point => {
+    const last = pts[pts.length - 1];
+    if (!last) throw new Error(`${who} no tiene precios recientes de este activo`);
+    return last;
+  };
+  switch (src.priceSource) {
+    case "yahoo": {
+      if (!src.symbol) throw new Error("Falta el símbolo");
+      const q = await yahooChart(get, src.symbol, addDays(today, -10), today);
+      const last = lastOf(q.points, "Yahoo");
+      return { price: last[1], date: last[0], currency: q.currency, name: q.name, kind: q.kind };
+    }
+    case "eodhd": {
+      // Con ISIN basta una búsqueda: devuelve el código y el último cierre.
+      if (!src.symbol) {
+        if (!src.isin) throw new Error("Falta el código de EODHD o el ISIN");
+        const hit = bestEodhdHit(await eodhdSearch(get, src.isin), src.currency);
+        if (!hit || hit.price == null || !hit.date) throw new Error("EODHD no encuentra ese ISIN");
+        if (MINOR[hit.currency]) throw new Error(`EODHD lo cotiza en ${hit.currency} (céntimos), que aún no se admite; usa otra bolsa u otra fuente`);
+        return { price: hit.price, date: hit.date, currency: hit.currency || src.currency, name: hit.name, kind: hit.kind, code: hit.code };
+      }
+      const last = lastOf(await eodhdPrices(get, src.symbol, addDays(today, -15)), "EODHD");
+      return { price: last[1], date: last[0], currency: src.currency, name: null, kind: null };
+    }
+    case "binance": {
+      if (!src.symbol) throw new Error("Falta el par, por ejemplo ETHEUR");
+      const last = lastOf(await binancePrices(get, src.symbol, addDays(today, -3), today), "Binance");
+      return { price: last[1], date: last[0], currency: binanceCurrency(src.symbol), name: null, kind: "crypto", code: src.symbol.toUpperCase() };
+    }
+    case "indexa": {
+      const q = pickIndexa(await indexaQuotes(get), src.symbol);
+      return { price: q.price, date: q.date, currency: "EUR", name: q.name, kind: "fund", code: q.identifier };
+    }
+    case "ft": {
+      if (!src.isin) throw new Error("Falta el ISIN");
+      const q = parseFtQuote(await get(`${FT}/data/funds/tearsheet/summary?s=${encodeURIComponent(`${src.isin}:${src.currency}`)}`));
+      return { price: q.price, date: q.date ?? today, currency: q.currency, name: q.name, kind: "fund" };
+    }
   }
-  if (!src.isin) throw new Error("Falta el ISIN");
-  const q = parseFtQuote(await get(`${FT}/data/funds/tearsheet/summary?s=${encodeURIComponent(`${src.isin}:${src.currency}`)}`));
-  return { price: q.price, date: q.date ?? today, currency: q.currency, name: q.name, kind: "fund" };
 }
 
 export type SearchHit = { symbol: string; name: string; kind: AssetKind; exchange: string };
@@ -264,8 +473,8 @@ export function mergeSplits(saved: Point[], yahoo: Point[]): Point[] {
 export type SyncIssue = { what: string; message: string };
 export type SyncResult = { ops: Op[]; issues: SyncIssue[] };
 
-const fresh = (meta: Meta, key: string, force: boolean) =>
-  !force && !!meta[key] && Date.now() - Date.parse(meta[key]!) < FRESH_MS;
+const fresh = (meta: Meta, key: string, force: boolean, ms = FRESH_MS) =>
+  !force && !!meta[key] && Date.now() - Date.parse(meta[key]!) < ms;
 
 const span = (pts: Point[] | undefined) =>
   pts?.length ? { min: pts[0]![0], max: pts[pts.length - 1]![0] } : null;
@@ -390,6 +599,82 @@ export async function syncMarket(
     } catch (e) {
       issues.push({ what: a.name, message: message(e) });
       failed(a.id, message(e));
+    }
+  }
+
+  // ── EODHD: un cierre al día por código ──
+  let spent = false;
+  for (const a of state.assets) {
+    if (a.priceSource !== "eodhd" || !a.symbol) continue;
+    const stored = state.prices[a.id] ?? [];
+    const have = span(stored);
+    if (have && fresh(meta, `fetched:asset:${a.id}`, force, FRESH_EODHD_MS)) continue;
+    if (spent) {
+      failed(a.id, EODHD_LIMIT);
+      continue;
+    }
+    const from = have ? addDays(have.max, -7) : addDays(firstByAsset.get(a.id) ?? floor, -10);
+    try {
+      const pts = await eodhdPrices(get, a.symbol, from);
+      // EODHD da cierres tal como se negociaron: tras un split hay que reescalar lo anterior.
+      const known = state.splits[a.id] ?? [];
+      const found = a.kind !== "fund" && splitSuspect(stored, pts) ? parseEodhdSplits(await get(`${EODHD}/splits/${encodeURIComponent(a.symbol)}?from=${from}&fmt=json`)) : [];
+      const added = mergeSplits(known, found).filter((sp) => !known.some((k) => k[0] === sp[0]));
+      if (added.length) {
+        let all = [...stored.filter(([d]) => !pts.some((p) => p[0] === d)), ...pts].sort((x, y) => x[0].localeCompare(y[0]));
+        for (const [date, ratio] of added) all = rescaleBefore(all, date, ratio);
+        ops.push({ op: "splits", assetId: a.id, points: mergeSplits(known, found) });
+        ops.push({ op: "prices", assetId: a.id, points: all, replace: true });
+      } else {
+        ops.push({ op: "prices", assetId: a.id, points: pts });
+      }
+      fetched(a.id);
+    } catch (e) {
+      const msg = message(e);
+      if (/HTTP 40[29]/.test(msg)) {
+        issues.push({ what: "EODHD", message: `${EODHD_LIMIT}. Se conservan los últimos precios guardados; mañana se reanuda.` });
+        failed(a.id, EODHD_LIMIT);
+        spent = true;
+        continue;
+      }
+      const why = msg.includes("404") ? `EODHD no conoce el código ${a.symbol}` : msg;
+      issues.push({ what: a.name, message: why });
+      failed(a.id, why);
+    }
+  }
+
+  // ── Binance: criptomonedas ──
+  for (const a of state.assets) {
+    if (a.priceSource !== "binance" || !a.symbol) continue;
+    const have = span(state.prices[a.id]);
+    if (have && fresh(meta, `fetched:asset:${a.id}`, force)) continue;
+    try {
+      ops.push({ op: "prices", assetId: a.id, points: await binancePrices(get, a.symbol, have ? addDays(have.max, -3) : addDays(firstByAsset.get(a.id) ?? floor, -10), today) });
+      fetched(a.id);
+    } catch (e) {
+      issues.push({ what: a.name, message: message(e) });
+      failed(a.id, message(e));
+    }
+  }
+
+  // ── Indexa Capital: una consulta sirve para todos sus activos ──
+  const indexa = state.assets.filter((a) => a.priceSource === "indexa" && !(state.prices[a.id]?.length && fresh(meta, `fetched:asset:${a.id}`, force)));
+  if (indexa.length) {
+    try {
+      const quotes = await indexaQuotes(get);
+      for (const a of indexa) {
+        try {
+          const q = pickIndexa(quotes, a.symbol);
+          ops.push({ op: "prices", assetId: a.id, points: [[q.date, q.price]] });
+          fetched(a.id);
+        } catch (e) {
+          issues.push({ what: a.name, message: message(e) });
+          failed(a.id, message(e));
+        }
+      }
+    } catch (e) {
+      issues.push({ what: "Indexa Capital", message: message(e) });
+      for (const a of indexa) failed(a.id, message(e));
     }
   }
 

@@ -28,7 +28,7 @@ import type { Account, AppState, Asset, Goal, Mortgage, MortgageEvent, Point, Pr
 import { EMPTY_STATE, reduce, type AppInfo, type Backend, type Loaded, type Op } from "./backend.ts";
 import { browserBackend } from "./browser.ts";
 import { makeDemo } from "./demo.ts";
-import { fxOn, syncMarket, type SyncIssue } from "./market.ts";
+import { eodhdStatus, fxOn, indexaStatus, syncMarket, type SyncIssue } from "./market.ts";
 import { tauriBackend } from "./tauri.ts";
 
 export const backend: Backend = "__TAURI_INTERNALS__" in window ? tauriBackend : browserBackend;
@@ -199,6 +199,38 @@ export async function ecbRate(currency: string, date: string): Promise<{ rate: n
   return { rate: hit.rate, date: hit.date };
 }
 
+// ── Conexiones (claves de servicios) ───────────────────────────────────────
+
+export type Service = "eodhd" | "indexa";
+const serviceStatus = (name: Service) => (name === "eodhd" ? eodhdStatus(backend.httpGet) : indexaStatus(backend.httpGet));
+
+/** Estado de una conexión ya guardada, preguntando al servicio. */
+export const connectionStatus = (name: Service): Promise<Result<string>> =>
+  serviceStatus(name).then(ok, (e) => fail(/40[13]/.test(message(e)) ? "El servicio rechaza la clave" : message(e)));
+
+/**
+ * Guarda (o quita, con cadena vacía) la clave de un servicio. Se comprueba al
+ * guardar y, si no vale, no se conserva. La clave no se queda en la interfaz:
+ * el núcleo nativo la añade a cada petición.
+ */
+export async function saveSecret(name: Service, value: string): Promise<Result<string>> {
+  if (isExample()) return fail("La cartera de ejemplo no guarda claves");
+  const put = async (v: string) => {
+    await backend.apply([{ op: "meta", key: `secret:${name}`, value: v }]);
+    set({ loaded: { ...s.loaded, meta: { ...s.loaded.meta, [`connected:${name}`]: v ? "1" : "" } } });
+  };
+  try {
+    await put(value.trim());
+    if (!value.trim()) return ok("");
+    const status = await serviceStatus(name);
+    syncSoon();
+    return ok(status);
+  } catch (e) {
+    await put("").catch(() => {});
+    return fail(/40[13]/.test(message(e)) ? "El servicio rechaza esa clave; no se ha guardado" : `No se pudo comprobar la clave: ${message(e)}`);
+  }
+}
+
 // ── Cuentas ────────────────────────────────────────────────────────────────
 
 export function saveAccount(input: unknown, id?: string): Promise<Result<Account>> {
@@ -247,19 +279,25 @@ export function saveAsset(input: unknown, id?: string): Promise<Result<Asset>> {
     planExcluded: "planExcluded" in raw ? d.planExcluded : (before?.planExcluded ?? false),
     symbol: d.symbol || null,
     isin: d.isin || null,
-    // Cada fuente necesita su dato: Yahoo el símbolo, FT el ISIN. Sin él, manual.
-    priceSource: d.priceSource === "yahoo" && !d.symbol ? "manual" : d.priceSource === "ft" && !d.isin ? "manual" : d.priceSource,
+    // Cada fuente necesita su dato: FT el ISIN; Yahoo, EODHD y Binance su código. Sin él, manual.
+    priceSource: d.priceSource === "ft" ? (d.isin ? "ft" : "manual") : (d.priceSource === "yahoo" || d.priceSource === "eodhd" || d.priceSource === "binance") && !d.symbol ? "manual" : d.priceSource,
     id: id ?? newId(),
     createdAt: before?.createdAt ?? new Date().toISOString(),
   };
   const ops: Op[] = [{ op: "putAsset", row }];
-  // Si cambia de dónde sale el precio, las cotizaciones guardadas ya no valen.
-  const sourceKey = (a: Asset) => `${a.priceSource}|${a.priceSource === "yahoo" ? a.symbol : a.priceSource === "ft" ? a.isin : ""}|${a.currency}`;
-  if (before && sourceKey(before) !== sourceKey(row) && row.priceSource !== "manual") {
-    ops.push({ op: "prices", assetId: row.id, points: [], replace: true });
-    ops.push({ op: "splits", assetId: row.id, points: [] });
-    ops.push({ op: "meta", key: `fetched:asset:${row.id}`, value: "" });
-    ops.push({ op: "meta", key: `failed:asset:${row.id}`, value: "" });
+  if (before && row.priceSource !== "manual") {
+    const code = (a: Asset) => (a.priceSource === "ft" ? a.isin : a.symbol) ?? "";
+    const moved = before.priceSource !== row.priceSource;
+    // Corregir el código dentro de la misma fuente, o cambiar la divisa, invalida lo guardado.
+    // Cambiar de fuente no: el histórico sigue valiendo y la nueva lo continúa.
+    if (before.currency !== row.currency || (!moved && code(before) !== code(row))) {
+      ops.push({ op: "prices", assetId: row.id, points: [], replace: true });
+      ops.push({ op: "splits", assetId: row.id, points: [] });
+    }
+    if (moved || before.currency !== row.currency || code(before) !== code(row)) {
+      ops.push({ op: "meta", key: `fetched:asset:${row.id}`, value: "" });
+      ops.push({ op: "meta", key: `failed:asset:${row.id}`, value: "" });
+    }
   }
   return attempt(async () => {
     await commit(ops);

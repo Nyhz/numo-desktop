@@ -34,7 +34,15 @@ const ALLOWED_HOSTS: &[&str] = &[
     "query2.finance.yahoo.com",
     "data-api.ecb.europa.eu",
     "markets.ft.com",
+    "eodhd.com",
+    "data-api.binance.vision",
+    "api.indexacapital.com",
 ];
+
+/// Servidores que piden una clave del usuario. La clave vive en la tabla `meta`
+/// con el prefijo `secret:`; la añade este núcleo a cada petición y la interfaz
+/// no la carga al arrancar (solo sabe si existe).
+const SECRET_PREFIX: &str = "secret:";
 
 const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15";
 
@@ -243,18 +251,60 @@ fn reserve_yahoo_slot() -> Duration {
     slot - now
 }
 
+/// Clave guardada para un servicio (`eodhd`, `indexa`), o un error que dice dónde ponerla.
+fn secret(conn: &Connection, name: &str, label: &str) -> Result<String, String> {
+    let found: Option<String> = conn
+        .query_row(
+            "SELECT value FROM meta WHERE key = ?1",
+            [format!("{SECRET_PREFIX}{name}")],
+            |r| r.get(0),
+        )
+        .ok();
+    match found {
+        Some(v) if !v.trim().is_empty() => Ok(v.trim().to_owned()),
+        _ => Err(format!("Falta la clave de {label}: ponla en Ajustes → Conexiones")),
+    }
+}
+
+/// Añade a la petición la clave que pide su servidor, si pide alguna.
+fn authorize(conn: &Connection, mut url: reqwest::Url) -> Result<(reqwest::Url, Option<(&'static str, String)>), String> {
+    match url.host_str().unwrap_or_default() {
+        "eodhd.com" => {
+            let token = secret(conn, "eodhd", "EODHD")?;
+            let kept: Vec<(String, String)> = url
+                .query_pairs()
+                .filter(|(k, _)| k != "api_token")
+                .map(|(k, v)| (k.into_owned(), v.into_owned()))
+                .collect();
+            url.query_pairs_mut().clear().extend_pairs(kept).append_pair("api_token", &token);
+            Ok((url, None))
+        }
+        "api.indexacapital.com" => {
+            let token = secret(conn, "indexa", "Indexa Capital")?;
+            Ok((url, Some(("X-AUTH-TOKEN", token))))
+        }
+        _ => Ok((url, None)),
+    }
+}
+
 /// GET por HTTPS limitado a los servidores de datos de mercado.
 #[tauri::command]
-async fn http_get(url: String) -> CmdResult<String> {
+async fn http_get(db: State<'_, Db>, url: String) -> CmdResult<String> {
     let parsed = check_url(&url)?;
     let host = parsed.host_str().unwrap_or_default().to_owned();
+    let shown = format!("{host}{}", parsed.path());
+    // La clave se lee antes de cualquier espera para no retener la base de datos.
+    let (parsed, auth) = {
+        let conn = db.conn.lock().map_err(err)?;
+        authorize(&conn, parsed)?
+    };
     // Yahoo y FT bloquean las ráfagas: sus peticiones se espacian.
     if host.ends_with("finance.yahoo.com") || host == "markets.ft.com" {
         tokio::time::sleep(reserve_yahoo_slot()).await;
     }
     let debug = std::env::var_os("CAUDAL_DEBUG").is_some();
     if debug {
-        eprintln!("[caudal] GET {}{}", parsed.host_str().unwrap_or_default(), parsed.path());
+        eprintln!("[caudal] GET {shown}");
     }
     let client = reqwest::Client::builder()
         .user_agent(USER_AGENT)
@@ -262,6 +312,9 @@ async fn http_get(url: String) -> CmdResult<String> {
         .build()
         .map_err(err)?;
     let mut request = client.get(parsed).header("Accept", "*/*");
+    if let Some((name, value)) = auth {
+        request = request.header(name, value);
+    }
     if host == "markets.ft.com" && url.contains("/ajax/") {
         // El histórico de FT solo responde a peticiones marcadas como AJAX.
         request = request.header("X-Requested-With", "XMLHttpRequest");
@@ -269,7 +322,7 @@ async fn http_get(url: String) -> CmdResult<String> {
     let res = request
         .send()
         .await
-        .map_err(|e| format!("Sin conexión: {e}"))?;
+        .map_err(|e| format!("Sin conexión: {}", e.without_url()))?;
     let status = res.status();
     if debug {
         eprintln!("[caudal]   -> {}", status.as_u16());
@@ -501,9 +554,34 @@ mod tests {
         assert!(check_url("https://query1.finance.yahoo.com/v8/finance/chart/AAPL").is_ok());
         assert!(check_url("https://data-api.ecb.europa.eu/service/data/EXR").is_ok());
         assert!(check_url("https://markets.ft.com/data/funds/tearsheet/summary?s=X").is_ok());
+        assert!(check_url("https://eodhd.com/api/eod/VWCE.XETRA").is_ok());
+        assert!(check_url("https://data-api.binance.vision/api/v3/klines").is_ok());
+        assert!(check_url("https://api.indexacapital.com/users/me").is_ok());
+        assert!(check_url("https://api.binance.com/api/v3/klines").is_err());
         assert!(check_url("http://query1.finance.yahoo.com/").is_err());
         assert!(check_url("https://example.com/").is_err());
         assert!(check_url("https://query1.finance.yahoo.com.evil.test/").is_err());
+    }
+
+    #[test]
+    fn keys_are_added_natively_and_only_for_their_host() {
+        let conn = memory_db();
+        let url = |u: &str| check_url(u).unwrap();
+        // Sin clave guardada, el error dice dónde ponerla.
+        assert!(authorize(&conn, url("https://eodhd.com/api/eod/X.US?fmt=json")).unwrap_err().contains("Ajustes"));
+        conn.execute("INSERT INTO meta (key, value) VALUES ('secret:eodhd', ' abc '), ('secret:indexa', 'tok')", []).unwrap();
+        // EODHD: la clave va en la consulta, y una que viniera de la interfaz se descarta.
+        let (u, h) = authorize(&conn, url("https://eodhd.com/api/eod/X.US?fmt=json&api_token=falsa")).unwrap();
+        assert_eq!(u.query(), Some("fmt=json&api_token=abc"));
+        assert!(h.is_none());
+        // Indexa: va en una cabecera.
+        let (u, h) = authorize(&conn, url("https://api.indexacapital.com/users/me")).unwrap();
+        assert_eq!(u.query(), None);
+        assert_eq!(h, Some(("X-AUTH-TOKEN", "tok".to_owned())));
+        // Los demás servidores no reciben nada.
+        let (u, h) = authorize(&conn, url("https://data-api.binance.vision/api/v3/klines?symbol=ETHEUR")).unwrap();
+        assert_eq!(u.query(), Some("symbol=ETHEUR"));
+        assert!(h.is_none());
     }
 
     #[test]

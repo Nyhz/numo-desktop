@@ -14,17 +14,32 @@ export type TxType =
   | "fee"
   | "transfer";
 
-export type PriceSource = "yahoo" | "ft" | "manual";
+export type PriceSource = "yahoo" | "eodhd" | "binance" | "indexa" | "ft" | "manual";
+export const PRICE_SOURCES: PriceSource[] = ["yahoo", "eodhd", "binance", "indexa", "ft", "manual"];
 export const PRICE_SOURCE_LABEL: Record<PriceSource, string> = {
   yahoo: "Yahoo Finance (por símbolo)",
+  eodhd: "EODHD (acciones, ETF y fondos; con clave)",
+  binance: "Binance (criptomonedas en euros)",
+  indexa: "Indexa Capital (tu plan o cartera; con clave)",
   ft: "Financial Times (fondos, por ISIN)",
   manual: "Manual",
 };
-
 export const PRICE_SOURCE_SHORT: Record<PriceSource, string> = {
   yahoo: "Yahoo Finance",
+  eodhd: "EODHD",
+  binance: "Binance",
+  indexa: "Indexa Capital",
   ft: "Financial Times",
   manual: "Manual",
+};
+/** Cómo se llama el identificador del activo en cada fuente, con un ejemplo. */
+export const SOURCE_CODE: Record<PriceSource, { label: string; example: string; required: boolean } | null> = {
+  yahoo: { label: "Símbolo de Yahoo", example: "VWCE.DE", required: true },
+  eodhd: { label: "Código de EODHD", example: "VWCE.XETRA", required: false },
+  binance: { label: "Par de Binance", example: "ETHEUR", required: true },
+  indexa: { label: "Identificador en Indexa", example: "se rellena solo", required: false },
+  ft: null,
+  manual: null,
 };
 
 export type Account = {

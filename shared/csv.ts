@@ -1,6 +1,7 @@
 import { isIsoDate } from "./dates.ts";
 import type { AssetInput, AccountInput } from "./schema.ts";
 import {
+  PRICE_SOURCES,
   ACCOUNT_KINDS,
   ASSET_KINDS,
   TX_LABEL,
@@ -271,7 +272,7 @@ export function parseTxCsv(text: string): ParsedCsv {
       note: get("nota"),
       assetKind: (ASSET_KINDS as string[]).includes(get("tipo_activo")) ? (get("tipo_activo") as AssetKind) : null,
       accountKind: (ACCOUNT_KINDS as string[]).includes(get("tipo_cuenta")) ? (get("tipo_cuenta") as AccountKind) : null,
-      priceSource: ["yahoo", "ft", "manual"].includes(get("fuente_precio")) ? (get("fuente_precio") as PriceSource) : null,
+      priceSource: (PRICE_SOURCES as string[]).includes(get("fuente_precio")) ? (get("fuente_precio") as PriceSource) : null,
     });
   });
   return { rows, errors };
@@ -331,8 +332,19 @@ export function planImport(rows: ImportRow[], state: AppState): ImportPlan {
       symbol: ref.symbol || null,
       isin: /^[A-Z]{2}[A-Z0-9]{9}\d$/.test(ref.isin) ? ref.isin : null,
       currency: ref.currency,
-      // Sin indicación expresa: Yahoo si hay símbolo, manual si no. FT necesita ISIN.
-      priceSource: source === "ft" && /^[A-Z]{2}[A-Z0-9]{9}\d$/.test(ref.isin) ? "ft" : source === "manual" ? "manual" : ref.symbol ? "yahoo" : "manual",
+      // Sin indicación expresa: Yahoo si hay símbolo, manual si no. FT necesita ISIN; EODHD y Binance, su código.
+      priceSource:
+        source === "ft"
+          ? /^[A-Z]{2}[A-Z0-9]{9}\d$/.test(ref.isin)
+            ? "ft"
+            : "manual"
+          : source === "manual" || source === "indexa"
+            ? source
+            : (source === "eodhd" || source === "binance") && ref.symbol
+              ? source
+              : ref.symbol
+                ? "yahoo"
+                : "manual",
       goalId: null,
       planExcluded: false,
     });

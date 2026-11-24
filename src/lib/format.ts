@@ -26,6 +26,9 @@ export const money = (n: number, currency: string, digits = 2): string => {
   }
 };
 
+/** Decimales para un precio unitario: más cuanto más pequeño (hay criptomonedas que valen millonésimas). */
+export const priceDigits = (p: number): number => (Math.abs(p) >= 10 ? 2 : Math.abs(p) >= 0.01 ? 4 : 8);
+
 /** Número con hasta `max` decimales (sin ceros de relleno salvo `min`). */
 export const num = (n: number, max = 4, min = 0): string =>
   nf(`n${max}-${min}`, { minimumFractionDigits: min, maximumFractionDigits: max }).format(safe(n));

@@ -1,9 +1,9 @@
 import { Moon, Sun } from "lucide-react";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { txsToCsv } from "../../shared/csv.ts";
 import { todayIso } from "../../shared/dates.ts";
 import { useTheme } from "../App.tsx";
-import { backend, isExample, setDemo, sync, useApp } from "../data/store.ts";
+import { backend, connectionStatus, isExample, saveSecret, setDemo, sync, useApp, type Service } from "../data/store.ts";
 import { saveText } from "../lib/export.ts";
 import { ago } from "../lib/format.ts";
 import { openDialog } from "../ui/dialogs.ts";
@@ -27,6 +27,64 @@ function Row({ title, children, action }: { title: string; children: ReactNode; 
       </div>
       {action}
     </div>
+  );
+}
+
+/** Clave de un servicio de datos: se comprueba al guardarla y no vuelve a mostrarse. */
+function Connection({ service, title, children, placeholder }: { service: Service; title: string; children: ReactNode; placeholder: string }) {
+  const connected = useApp((s) => !!s.loaded.meta[`connected:${service}`]);
+  const example = useApp((s) => isExample(s));
+  const [value, setValue] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState<{ text: string; bad?: boolean } | null>(null);
+
+  // Al abrir Ajustes se pregunta al servicio si la clave guardada sigue valiendo.
+  useEffect(() => {
+    if (!connected || example) return;
+    let alive = true;
+    void connectionStatus(service).then((r) => alive && setStatus(r.ok ? { text: r.value } : { text: r.error, bad: true }));
+    return () => {
+      alive = false;
+    };
+  }, [connected, example, service]);
+
+  const save = async (next: string) => {
+    setBusy(true);
+    const res = await saveSecret(service, next);
+    setBusy(false);
+    setValue("");
+    if (!res.ok) return setStatus({ text: res.error, bad: true });
+    setStatus(next ? { text: res.value } : null);
+    toast(next ? `${title}: conectado` : `${title}: clave quitada`);
+  };
+
+  return (
+    <Row
+      title={title}
+      action={
+        connected ? (
+          <Btn onClick={() => void save("")} disabled={busy}>
+            Quitar clave
+          </Btn>
+        ) : (
+          <form
+            className="flex gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (value.trim()) void save(value);
+            }}
+          >
+            <input className="field w-64" type="password" autoComplete="off" placeholder={placeholder} value={value} disabled={example || busy} onChange={(e) => setValue(e.target.value)} />
+            <Btn type="submit" disabled={example || busy || !value.trim()}>
+              {busy ? "Comprobando…" : "Conectar"}
+            </Btn>
+          </form>
+        )
+      }
+    >
+      {children}
+      {status && <span className={`mt-1 block font-medium ${status.bad ? "text-down" : "text-ink"}`}>{status.text}</span>}
+    </Row>
   );
 }
 
@@ -93,8 +151,21 @@ export function Ajustes() {
         >
           {example
             ? "La cartera de ejemplo usa precios inventados y no se actualiza."
-            : `Se actualizan solos al abrir la app si han pasado más de 6 horas. ${auto} de ${state.assets.length} activos tienen precio automático (Yahoo Finance o Financial Times). Los tipos de cambio son los de referencia del BCE. Última descarga: ${ago(real.lastSync)}. El estado de cada activo está en Activos.`}
+            : `Se actualizan solos al abrir la app si han pasado más de 6 horas. ${auto} de ${state.assets.length} activos tienen precio automático. Los tipos de cambio son los de referencia del BCE. Última descarga: ${ago(real.lastSync)}. El estado de cada activo está en Activos.`}
         </Row>
+      </Group>
+
+      <Group title="Conexiones">
+        <Connection service="eodhd" title="EODHD" placeholder="Clave de la API">
+          Cierres diarios de acciones, ETF y fondos con API documentada. La clave se crea en eodhd.com; la gratuita da 20 consultas al día.
+        </Connection>
+        <Connection service="indexa" title="Indexa Capital" placeholder="Token de solo lectura">
+          Valor de tu plan o de tus fondos, directamente de la gestora. De su respuesta solo se guarda el precio y la fecha.
+        </Connection>
+        <div className="border-t border-line px-5 py-3 text-[12px] text-pretty text-mute">
+          Las claves se guardan en tu base de datos, en este ordenador, y solo viajan al servicio al que pertenecen. Van incluidas en las copias de seguridad: no compartas una copia sin
+          quitarlas antes.
+        </div>
       </Group>
 
       <Group title="Apariencia">
@@ -118,7 +189,7 @@ export function Ajustes() {
       </Group>
 
       <p className="m-0 px-1 text-[12px] text-pretty text-mute">
-        Caudal {info?.version}. Sin cuentas de usuario ni servidores: la app solo se conecta a Yahoo Finance, Financial Times y el BCE para pedir cotizaciones, y solo envía símbolos y divisas.
+        Caudal {info?.version}. Sin cuentas de usuario ni servidores propios: la app solo se conecta a las fuentes de precios (Yahoo Finance, EODHD, Binance, Financial Times), al BCE y, si pones tu token, a Indexa Capital. A las fuentes de precios solo envía símbolos y divisas.
       </p>
     </div>
   );

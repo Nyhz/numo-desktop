@@ -5,7 +5,7 @@ import type { Position } from "../../shared/engine/timeline.ts";
 import { ASSET_KIND_LABEL } from "../../shared/types.ts";
 import { Spark, Strip } from "../charts/viz.tsx";
 import { useDerived } from "../data/store.ts";
-import { eur, eurSigned, money, num, pct, pctSigned, seriesColor } from "../lib/format.ts";
+import { eur, eurSigned, money, num, pct, pctSigned, priceDigits, seriesColor } from "../lib/format.ts";
 import { openDialog } from "../ui/dialogs.ts";
 import { Btn, Card, Dot, Empty, Money, toneOf } from "../ui/kit.tsx";
 import { L, TFoot, THead, TRow, Table, Welcome } from "./common.tsx";
@@ -134,7 +134,7 @@ export function Posiciones() {
                       </div>
                     </L>
                     <span>{num(p.qty, 6)}</span>
-                    <span className="text-ink2">{p.price == null ? "—" : money(p.price, p.asset.currency, p.price < 10 ? 4 : 2)}</span>
+                    <span className="text-ink2">{p.price == null ? "—" : money(p.price, p.asset.currency, priceDigits(p.price))}</span>
                     <span style={{ color: toneOf(p.dayChangePct, 0.0005) }}>{p.dayChangePct == null ? "—" : pctSigned(p.dayChangePct)}</span>
                     {series.length > 1 ? <Spark values={series} color={toneOf(trend, 1e-9)} /> : <span className="text-mute">—</span>}
                     <div>

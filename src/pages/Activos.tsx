@@ -4,7 +4,7 @@ import { useLocation } from "wouter";
 import { fxHealth, needsAttention, type HealthStatus, type PriceHealth } from "../../shared/engine/health.ts";
 import { ASSET_KIND_LABEL, PRICE_SOURCE_SHORT, type Asset } from "../../shared/types.ts";
 import { derive, isExample, sync, useApp, useHealth } from "../data/store.ts";
-import { ago, dateBrief, eur, money, num } from "../lib/format.ts";
+import { ago, dateBrief, eur, money, num, priceDigits } from "../lib/format.ts";
 import { openDialog } from "../ui/dialogs.ts";
 import { Btn, Card, Dot, Empty, HeaderSlot, IconBtn, Kpi, Kpis, Pills } from "../ui/kit.tsx";
 import { L, THead, TRow, Table } from "./common.tsx";
@@ -183,9 +183,9 @@ export function Activos() {
                 </L>
                 <L>
                   <div className={a.priceSource === "manual" ? "text-mute" : "text-ink2"}>{PRICE_SOURCE_SHORT[a.priceSource]}</div>
-                  <div className="selectable truncate text-[11.5px] text-mute">{a.priceSource === "yahoo" ? a.symbol : a.priceSource === "ft" ? `${a.isin}:${a.currency}` : "sin fuente automática"}</div>
+                  <div className="selectable truncate text-[11.5px] text-mute">{a.priceSource === "manual" ? "sin fuente automática" : a.priceSource === "ft" ? `${a.isin}:${a.currency}` : (a.symbol ?? "—")}</div>
                 </L>
-                <span className={h.status === "ok" ? "" : "text-ink2"}>{h.price == null ? "—" : money(h.price, a.currency, h.price < 10 ? 4 : 2)}</span>
+                <span className={h.status === "ok" ? "" : "text-ink2"}>{h.price == null ? "—" : money(h.price, a.currency, priceDigits(h.price))}</span>
                 <div>
                   <div className={h.status === "ok" ? "text-ink2" : ""}>{h.priceDate ? dateBrief(h.priceDate, d.today) : "—"}</div>
                   <div className="text-[11.5px] text-mute">{daysAgo(h.ageDays)}</div>

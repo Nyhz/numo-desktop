@@ -5,7 +5,7 @@ import { dayNum, isoOf } from "../../shared/dates.ts";
 import { ASSET_KIND_LABEL, TX_LABEL } from "../../shared/types.ts";
 import { HeroChart, lineModel } from "../charts/hero.tsx";
 import { useDerived } from "../data/store.ts";
-import { dateShort, eur, eurSigned, money, num, seriesColor, splitMoney } from "../lib/format.ts";
+import { dateShort, eur, eurSigned, money, num, priceDigits, seriesColor, splitMoney } from "../lib/format.ts";
 import { openDialog } from "../ui/dialogs.ts";
 import { Btn, Card, Dot, Empty, Kpi, Kpis, Money, Tag, toneOf } from "../ui/kit.tsx";
 import { L, THead, TRow, Table } from "./common.tsx";
@@ -40,7 +40,7 @@ export function Activo({ id }: { id: string }) {
     const income = txs.filter((n) => n.tx.type === "dividend").reduce((s, n) => s + n.cashEur, 0);
     const priceEur = market.priceEur(id, today) ?? 0;
     const lots = (d.ledger.lots.get(id) ?? []).map((l) => ({ ...l, valueEur: l.qty * priceEur }));
-    const fmt = (v: number) => money(v, asset.currency, v < 10 ? 4 : 2);
+    const fmt = (v: number) => money(v, asset.currency, priceDigits(v));
     const model = dates.length > 1 ? lineModel({ dates, values, label: "Precio", format: fmt, axis: (v) => num(v, v < 10 ? 2 : 0), marks }) : null;
     return { txs: [...txs].reverse(), model, marks, realized, income, lots, splits: market.splitsOf(id), last: values[values.length - 1] ?? null };
   }, [asset, id, d]);
@@ -125,10 +125,10 @@ export function Activo({ id }: { id: string }) {
       <Kpis>
         <Kpi label="Unidades">{num(pos?.qty ?? 0, 6)}</Kpi>
         <Kpi label="Último precio" note={pos?.priceDate ? dateShort(pos.priceDate) : "último precio de operación"}>
-          {pos?.price != null ? money(pos.price, asset.currency, pos.price < 10 ? 4 : 2) : data.last != null ? money(data.last, asset.currency) : "—"}
+          {pos?.price != null ? money(pos.price, asset.currency, priceDigits(pos.price)) : data.last != null ? money(data.last, asset.currency) : "—"}
         </Kpi>
         <Kpi label="Coste medio" note="por unidad, en EUR">
-          {avg == null ? "—" : eur(avg, avg < 10 ? 4 : 2)}
+          {avg == null ? "—" : eur(avg, priceDigits(avg))}
         </Kpi>
         <Kpi label="Peso en la cartera">{pos ? `${num(pos.weight * 100, 1, 1)} %` : "—"}</Kpi>
         <Kpi label="Realizado y cobrado" note={`ventas ${eur(data.realized, 0)} · dividendos ${eur(data.income, 0)}`} tone={data.realized + data.income}>
@@ -185,7 +185,7 @@ export function Activo({ id }: { id: string }) {
                   {n.account.name}
                 </L>
                 <span>{n.tx.quantity != null ? num(n.tx.quantity, 6) : ""}</span>
-                <span className="text-ink2">{n.tx.price != null ? money(n.tx.price, n.tx.currency, n.tx.price < 10 ? 4 : 2) : ""}</span>
+                <span className="text-ink2">{n.tx.price != null ? money(n.tx.price, n.tx.currency, priceDigits(n.tx.price)) : ""}</span>
                 <span className="font-semibold" style={{ color: n.cashEur > 0 ? "var(--up)" : undefined }}>
                   {n.tx.type === "transfer" && !n.cashEur ? <span className="font-normal text-mute">sin efecto</span> : <Money value={n.cashEur} signed dim="soft" />}
                 </span>

@@ -7,7 +7,7 @@ import { TX_LABEL, type TxType } from "../../shared/types.ts";
 import { FlowChart, type FlowDot } from "../charts/viz.tsx";
 import { rangeBase, useApp, useDerived } from "../data/store.ts";
 import { operationsSheet, saveText, saveXlsx } from "../lib/export.ts";
-import { dateShort, eur, eurSigned, money, num, seriesColor } from "../lib/format.ts";
+import { dateShort, eur, eurSigned, money, num, priceDigits, seriesColor } from "../lib/format.ts";
 import { openDialog } from "../ui/dialogs.ts";
 import { Btn, Card, Dot, Empty, HeaderSlot, Money, Pills, toast } from "../ui/kit.tsx";
 import { L, PeriodPills, THead, TRow, Table, Welcome } from "./common.tsx";
@@ -181,7 +181,7 @@ export function Operaciones() {
                     {to && <span className="font-normal text-mute"> → {to}</span>}
                   </L>
                   <span>{tx.quantity != null ? num(tx.quantity, 6) : ""}</span>
-                  <span className="text-ink2">{tx.price != null ? money(tx.price, tx.currency, tx.price < 10 ? 4 : 2) : ""}</span>
+                  <span className="text-ink2">{tx.price != null ? money(tx.price, tx.currency, priceDigits(tx.price)) : ""}</span>
                   <span>{tx.type === "transfer" ? "" : money(gross, tx.currency)}</span>
                   <span className="text-mute" title={n.taxSourceEur + n.taxHomeEur ? "Incluye retenciones" : undefined}>
                     {costs ? eur(costs) : ""}

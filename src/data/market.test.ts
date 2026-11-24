@@ -1,7 +1,27 @@
 import { describe, expect, it } from "vitest";
 import type { Asset } from "../../shared/types.ts";
 import { EMPTY_STATE, type Op } from "./backend.ts";
-import { mergeSplits, parseEcbCsv, parseFtHistory, parseFtQuote, parseYahooChart, parseYahooSearch, probeSource, syncMarket } from "./market.ts";
+import {
+  bestEodhdHit,
+  binanceCurrency,
+  mergeSplits,
+  parseBinanceKlines,
+  parseEcbCsv,
+  parseEodhdEod,
+  parseEodhdSearch,
+  parseEodhdSplits,
+  parseFtHistory,
+  parseFtQuote,
+  parseIndexaAccounts,
+  parseIndexaPortfolio,
+  parseYahooChart,
+  parseYahooSearch,
+  pickIndexa,
+  probeSource,
+  rescaleBefore,
+  splitSuspect,
+  syncMarket,
+} from "./market.ts";
 
 describe("Financial Times", () => {
   const sheet = `<h1 class="mod-tearsheet-overview__header__name mod-tearsheet-overview__header__name--large">Fondo de Prueba A EUR</h1>
@@ -152,5 +172,112 @@ describe("actualización", () => {
     const probe = await probeSource(async () => chart("AAA"), { priceSource: "yahoo", symbol: "AAA", isin: null, currency: "USD" });
     expect(probe).toMatchObject({ price: 50, date: "2026-11-20", currency: "EUR" });
     await expect(probeSource(async () => "<html></html>", { priceSource: "ft", symbol: null, isin: "ES0000000000", currency: "EUR" })).rejects.toThrow();
+  });
+});
+
+describe("EODHD", () => {
+  const eod = JSON.stringify([
+    { date: "2026-11-20", open: 160, high: 161, low: 158, close: 159.34, adjusted_close: 159.34, volume: 10 },
+    { date: "2026-11-23", open: 160, high: 166, low: 160, close: 165.04, adjusted_close: 165.04, volume: 12 },
+    { date: "2026-11-24", close: 0 },
+  ]);
+  const search = JSON.stringify([
+    { Code: "NGXA", Exchange: "F", Name: "WisdomTree Brent 3x", Type: "ETF", Currency: "EUR", ISIN: "IE00BMTM6D55", previousClose: 48.1, previousCloseDate: "2026-11-23" },
+    { Code: "3BRL", Exchange: "LSE", Name: "WisdomTree Brent 3x", Type: "ETF", Currency: "USD", ISIN: "IE00BMTM6D55", previousClose: 52.8, previousCloseDate: "2026-11-23" },
+    { Code: "NGXA", Exchange: "XETRA", Name: "WisdomTree Brent 3x", Type: "ETF", Currency: "EUR", ISIN: "IE00BMTM6D55", previousClose: 48.266, previousCloseDate: "2026-11-23" },
+  ]);
+
+  it("lee los cierres y descarta los que no valen", () => {
+    expect(parseEodhdEod(eod)).toEqual([
+      ["2026-11-20", 159.34],
+      ["2026-11-23", 165.04],
+    ]);
+    expect(() => parseEodhdEod('{"error":"x"}')).toThrow();
+  });
+
+  it("de un ISIN con varias cotizaciones elige la divisa pedida en el mercado principal", () => {
+    const hits = parseEodhdSearch(search);
+    expect(hits).toHaveLength(3);
+    expect(bestEodhdHit(hits, "EUR")).toMatchObject({ code: "NGXA.XETRA", kind: "etf", price: 48.266, date: "2026-11-23" });
+    expect(bestEodhdHit(hits, "USD")?.code).toBe("3BRL.LSE");
+  });
+
+  it("resuelve el código a partir del ISIN al comprobar la fuente", async () => {
+    const probe = await probeSource(async () => search, { priceSource: "eodhd", symbol: null, isin: "IE00BMTM6D55", currency: "EUR" });
+    expect(probe).toMatchObject({ code: "NGXA.XETRA", price: 48.266, currency: "EUR" });
+  });
+
+  it("detecta un split por el salto de precio y reescala lo anterior", () => {
+    const stored: Array<[string, number]> = [
+      ["2026-06-01", 400],
+      ["2026-06-02", 404],
+    ];
+    expect(splitSuspect(stored, [["2026-06-03", 101]])).toBe(true);
+    expect(splitSuspect(stored, [["2026-06-03", 380]])).toBe(false);
+    expect(parseEodhdSplits(JSON.stringify([{ date: "2026-06-03", split: "4.000000/1.000000" }]))).toEqual([["2026-06-03", 4]]);
+    expect(rescaleBefore([...stored, ["2026-06-03", 101]], "2026-06-03", 4)).toEqual([
+      ["2026-06-01", 100],
+      ["2026-06-02", 101],
+      ["2026-06-03", 101],
+    ]);
+  });
+
+  it("al actualizar aplica el split y deja de insistir cuando se agota el cupo", async () => {
+    const asset = (id: string, symbol: string): Asset => ({ id, name: id, kind: "stock", symbol, isin: null, currency: "EUR", priceSource: "eodhd", goalId: null, planExcluded: false, createdAt: "2026-01-01T00:00:00.000Z" });
+    const state = { ...EMPTY_STATE, assets: [asset("a", "AAA.XETRA"), asset("b", "BBB.XETRA"), asset("c", "CCC.XETRA")], prices: { a: [["2026-06-01", 400], ["2026-06-02", 404]] as Array<[string, number]> } };
+    const asked: string[] = [];
+    const get = async (url: string) => {
+      asked.push(url);
+      if (url.includes("/splits/AAA.XETRA")) return JSON.stringify([{ date: "2026-06-03", split: "4.000000/1.000000" }]);
+      if (url.includes("/eod/AAA.XETRA")) return JSON.stringify([{ date: "2026-06-02", close: 404 }, { date: "2026-06-03", close: 101 }]);
+      throw new Error("HTTP 402");
+    };
+    const { ops, issues } = await syncMarket(state, {}, get, true);
+    const prices = ops.find((o) => o.op === "prices" && o.assetId === "a");
+    expect(prices).toMatchObject({ replace: true, points: [["2026-06-01", 100], ["2026-06-02", 101], ["2026-06-03", 101]] });
+    expect(ops.find((o) => o.op === "splits" && o.assetId === "a")).toMatchObject({ points: [["2026-06-03", 4]] });
+    expect(asked.filter((u) => u.includes("CCC"))).toHaveLength(0);
+    expect(issues.map((i) => i.what)).toEqual(["EODHD"]);
+    const failed = ops.filter((o) => o.op === "meta" && o.key.startsWith("failed:asset:") && o.value).map((o) => (o.op === "meta" ? o.key : ""));
+    expect(failed).toEqual(["failed:asset:b", "failed:asset:c"]);
+  });
+});
+
+describe("Binance e Indexa", () => {
+  it("lee el cierre de las velas diarias con su fecha UTC", () => {
+    const klines = JSON.stringify([
+      [1795392000000, "0.00000308", "0.00000341", "0.00000302", "0.00000315", "1", 1795478399999],
+      [1795478400000, "0.00000314", "0.00000329", "0.00000310", "0.00000319", "1", 1795564799999],
+    ]);
+    expect(parseBinanceKlines(klines)).toEqual([
+      ["2026-11-23", 0.00000315],
+      ["2026-11-24", 0.00000319],
+    ]);
+    expect(binanceCurrency("etheur")).toBe("EUR");
+    expect(binanceCurrency("ETHUSDT")).toBe("USD");
+  });
+
+  const me = JSON.stringify({ email: "x", accounts: [{ account_number: "AAAA1111", status: "cancelled" }, { account_number: "BBBB2222", status: "active" }] });
+  const portfolio = JSON.stringify({
+    portfolio: { date: "2026-11-23", total_amount: 1 },
+    instrument_accounts: [{ positions: [{ price: 22.05622, titles: 1, amount: 1, instrument: { identifier: "0192#0011", name: "Plan de prueba" } }] }],
+  });
+
+  it("de Indexa solo saca cuentas activas, y de la cartera el precio y la fecha", () => {
+    expect(parseIndexaAccounts(me)).toEqual(["BBBB2222"]);
+    const quotes = parseIndexaPortfolio(portfolio);
+    expect(quotes).toEqual([{ identifier: "0192#0011", name: "Plan de prueba", price: 22.05622, date: "2026-11-23" }]);
+    expect(pickIndexa(quotes, null).price).toBe(22.05622);
+    expect(() => pickIndexa(quotes, "otro")).toThrow(/ninguna posición/);
+  });
+
+  it("actualiza el plan con una sola ronda de consultas y anota el fallo si la clave no vale", async () => {
+    const plan: Asset = { id: "p", name: "Plan", kind: "fund", symbol: "0192#0011", isin: null, currency: "EUR", priceSource: "indexa", goalId: null, planExcluded: false, createdAt: "2026-01-01T00:00:00.000Z" };
+    const state = { ...EMPTY_STATE, assets: [plan] };
+    const good = await syncMarket(state, {}, async (url) => (url.endsWith("/users/me") ? me : portfolio), true);
+    expect(good.ops.find((o) => o.op === "prices")).toMatchObject({ assetId: "p", points: [["2026-11-23", 22.05622]] });
+    const bad = await syncMarket(state, {}, async () => Promise.reject(new Error("HTTP 401")), true);
+    const failed = bad.ops.find((o) => o.op === "meta" && o.key === "failed:asset:p");
+    expect(failed && failed.op === "meta" && JSON.parse(failed.value).message).toMatch(/rechaza la clave/);
   });
 });

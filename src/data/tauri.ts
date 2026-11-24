@@ -237,7 +237,8 @@ export const tauriBackend: Backend = {
       grouped("SELECT asset_id, date, close FROM prices ORDER BY asset_id, date"),
       grouped("SELECT currency, date, rate FROM fx ORDER BY currency, date"),
       grouped("SELECT asset_id, date, ratio FROM splits ORDER BY asset_id, date"),
-      query("SELECT key, value FROM meta"),
+      // Las claves de servicios no se cargan: basta saber cuáles hay.
+      query("SELECT key, CASE WHEN key LIKE 'secret:%' THEN '' ELSE value END FROM meta WHERE value <> ''"),
       selectAll<Goal>("goals", GOAL, "sort_order, name"),
       selectAll<Property>("properties", PROPERTY, "purchase_date"),
       selectAll<Mortgage>("mortgages", MORTGAGE, "created_at"),
@@ -245,7 +246,11 @@ export const tauriBackend: Backend = {
       selectAll<PropertyValuation>("property_valuations", VALUATION, "date"),
     ]);
     const meta: Meta = {};
-    for (const [k, v] of metaRows) meta[k as string] = v as string;
+    for (const [k, v] of metaRows) {
+      const key = k as string;
+      if (key.startsWith("secret:")) meta[`connected:${key.slice(7)}`] = "1";
+      else meta[key] = v as string;
+    }
     const state: AppState = { accounts, assets, txs, prices, fx, splits, goals, properties, mortgages, mortgageEvents, valuations, lastSync: meta.lastSync ?? null };
     return { state, meta };
   },
