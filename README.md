@@ -29,6 +29,8 @@ Requisitos: Node 22+, pnpm, Rust y las herramientas de línea de comandos de Xco
 | Activos | Todo lo que sigues, lo tengas o no en cartera: de qué día es cada precio, de dónde sale y qué no se está actualizando. Aquí se añaden activos nuevos. |
 | Cuentas · Ajustes | Cuentas, copias de seguridad, conexiones con servicios de datos y tema. |
 
+Al abrir, una animación de carga («Marea») acompaña a la actualización de precios y termina convirtiendo una de las ondas del logo en la curva de la cartera. Tiene dos variantes: completa, con el avance activo a activo, cuando hay precios que actualizar; y corta cuando la app se abrió hace poco y están al día. Se salta con un clic y no se muestra si el sistema pide reducir el movimiento. Para verla en `pnpm dev:web`: `?splash=full` enseña la completa con la cartera de ejemplo y `?splash=off` la quita.
+
 ## Cómo está hecha
 
 Una idea manda sobre todo lo demás: **solo se guarda lo que tú registras** (cuentas, activos, operaciones, bloques del plan, inmuebles e hipotecas) y los datos de mercado descargados. Posiciones, lotes, plusvalías, rentabilidades, cuadros de amortización e informes se calculan al vuelo cada vez; no hay tablas derivadas que puedan desincronizarse.

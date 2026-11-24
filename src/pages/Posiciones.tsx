@@ -5,9 +5,9 @@ import type { Position } from "../../shared/engine/timeline.ts";
 import { ASSET_KIND_LABEL } from "../../shared/types.ts";
 import { Spark, Strip } from "../charts/viz.tsx";
 import { useDerived } from "../data/store.ts";
-import { eur, eurSigned, money, num, pct, pctSigned, priceDigits, seriesColor } from "../lib/format.ts";
+import { dateShort, eur, eurSigned, money, num, pct, pctSigned, priceDigits, seriesColor, splitMoney } from "../lib/format.ts";
 import { openDialog } from "../ui/dialogs.ts";
-import { Btn, Card, Dot, Empty, Money, toneOf } from "../ui/kit.tsx";
+import { Btn, Dot, Empty, Money, toneOf } from "../ui/kit.tsx";
 import { L, TFoot, THead, TRow, Table, Welcome } from "./common.tsx";
 
 type SortKey = "name" | "day" | "value" | "gain" | "weight";
@@ -60,6 +60,9 @@ export function Posiciones() {
   const top3 = d.positions.slice(0, 3).reduce((s, p) => s + p.weight, 0);
   const hotPos = hot ? d.positions.find((p) => p.asset.id === hot) : null;
   const noPrice = rows.filter((p) => p.priceDate == null).length;
+  const total = value + cashTotal;
+  const [totalI, totalD] = splitMoney(eur(total));
+  const noCashAccounts = d.state.accounts.filter((a) => !a.archived && (!d.scope || d.scope.has(a.id)) && !cash.some((c) => c.account.id === a.id)).length;
 
   const Th = ({ k, children, left }: { k: SortKey; children: string; left?: boolean }) => (
     <button type="button" className={`hover:text-ink ${left ? "text-left" : "text-right"} ${sort.key === k ? "text-ink2" : ""}`} onClick={() => setSort((s) => ({ key: k, desc: s.key === k ? !s.desc : k !== "name" }))}>
@@ -83,22 +86,93 @@ export function Posiciones() {
         </div>
       )}
 
+      <div className="flex flex-wrap items-stretch gap-5">
+        <section className="min-w-0 flex-[1_1_520px] px-1 pt-2">
+          <div className="text-[12px] text-mute">Valor de la cartera · {dateShort(d.today)}</div>
+          <div className="mt-0.5 text-[56px] leading-[1.05] font-medium tracking-[-0.02em]" style={{ fontStretch: "108%" }}>
+            {totalI}
+            <span className="text-mute">{totalD}</span>
+          </div>
+          {total > 0 && (
+            <>
+              <div className="mt-4 flex h-2.5 gap-[3px]">
+                <div className="rounded-[3px] bg-acc" style={{ width: `${(value / total) * 100}%` }} />
+                {cashTotal > 0.005 && <div className="flex-1 rounded-[3px] bg-ink2" />}
+              </div>
+              <div className="mt-2.5 flex flex-wrap gap-x-7 gap-y-2 text-[12.5px]">
+                <span className="flex items-center gap-2 whitespace-nowrap">
+                  <span className="size-2 rounded-[2px] bg-acc" />
+                  <span className="text-ink2">Invertido</span>
+                  <span className="font-semibold">{eur(value)}</span>
+                  <span className="text-mute">
+                    {pct(value / total)} · {rows.length} {rows.length === 1 ? "posición" : "posiciones"}
+                  </span>
+                </span>
+                {cash.length > 0 && (
+                  <span className="flex items-center gap-2 whitespace-nowrap">
+                    <span className="size-2 rounded-[2px] bg-ink2" />
+                    <span className="text-ink2">Efectivo</span>
+                    <span className="font-semibold">{eur(cashTotal)}</span>
+                    <span className="text-mute">{pct(cashTotal / total)} · sin invertir</span>
+                  </span>
+                )}
+              </div>
+            </>
+          )}
+          {rows.length > 0 && (
+            <>
+              <div className="mt-6 mb-2 flex flex-wrap justify-between gap-4 text-[12.5px] text-ink2">
+                <span>
+                  Concentración de lo invertido · las tres mayores suman <span className="font-semibold text-ink">{pct(top3)}</span>
+                </span>
+                <span className="text-ink">{hotPos ? `${hotPos.asset.name} · ${pct(hotPos.weight)}` : ""}</span>
+              </div>
+              <Strip items={d.positions.map((p) => ({ key: p.asset.id, value: p.weight }))} hot={hot} onHover={setHot} />
+            </>
+          )}
+        </section>
+
+        {cash.length > 0 && (
+          <section className="card flex max-w-[400px] min-w-0 flex-[1_1_320px] flex-col">
+            <div className="flex items-baseline justify-between gap-3 px-5 pt-4 pb-3">
+              <span className="wide font-semibold">Efectivo</span>
+              <span className="text-[20px] font-[550] whitespace-nowrap" style={{ fontStretch: "106%" }}>
+                <Money value={cashTotal} />
+              </span>
+            </div>
+            {cash.map((c) => (
+              <div key={c.account.id} className="border-t border-line px-5 py-3 transition-[background] duration-100 hover:bg-wash">
+                <div className="flex items-baseline gap-2.5">
+                  <span className="self-center">
+                    <Dot color={seriesColor(c.account.color)} />
+                  </span>
+                  <span className="min-w-0 flex-1 truncate font-[550]">{c.account.name}</span>
+                  <span className={`font-semibold whitespace-nowrap ${c.eur < 0 ? "text-down" : ""}`}>{eur(c.eur)}</span>
+                </div>
+                <div className="mt-0.5 ml-4 flex justify-between gap-2.5 text-[11.5px] text-mute">
+                  <span>saldo {money(c.balance, c.account.currency)}</span>
+                  <span>{cashTotal > 0 ? `${pct(Math.max(0, c.eur) / cashTotal)} del efectivo` : ""}</span>
+                </div>
+                <div className="mt-2 ml-4 h-1 rounded-[2px] bg-line">
+                  <div className="h-full rounded-[2px]" style={{ width: `${cashTotal > 0 ? Math.min(100, (Math.max(0, c.eur) / cashTotal) * 100) : 0}%`, background: seriesColor(c.account.color) }} />
+                </div>
+              </div>
+            ))}
+            <div className="flex-1" />
+            <div className="border-t border-line px-5 py-3 text-[12px] text-pretty text-mute">
+              {cash.some((c) => c.account.currency !== "EUR") ? "Los saldos en divisa se pasan a EUR al cambio de hoy. " : ""}
+              {noCashAccounts > 0 ? (noCashAccounts === 1 ? "La otra cuenta no lleva efectivo." : "Las demás cuentas no llevan efectivo.") : ""}
+            </div>
+          </section>
+        )}
+      </div>
+
       {rows.length === 0 ? (
         <Empty title="No hay posiciones abiertas" action={<Btn variant="cta" onClick={() => openDialog({ kind: "tx" })}>Registrar una compra</Btn>}>
           Las posiciones aparecen al registrar compras en las cuentas seleccionadas.
         </Empty>
       ) : (
         <>
-          <section className="px-1 pt-2">
-            <div className="mb-2 flex flex-wrap justify-between gap-4 text-[12.5px] text-ink2">
-              <span>
-                Concentración · las tres mayores suman <span className="font-semibold text-ink">{pct(top3)}</span>
-              </span>
-              <span className="text-ink">{hotPos ? `${hotPos.asset.name} · ${pct(hotPos.weight)}` : ""}</span>
-            </div>
-            <Strip items={d.positions.map((p) => ({ key: p.asset.id, value: p.weight }))} hot={hot} onHover={setHot} />
-          </section>
-
           <section className="card overflow-hidden" onMouseLeave={() => setHot(null)}>
             <Table cols={COLS} minWidth={1040}>
               <THead>
@@ -179,22 +253,6 @@ export function Posiciones() {
         </>
       )}
 
-      {cash.length > 0 && (
-        <Card title="Efectivo" pad={false} className="max-w-[620px]">
-          {cash.map((c) => (
-            <div key={c.account.id} className="flex items-center gap-2.5 border-t border-line px-5 py-[var(--row)]">
-              <Dot color={seriesColor(c.account.color)} />
-              <span className="flex-1">{c.account.name}</span>
-              <span className="w-[130px] text-right text-mute">{c.account.currency === "EUR" ? "" : money(c.balance, c.account.currency)}</span>
-              <span className={`w-[110px] text-right font-medium ${c.eur < 0 ? "text-down" : ""}`}>{eur(c.eur)}</span>
-            </div>
-          ))}
-          <div className="flex border-t border-line2 px-5 py-3.5 font-[650]">
-            <span className="flex-1">Total con posiciones</span>
-            <span>{eur(value + cashTotal)}</span>
-          </div>
-        </Card>
-      )}
     </div>
   );
 }

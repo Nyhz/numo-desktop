@@ -1,4 +1,4 @@
-import { ArrowLeftRight, Check, ChevronDown, FileText, House, Landmark, Layers, LineChart, Moon, Plus, Radar, RefreshCw, Settings, Sun, Target, Waves } from "lucide-react";
+import { ArrowLeftRight, Check, ChevronDown, FileText, House, Landmark, Layers, LineChart, Moon, Plus, Radar, RefreshCw, Settings, Sun, Target } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, Route, Router, Switch, useLocation } from "wouter";
 import { useHashLocation } from "wouter/use-hash-location";
@@ -17,6 +17,8 @@ import { Posiciones } from "./pages/Posiciones.tsx";
 import { Resumen } from "./pages/Resumen.tsx";
 import { openDialog, useDialog } from "./ui/dialogs.ts";
 import { Btn, Dot, Toaster } from "./ui/kit.tsx";
+import { Logo } from "./ui/Logo.tsx";
+import { Splash } from "./ui/Splash.tsx";
 
 type Nav = { href: string; label: string; icon: typeof LineChart; scoped?: boolean };
 const NAV_MAIN: Nav[] = [
@@ -187,13 +189,8 @@ function Shell({ children }: { children: ReactNode }) {
       {/* Rail: solo iconos. En macOS se ensancha y deja hueco arriba: los botones de la ventana
           ocupan unos 70 px de ancho y no deben quedar sobre el panel. */}
       <nav data-tauri-drag-region className={`flex flex-none flex-col items-center gap-1.5 pb-3.5 ${backend.native && isMac ? "w-[78px] pt-[46px]" : "w-16 pt-3.5"}`} aria-label="Secciones">
-        <div
-          data-tauri-drag-region
-          className="mb-3.5 grid size-9 place-items-center rounded-full border border-line2 bg-raised text-acc"
-          style={{ boxShadow: "var(--shadow)" }}
-          title="Caudal"
-        >
-          <Waves size={19} strokeWidth={1.9} />
+        <div data-tauri-drag-region data-splash-logo className="mb-3.5 size-9 rounded-full" style={{ boxShadow: "0 0 0 1px var(--line2), var(--shadow)" }} title="Caudal">
+          <Logo size={36} className="pointer-events-none" />
         </div>
         {NAV_MAIN.map((n) => (
           <RailLink key={n.href} nav={n} />
@@ -258,7 +255,13 @@ export function App() {
   const status = useApp((s) => s.status);
   const error = useApp((s) => s.error);
 
-  if (status === "loading") return <div data-tauri-drag-region className="h-full bg-bg" />;
+  if (status === "loading")
+    return (
+      <>
+        <div data-tauri-drag-region className="h-full bg-bg" />
+        <Splash />
+      </>
+    );
   if (status === "error") {
     return (
       <div data-tauri-drag-region className="flex h-full flex-col items-center justify-center gap-3 bg-bg p-10 text-center">
@@ -289,6 +292,7 @@ export function App() {
       </Shell>
       <Dialogs />
       <Toaster />
+      <Splash />
     </Router>
   );
 }

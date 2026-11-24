@@ -1,5 +1,5 @@
 import { addDays, dayNum, isIsoDate, isoOf, todayIso } from "../../shared/dates.ts";
-import type { AppState, AssetKind, Point, PriceSource } from "../../shared/types.ts";
+import { SOURCE_BY_ISIN, type AppState, type AssetKind, type Point, type PriceSource } from "../../shared/types.ts";
 import type { Meta, Op } from "./backend.ts";
 
 // Datos de mercado: cotizaciones (Deutsche Börse, BME, Nasdaq, fundinfo, Binance,
@@ -508,17 +508,33 @@ const span = (pts: Point[] | undefined) =>
  * Calcula qué falta por descargar y lo descarga. No toca el estado: devuelve
  * los cambios para que el almacén los aplique y los guarde de una vez.
  */
+/** Activos cuyo precio toca descargar: los de fuente automática sin precio o con la descarga caducada. */
+export function dueAssets(state: AppState, meta: Meta, force = false): AppState["assets"] {
+  return state.assets.filter((a) => {
+    if (a.priceSource === "manual") return false;
+    if (a.priceSource !== "indexa" && !(SOURCE_BY_ISIN[a.priceSource] ? a.isin : a.symbol)) return false;
+    return !(state.prices[a.id]?.length && fresh(meta, `fetched:asset:${a.id}`, force));
+  });
+}
+
+export type SyncProgress = { name: string; done: number; total: number };
+
 export async function syncMarket(
   state: AppState,
   meta: Meta,
   get: Get,
   force = false,
+  onProgress?: (p: SyncProgress) => void,
 ): Promise<SyncResult> {
   const ops: Op[] = [];
   const issues: SyncIssue[] = [];
   const today = todayIso();
   const stamp = () => new Date().toISOString();
   let got = false;
+  // Avance para la pantalla de carga: qué activo se está pidiendo y cuántos van.
+  const total = dueAssets(state, meta, force).length;
+  let done = 0;
+  const begin = (name: string) => onProgress?.({ name, done: Math.min(++done, total), total: Math.max(total, done) });
   // Cada activo recuerda su último fallo para que se vea cuál no se está actualizando.
   const failed = (id: string, why: string) => ops.push({ op: "meta", key: `failed:asset:${id}`, value: JSON.stringify({ at: stamp(), message: why }) });
   const fetched = (id: string) => {
@@ -584,6 +600,7 @@ export async function syncMarket(
       failed(a.id, YAHOO_LIMIT);
       continue;
     }
+    begin(a.name);
     try {
       let q = await yahooChart(get, a.symbol, covers ? addDays(have!.max, -7) : need, today);
       let full = !covers;
@@ -618,6 +635,7 @@ export async function syncMarket(
     const have = span(state.prices[a.id]);
     // Solo se pide histórico si falta más de una semana; lo normal es un valor liquidativo al día.
     const gapFrom = !have ? addDays(firstByAsset.get(a.id) ?? today, -10) : have.max < addDays(today, -7) ? have.max : null;
+    begin(a.name);
     try {
       ops.push({ op: "prices", assetId: a.id, points: await ftPrices(get, a.isin, a.currency, gapFrom, today) });
       fetched(a.id);
@@ -641,6 +659,7 @@ export async function syncMarket(
     let pts: Point[] = [];
     let via: string | null = null;
     let why = "";
+    begin(a.name);
     try {
       if (src === "xetra") pts = await xetraPrices(get, id, from, today);
       else if (src === "bme") pts = await bmePrices(get, id, from, today);
@@ -710,6 +729,7 @@ export async function syncMarket(
     if (a.priceSource !== "binance" || !a.symbol) continue;
     const have = span(state.prices[a.id]);
     if (have && fresh(meta, `fetched:asset:${a.id}`, force)) continue;
+    begin(a.name);
     try {
       ops.push({ op: "prices", assetId: a.id, points: await binancePrices(get, a.symbol, have ? addDays(have.max, -3) : addDays(firstByAsset.get(a.id) ?? floor, -10), today) });
       fetched(a.id);
@@ -725,6 +745,7 @@ export async function syncMarket(
     try {
       const quotes = await indexaQuotes(get);
       for (const a of indexa) {
+        begin(a.name);
         try {
           const q = pickIndexa(quotes, a.symbol);
           ops.push({ op: "prices", assetId: a.id, points: [[q.date, q.price]] });

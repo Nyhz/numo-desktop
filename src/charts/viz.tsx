@@ -1,12 +1,14 @@
 import type { ReactNode } from "react";
 import { dayNum } from "../../shared/dates.ts";
-import { monthName, pct } from "../lib/format.ts";
+import { eur, eurSigned, monthName, pct, pctSigned } from "../lib/format.ts";
 
-// Visualizaciones secundarias del diseño (mapa de reparto, mapa de calor,
-// coste→valor, franja de concentración, flujo de efectivo, lotes vendidos…).
+const toneOf = (v: number): string => (Math.abs(v) < 0.005 ? "var(--ink2)" : v > 0 ? "var(--up)" : "var(--down)");
+
+// Visualizaciones secundarias del diseño (reparto por grupos, rentabilidad mes a
+// mes y por posición, franja de concentración, flujo de efectivo, lotes vendidos…).
 // Todas en HTML/CSS con medidas en porcentajes: se adaptan solas al ancho.
 
-// ── Mapa de reparto ────────────────────────────────────────────────────────
+// ── Reparto ────────────────────────────────────────────────────────────────
 
 export type TreeItem = { key: string; name: string; value: number; group: string; color?: string };
 export type TreeCell = { key: string; name: string; value: number; share: number; show: boolean; bg: string; bgHot: string };
@@ -52,31 +54,35 @@ export function treeGroups(items: TreeItem[], byColor = false): TreeGroup[] {
     });
 }
 
-export function TreeMap({ groups, hot, onHover, height = 250 }: { groups: TreeGroup[]; hot: string | null; onHover: (cell: TreeCell | null) => void; height?: number }) {
+/** Una fila por grupo sobre una base común: el largo es el peso del grupo y sus tramos, las posiciones. */
+export function GroupRows({ groups, hot, onHover }: { groups: TreeGroup[]; hot: string | null; onHover: (cell: TreeCell | null) => void }) {
   if (!groups.length) return <div className="py-10 text-center text-mute">Sin posiciones que repartir.</div>;
+  const top = groups[0]!.total;
   return (
-    <div className="flex gap-1" onMouseLeave={() => onHover(null)}>
+    <div className="flex flex-col gap-1.5" onMouseLeave={() => onHover(null)}>
       {groups.map((g) => (
-        <div key={g.name} className="flex min-w-0 flex-col gap-1.5" style={{ flex: `${g.total} 1 0` }}>
-          <div className="flex items-baseline gap-1.5 overflow-hidden text-[12px] whitespace-nowrap">
-            <span className="font-semibold">{g.name}</span>
-            <span className="text-mute">{pct(g.share)}</span>
-          </div>
-          <div className="flex flex-col gap-[3px]" style={{ height }}>
-            {g.cells.map((c) => (
-              <div
-                key={c.key}
-                onMouseEnter={() => onHover(c)}
-                className="min-h-[3px] overflow-hidden rounded-[6px] px-[9px] py-[5px] text-[12px] leading-[1.25] transition-[background] duration-[180ms]"
-                style={{ flex: `${c.value} 1 0`, background: hot === c.key ? c.bgHot : c.bg }}
-              >
-                <div className="flex gap-2" style={{ opacity: c.show ? 1 : 0 }}>
-                  <span className="min-w-0 flex-1 truncate font-[550]">{c.name}</span>
-                  <span className="whitespace-nowrap text-ink2">{pct(c.share)}</span>
+        <div key={g.name} className="grid items-center gap-3.5" style={{ gridTemplateColumns: "minmax(0,110px) minmax(0,1fr) 132px" }}>
+          <span className="truncate font-semibold">{g.name}</span>
+          <div className="h-[34px] border-l border-line2">
+            <div className="flex h-full gap-[2px]" style={{ width: `${(g.total / top) * 100}%` }}>
+              {g.cells.map((c) => (
+                <div
+                  key={c.key}
+                  onMouseEnter={() => onHover(c)}
+                  className="flex min-w-[2px] cursor-default items-center overflow-hidden rounded-[5px] text-[12px] transition-[background] duration-[180ms]"
+                  style={{ flex: `${c.value} 1 0`, background: hot === c.key ? c.bgHot : c.bg }}
+                >
+                  {/* Solo se rotula lo que ocupa bastante de la fila más larga: lo demás no cabría. */}
+                  <span className="truncate px-[9px] font-[550]" style={{ opacity: c.value / top > 0.13 ? 1 : 0 }}>
+                    {c.name}
+                  </span>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
+          <span className="text-right whitespace-nowrap">
+            <span className="font-semibold">{pct(g.share)}</span> <span className="pl-1.5 text-[12px] text-mute">{eur(g.total, 0)}</span>
+          </span>
         </div>
       ))}
     </div>
@@ -93,7 +99,8 @@ const heatBg = (r: number): string => {
 };
 const heatText = (r: number) => (Math.abs(r) < 0.0005 ? "0,0" : (r > 0 ? "+" : "−") + (Math.abs(r) * 100).toFixed(1).replace(".", ","));
 
-export function Heatmap({ months }: { months: Array<{ month: string; ret: number }> }) {
+/** Una fila por año con doce columnas que salen de una línea cero; la cifra va en el lado libre. */
+export function MonthColumns({ months }: { months: Array<{ month: string; ret: number }> }) {
   const byYear = new Map<number, Array<number | null>>();
   for (const { month, ret } of months) {
     const y = +month.slice(0, 4);
@@ -101,112 +108,155 @@ export function Heatmap({ months }: { months: Array<{ month: string; ret: number
     byYear.get(y)![+month.slice(5, 7) - 1] = ret;
   }
   const years = [...byYear.keys()].sort((a, b) => b - a);
-  const cols = "34px repeat(12, minmax(0, 1fr)) minmax(0, 1.3fr)";
+  const cols = "34px repeat(12, minmax(0, 1fr)) minmax(54px, 1.6fr)";
   const positive = months.filter((m) => m.ret > 0.0005).length;
   const best = months.reduce<(typeof months)[number] | null>((b, m) => (!b || m.ret > b.ret ? m : b), null);
   const worst = months.reduce<(typeof months)[number] | null>((b, m) => (!b || m.ret < b.ret ? m : b), null);
   const label = (ym: string) => `${monthName(+ym.slice(5, 7) - 1)} ${ym.slice(0, 4)}`;
+  // La altura crece con la rentabilidad y se satura en el 5 %.
+  const height = (r: number) => `${Math.max(6, Math.min(1, Math.abs(r) / 0.05) * 100)}%`;
   return (
     <>
-      <div className="grid gap-[2px] text-center text-[11.5px]" style={{ gridTemplateColumns: cols }}>
+      <div className="grid gap-[3px] pb-1.5 text-center text-[11px] text-mute" style={{ gridTemplateColumns: cols }}>
         <span />
         {Array.from({ length: 12 }, (_, m) => (
-          <span key={m} className="pb-[3px] text-mute">
-            {monthName(m)}
-          </span>
+          <span key={m}>{monthName(m)}</span>
         ))}
-        <span className="text-mute">Año</span>
+        <span className="text-right">Año</span>
       </div>
       {years.map((y) => {
         const row = byYear.get(y)!;
         const total = row.reduce<number>((acc, r) => acc * (1 + (r ?? 0)), 1) - 1;
         return (
-          <div key={y} className="mt-[3px] grid gap-[2px] text-center text-[11px] tracking-[-0.01em]" style={{ gridTemplateColumns: cols }}>
-            <span className="self-center text-left text-mute">{y}</span>
-            {row.map((r, m) =>
-              r == null ? (
-                <span key={m} />
-              ) : (
-                <span key={m} className="rounded-[6px] py-[11px] font-medium transition-transform duration-100 hover:scale-[1.14]" style={{ background: heatBg(r) }}>
-                  {heatText(r)}
-                </span>
-              ),
-            )}
-            <span className="rounded-[6px] py-[11px] font-[650]" style={{ background: heatBg(total) }}>
-              {heatText(total)}
-            </span>
+          <div key={y} className="grid h-[74px] gap-[3px] border-t border-line" style={{ gridTemplateColumns: cols }}>
+            <span className="self-center text-[11.5px] text-mute">{y}</span>
+            {row.map((r, m) => {
+              const up = r != null && r > 0.0005;
+              const down = r != null && r < -0.0005;
+              const text = "absolute inset-x-0 text-center text-[10.5px] tracking-[-0.02em] whitespace-nowrap";
+              return (
+                <div key={m} className="grid grid-rows-2 rounded-[5px] py-[5px] transition-[background] duration-100 hover:bg-wash" title={r == null ? undefined : `${label(`${y}-${String(m + 1).padStart(2, "0")}`)}: ${heatText(r)} %`}>
+                  <div className="relative">
+                    {up && <div className="absolute inset-x-px bottom-0 rounded-t-[3px] bg-up" style={{ height: height(r) }} />}
+                    {down && <span className={`${text} bottom-[3px] text-down`}>{heatText(r)}</span>}
+                  </div>
+                  <div className="relative border-t border-line2">
+                    {down && <div className="absolute inset-x-px top-0 rounded-b-[3px] bg-down" style={{ height: height(r) }} />}
+                    {up && <span className={`${text} top-[3px] text-up`}>{heatText(r)}</span>}
+                  </div>
+                </div>
+              );
+            })}
+            <div className="self-center text-right">
+              <span className="inline-block rounded-[7px] px-2 py-[5px] text-[12.5px] font-[650] whitespace-nowrap" style={{ background: heatBg(total) }}>
+                {heatText(total)}
+              </span>
+            </div>
           </div>
         );
       })}
       {months.length > 0 && best && worst && (
-        <div className="mt-4 flex flex-wrap gap-x-[22px] gap-y-1 border-t border-line pt-3.5 text-[12.5px] text-ink2">
-          <span>
-            <span className="text-[18px] font-[550] text-ink" style={{ fontStretch: "106%" }}>
-              {positive}
-            </span>{" "}
-            de {months.length} meses en positivo
-          </span>
-          <span>
-            mejor <span className="font-[550] text-up">{heatText(best.ret)} %</span> · {label(best.month)}
-          </span>
-          <span>
-            peor <span className="font-[550] text-down">{heatText(worst.ret)} %</span> · {label(worst.month)}
-          </span>
+        <div className="grid grid-cols-3 gap-5 border-t border-line pt-3.5">
+          <div>
+            <div className="text-[12px] text-mute">Meses en positivo</div>
+            <div className="mt-[3px] text-[18px] font-[550] whitespace-nowrap" style={{ fontStretch: "106%" }}>
+              {positive} <span className="text-[12.5px] font-normal text-mute">de {months.length}</span>
+            </div>
+            <div className="mt-[7px] flex h-1 gap-[2px]">
+              <div className="rounded-[2px] bg-up" style={{ width: `${(positive / months.length) * 100}%` }} />
+              <div className="flex-1 rounded-[2px] bg-down" />
+            </div>
+          </div>
+          <div>
+            <div className="text-[12px] text-mute">Mejor mes</div>
+            <div className="mt-[3px] text-[18px] font-[550] whitespace-nowrap" style={{ fontStretch: "106%", color: best.ret > 0 ? "var(--up)" : "var(--down)" }}>
+              {heatText(best.ret)} %
+            </div>
+            <div className="mt-0.5 text-[11.5px] text-mute">{label(best.month)}</div>
+          </div>
+          <div>
+            <div className="text-[12px] text-mute">Peor mes</div>
+            <div className="mt-[3px] text-[18px] font-[550] whitespace-nowrap" style={{ fontStretch: "106%", color: worst.ret < 0 ? "var(--down)" : "var(--up)" }}>
+              {heatText(worst.ret)} %
+            </div>
+            <div className="mt-0.5 text-[11.5px] text-mute">{label(worst.month)}</div>
+          </div>
         </div>
       )}
     </>
   );
 }
 
-// ── De coste a valor ───────────────────────────────────────────────────────
+// ── Rentabilidad de cada posición ──────────────────────────────────────────
 
-export type DumbRow = { key: string; name: string; from: number; to: number; right: ReactNode; onClick?: () => void };
+export type ReturnRow = { key: string; name: string; ret: number; gain: number; weight: number; onClick?: () => void };
 
-/** Una fila por elemento en una escala común: punto hueco = origen, punto relleno = destino. */
-export function Dumbbell({ rows, axis, toneOf }: { rows: DumbRow[]; axis: (v: number) => string; toneOf: (row: DumbRow) => string }) {
-  const max = Math.max(1e-9, ...rows.map((r) => Math.max(r.from, r.to)));
-  const mag = 10 ** Math.floor(Math.log10(max));
-  const step = [1, 2, 2.5, 5, 10].map((m) => (m * mag) / 2).find((s) => max / s <= 3.2) ?? mag * 5;
-  const top = Math.ceil(max / step) * step;
-  const ticks: number[] = [];
-  for (let v = 0; v < top - step * 1e-6; v += step) ticks.push(v);
-  const cols = "minmax(0, 140px) minmax(0, 1fr) 148px";
-  const p = (v: number) => `${(v / top) * 100}%`;
+/**
+ * Barra horizontal desde una línea cero: el largo es el % sobre el coste (en
+ * escala de raíz, para que +370 % no aplaste a +22 %) y el grosor, el peso en cartera.
+ */
+export function ReturnBars({ rows }: { rows: ReturnRow[] }) {
+  if (!rows.length) return null;
+  const root = (v: number) => Math.sign(v) * Math.sqrt(Math.abs(v));
+  const pcts = rows.map((r) => r.ret * 100);
+  const min = Math.min(0, ...pcts);
+  const max = Math.max(1, ...pcts);
+  const lo = root(min) * 1.08;
+  const hi = root(max) * 1.05;
+  const x = (v: number) => ((root(v) - lo) / (hi - lo)) * 100;
+  const maxWeight = Math.max(...rows.map((r) => r.weight), 1e-9);
+  const ticks: Array<{ left: number; label: string }> = [];
+  let last = -99;
+  for (const q of [-75, -50, -25, 0, 25, 100, 200, 400, 800]) {
+    if (q < min || q > max) continue;
+    const left = x(q);
+    if (left - last > 9) {
+      ticks.push({ left, label: q ? `${q > 0 ? "+" : "−"}${Math.abs(q)} %` : "0" });
+      last = left;
+    }
+  }
+  const cols = "minmax(0,140px) minmax(0,1fr) 150px";
   return (
-    <div>
+    <>
       <div className="grid" style={{ gridTemplateColumns: cols }}>
         <span />
         <div className="relative h-4">
           {ticks.map((t) => (
-            <span key={t} className="absolute -translate-x-1/2 text-[11px] whitespace-nowrap text-mute" style={{ left: p(t) }}>
-              {t ? axis(t) : "0"}
+            <span key={t.label} className="absolute -translate-x-1/2 text-[11px] whitespace-nowrap text-mute" style={{ left: `${t.left}%` }}>
+              {t.label}
             </span>
           ))}
         </div>
         <span />
       </div>
-      {rows.map((r) => {
-        const tone = toneOf(r);
-        return (
-          <div
-            key={r.key}
-            onClick={r.onClick}
-            className={`grid items-center rounded-[6px] py-[5px] text-[12.5px] transition-colors duration-100 hover:bg-wash ${r.onClick ? "cursor-pointer" : ""}`}
-            style={{ gridTemplateColumns: cols }}
-          >
-            <span className="truncate pr-3">{r.name}</span>
-            <div className="relative h-4 border-l border-line2">
-              <div className="absolute top-[7px] h-[2px] opacity-60" style={{ left: p(Math.min(r.from, r.to)), width: p(Math.abs(r.to - r.from)), background: tone }} />
-              <span className="absolute top-1 -ml-1 size-2 rounded-full border-[1.5px] border-mute bg-card" style={{ left: p(r.from) }} />
-              <span className="absolute top-[3px] -ml-[5px] size-2.5 rounded-full" style={{ left: p(r.to), background: tone }} />
+      {[...rows]
+        .sort((a, b) => b.ret - a.ret)
+        .map((r) => {
+          const h = Math.round(3 + 13 * Math.sqrt(r.weight / maxWeight));
+          const tone = toneOf(r.gain);
+          return (
+            <div
+              key={r.key}
+              className={`grid items-center rounded-[6px] text-[12.5px] transition-[background] duration-100 hover:bg-wash ${r.onClick ? "cursor-pointer" : ""}`}
+              style={{ gridTemplateColumns: cols }}
+              onClick={r.onClick}
+            >
+              <span className="truncate pr-3">{r.name}</span>
+              <div className="relative h-[26px]">
+                <div className="absolute inset-y-0 border-l border-line2" style={{ left: `${x(0)}%` }} />
+                <div
+                  className="absolute top-1/2 min-w-[2px] rounded-[2px]"
+                  style={{ left: `${Math.min(x(0), x(r.ret * 100))}%`, width: `${Math.abs(x(r.ret * 100) - x(0))}%`, height: h, marginTop: -h / 2, background: tone }}
+                />
+              </div>
+              <span className="text-right whitespace-nowrap" style={{ color: tone }}>
+                <span className="font-semibold">{pctSigned(r.ret)}</span> <span className="pl-1 text-[11.5px] opacity-75">{eurSigned(r.gain)}</span>
+              </span>
             </div>
-            <span className="text-right whitespace-nowrap" style={{ color: tone }}>
-              {r.right}
-            </span>
-          </div>
-        );
-      })}
-    </div>
+          );
+        })}
+      <p className="mt-2.5 text-[12px] text-pretty text-mute">El eje está comprimido (escala de raíz) para que una posición muy revalorizada no aplaste a las demás.</p>
+    </>
   );
 }
 
@@ -235,75 +285,84 @@ export function Strip({ items, hot, onHover, height = 38 }: { items: Array<{ key
 
 export type FlowDot = { key: string; date: string; amount: number; color: string; label: string };
 
-/**
- * Un círculo por operación sobre un eje temporal: arriba si entra dinero, abajo
- * si sale; el diámetro crece con la raíz del importe. Los que coinciden en
- * fecha se apilan.
- */
-export function FlowChart({ dots, from, to, hot, onHover, height = 190 }: { dots: FlowDot[]; from: string; to: string; hot: string | null; onHover: (key: string | null) => void; height?: number }) {
-  const t0 = dayNum(from);
-  const t1 = Math.max(t0 + 1, dayNum(to));
-  const pos = (d: string) => ((dayNum(d) - t0) / (t1 - t0)) * 100;
-  // El tamaño se escala al mayor importe visible para que quepa siempre.
-  const biggest = Math.max(1, ...dots.map((d) => Math.abs(d.amount)));
-  const k = 29 / Math.sqrt(biggest);
-  const stack = new Map<string, number>();
-  const placed = [...dots]
-    .sort((a, b) => a.date.localeCompare(b.date))
-    .map((d) => {
-      const size = Math.round(Math.max(7, Math.min(34, 5 + Math.sqrt(Math.abs(d.amount)) * k)));
-      const up = d.amount > 0;
-      // Clave por columna de ~1 % de ancho para apilar también fechas muy próximas.
-      const key = `${Math.round(pos(d.date))}${up}`;
-      const off = stack.get(key) ?? 0;
-      stack.set(key, off + size + 2);
-      return { ...d, size, top: up ? `calc(50% - ${4 + off + size}px)` : `calc(50% + ${4 + off}px)` };
-    });
-
-  // Marcas de mes (o de año si el periodo es largo).
-  const ticks: Array<{ left: number; label: string }> = [];
-  const months = (t1 - t0) / 30.4;
-  const every = months > 40 ? 12 : months > 20 ? 3 : months > 10 ? 2 : 1;
-  const start = new Date(t0 * 86_400_000);
-  for (let y = start.getUTCFullYear(), m = start.getUTCMonth() + 1; ; m++) {
-    if (m > 11) {
-      m = 0;
-      y++;
-    }
-    const day = Date.UTC(y, m, 1) / 86_400_000;
-    if (day > t1) break;
-    if (m % every === 0) ticks.push({ left: ((day - t0) / (t1 - t0)) * 100, label: every >= 12 ? String(y) : m === 0 ? `${monthName(0)} ${String(y).slice(2)}` : monthName(m) });
+/** En qué tramos se agrupa el flujo según lo largo que sea el periodo: meses, trimestres o años. */
+function flowBuckets(from: string, to: string): Array<{ key: string; label: string }> {
+  const ym = (iso: string) => +iso.slice(0, 4) * 12 + (+iso.slice(5, 7) - 1);
+  const [a, b] = [ym(from), ym(to)];
+  const span = b - a + 1;
+  const step = span <= 14 ? 1 : span <= 42 ? 3 : 12;
+  const out: Array<{ key: string; label: string }> = [];
+  for (let m = Math.floor(a / step) * step; m <= b; m += step) {
+    const [y, mo] = [Math.floor(m / 12), m % 12];
+    const yy = String(y).slice(2);
+    out.push({ key: String(m), label: step === 1 ? (mo === 0 || out.length === 0 ? `${monthName(mo)} ${yy}` : monthName(mo)) : step === 3 ? `T${mo / 3 + 1} ${yy}` : String(y) });
   }
+  return out;
+}
 
-  return (
-    <div className="relative mt-2 mr-4 ml-11" style={{ height }} onMouseLeave={() => onHover(null)}>
-      <div className="absolute top-1/2 -right-4 -left-11 border-t border-line2" />
-      <span className="absolute top-[calc(50%-20px)] -left-11 text-[11px] text-mute">entra</span>
-      <span className="absolute top-[calc(50%+5px)] -left-11 text-[11px] text-mute">sale</span>
-      {ticks.map((t, i) => (
-        <div key={i} className="absolute inset-y-0 border-l border-dashed border-line" style={{ left: `${t.left}%` }}>
-          <span className="absolute bottom-0 left-1.5 text-[11px] whitespace-nowrap text-mute">{t.label}</span>
-        </div>
-      ))}
-      {placed.map((d) => (
+/**
+ * Una columna por mes: lo que entra se apila hacia arriba y lo que sale hacia
+ * abajo desde una línea central. Cada tramo es una operación y su altura, el importe.
+ */
+export function FlowColumns({ dots, from, to, hot, onHover }: { dots: FlowDot[]; from: string; to: string; hot: string | null; onHover: (key: string | null) => void }) {
+  const buckets = flowBuckets(from, to);
+  const span = buckets.length > 1 ? +buckets[1]!.key - +buckets[0]!.key : 1;
+  const cols = buckets.map((b) => ({ ...b, ins: [] as FlowDot[], outs: [] as FlowDot[], inTotal: 0, outTotal: 0 }));
+  const index = new Map(cols.map((c, i) => [c.key, i]));
+  for (const dot of dots) {
+    const m = +dot.date.slice(0, 4) * 12 + (+dot.date.slice(5, 7) - 1);
+    const col = cols[index.get(String(Math.floor(m / span) * span)) ?? -1];
+    if (!col) continue;
+    if (dot.amount > 0) {
+      col.ins.push(dot);
+      col.inTotal += dot.amount;
+    } else {
+      col.outs.push(dot);
+      col.outTotal -= dot.amount;
+    }
+  }
+  // La pila más alta deja sitio encima para su cifra.
+  const max = Math.max(1, ...cols.map((c) => Math.max(c.inTotal, c.outTotal))) * 1.25;
+  const whole = (n: number) => eur(n, 0);
+  const stack = (list: FlowDot[]) =>
+    [...list]
+      .sort((x, y) => Math.abs(y.amount) - Math.abs(x.amount))
+      .map((dot) => (
         <div
-          key={d.key}
-          title={d.label}
-          onMouseEnter={() => onHover(d.key)}
-          className="absolute rounded-full transition-[transform,background] duration-150"
-          style={{
-            left: `${pos(d.date)}%`,
-            top: d.top,
-            width: d.size,
-            height: d.size,
-            marginLeft: -d.size / 2,
-            border: `1.5px solid ${d.color}`,
-            background: hot === d.key ? d.color : `color-mix(in oklab, ${d.color} 32%, transparent)`,
-            transform: `scale(${hot === d.key ? 1.3 : 1})`,
-            zIndex: hot === d.key ? 2 : 1,
-          }}
+          key={dot.key}
+          onMouseEnter={() => onHover(dot.key)}
+          title={dot.label}
+          className="w-full max-w-[72px] flex-none rounded-[3px] transition-opacity duration-150"
+          style={{ height: `${(Math.abs(dot.amount) / max) * 100}%`, minHeight: 2, background: `color-mix(in oklab, ${dot.color} 78%, var(--card))`, opacity: hot && hot !== dot.key ? 0.35 : 1 }}
         />
-      ))}
+      ));
+  return (
+    <div className="relative mt-3.5 flex gap-3 pl-11" onMouseLeave={() => onHover(null)}>
+      <span className="absolute top-[92px] left-0 text-[11px] text-mute">entra</span>
+      <span className="absolute top-[118px] left-0 text-[11px] text-mute">sale</span>
+      {cols.map((c) => {
+        const net = c.inTotal - c.outTotal;
+        const any = c.inTotal > 0 || c.outTotal > 0;
+        return (
+          <div key={c.key} className="flex min-w-0 flex-1 flex-col items-center">
+            <div className="flex h-[112px] w-full flex-col-reverse items-center gap-px pb-px">
+              {stack(c.ins)}
+              <span className="pb-[3px] text-[11.5px] font-[550] whitespace-nowrap">{c.inTotal > 0 ? `+${whole(c.inTotal)}` : ""}</span>
+            </div>
+            <div className="w-full border-t border-line2" />
+            <div className="flex h-[112px] w-full flex-col items-center gap-px pt-px">
+              {stack(c.outs)}
+              <span className="pt-[3px] text-[11.5px] font-[550] whitespace-nowrap text-ink2">{c.outTotal > 0 ? `−${whole(c.outTotal)}` : ""}</span>
+            </div>
+            <div className="mt-1.5 w-full border-t border-line pt-1.5 text-center whitespace-nowrap">
+              <div className="text-[12px] text-ink2">{c.label}</div>
+              <div className="truncate text-[11.5px]" style={{ color: !any ? "var(--mute)" : net >= 0 ? "var(--up)" : "var(--ink2)" }}>
+                {any ? `neto ${net < 0 ? "−" : "+"}${whole(Math.abs(net))}` : "sin movimientos"}
+              </div>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

@@ -1,15 +1,13 @@
 import { Pencil, Plus, X } from "lucide-react";
-import { useMemo, useState } from "react";
-import { parseNumber } from "../../shared/csv.ts";
-import { scheduleByYear, simulateRepayment, valueAt, viewProperties, type PropertyView } from "../../shared/engine/realestate.ts";
+import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { simulateRepayment, viewProperties, type PropertyView } from "../../shared/engine/realestate.ts";
 import { RATE_TYPE_LABEL, type MortgageEvent } from "../../shared/types.ts";
-import { HeroChart, HeroLegend, bandModel, lineModel, type HeroModel, type Row } from "../charts/hero.tsx";
-import { SplitBar } from "../charts/viz.tsx";
-import { derive, removeMortgageEvent, removeValuation, useApp } from "../data/store.ts";
-import { dateShort, eur, eurAxis, num, pct, splitMoney } from "../lib/format.ts";
+import { HOME_COLOR, HomeChart, PaidMiniBar, PaidSplit } from "../charts/inmuebles.tsx";
+import { homeModel, type HomeYear, type SimMode } from "../charts/inmuebles-model.ts";
+import { derive, removeMortgageEvent, removeValuation, useApp, type Result } from "../data/store.ts";
+import { dateShort, eur, num, pct, splitMoney } from "../lib/format.ts";
 import { openDialog } from "../ui/dialogs.ts";
-import { Btn, Card, Empty, HeaderSlot, IconBtn, Kpi, Kpis, Pills, toast } from "../ui/kit.tsx";
-import { L, THead, TRow, Table } from "./common.tsx";
+import { Btn, Card, Empty, HeaderSlot, IconBtn, Kpi, Kpis, Pills, Swatch, toast } from "../ui/kit.tsx";
 
 const EVENT_LABEL: Record<MortgageEvent["type"], string> = {
   early_repayment: "Amortización anticipada",
@@ -22,64 +20,39 @@ const monthsText = (n: number) => {
   return [y ? `${y} ${y === 1 ? "año" : "años"}` : "", m ? `${m} ${m === 1 ? "mes" : "meses"}` : ""].filter(Boolean).join(" y ") || "0 meses";
 };
 
-/** Valor del inmueble frente a deuda, de la compra al final de la hipoteca. */
-function useChart(v: PropertyView, today: string): HeroModel | null {
-  return useMemo(() => {
-    const { property, valuations, loan } = v;
-    if (!loan) {
-      // Sin hipoteca: solo la evolución del valor según las valoraciones registradas.
-      const dates = [property.purchaseDate, ...valuations.map((x) => x.date).filter((x) => x > property.purchaseDate), today].filter((x, i, a) => a.indexOf(x) === i).sort();
-      if (dates.length < 2) return null;
-      return lineModel({ dates, values: dates.map((dt) => valueAt(property, valuations, dt).value), label: "Valor", format: (x) => eur(x, 0), axis: eurAxis });
-    }
-    const rows = loan.schedule;
-    const dates = [property.purchaseDate < rows[0]!.date ? property.purchaseDate : rows[0]!.date, ...rows.map((r) => r.date)].filter((x, i, a) => i === 0 || x !== a[i - 1]);
-    // Para cada fecha: capital pendiente tras la última fila del cuadro hasta ese día.
-    const pending: number[] = [];
-    const value: number[] = [];
-    let k = 0;
-    let rem = loan.mortgage.principal;
-    for (const dt of dates) {
-      while (k < rows.length && rows[k]!.date <= dt) rem = rows[k++]!.remaining;
-      pending.push(dt < rows[0]!.date ? loan.mortgage.principal : rem);
-      value.push(valueAt(property, valuations, dt).value);
-    }
-    const sum = (a: number, b: number, f: (r: (typeof rows)[number]) => number) => {
-      let s = 0;
-      for (const r of rows) if (r.date > dates[a]! && r.date <= dates[b]!) s += f(r);
-      return s;
-    };
-    return bandModel({
-      dates,
-      top: value,
-      base: pending,
-      zeroBased: true,
-      axis: eurAxis,
-      now: today,
-      lane: (a, b) => ({ up: sum(a, b, (r) => r.principal), down: sum(a, b, (r) => r.interest) }),
-      rows: (i): Row[] => [
-        { color: "var(--acc)", label: "Valor del inmueble", value: eur(value[i]!, 0) },
-        { color: "var(--mute)", label: "Hipoteca pendiente", value: eur(pending[i]!, 0) },
-        { color: "transparent", label: "Ya es tuyo", value: eur(value[i]! - pending[i]!, 0) },
-      ],
-    });
-  }, [v, today]);
-}
+/** Tope del deslizador de la simulación. */
+const SIM_MAX = 60_000;
+const SIM_STEP = 1_000;
 
-function WhatIf({ v, today }: { v: PropertyView; today: string }) {
-  const [text, setText] = useState("10.000");
-  const [mode, setMode] = useState<"reduce_term" | "reduce_installment">("reduce_term");
+type LegendRow = { color: string; label: string; value: string };
+
+/** Cifra de resultado bajo su rótulo (simulación). */
+const Figure = ({ label, children, up = false }: { label: string; children: ReactNode; up?: boolean }) => (
+  <div>
+    <div className="text-[12px] text-mute">{label}</div>
+    <div className={`mt-1 text-[20px] font-[550] ${up ? "text-up" : ""}`} style={{ fontStretch: "106%" }}>
+      {children}
+    </div>
+  </div>
+);
+
+function WhatIf({ v, today, extra, setExtra, mode, setMode, max }: { v: PropertyView; today: string; extra: number; setExtra: (n: number) => void; mode: SimMode; setMode: (m: SimMode) => void; max: number }) {
   const loan = v.loan!;
-  const amount = parseNumber(text.replace(/\./g, "")) ?? 0;
-  const sim = useMemo(() => simulateRepayment(loan, Math.min(amount, loan.outstanding), mode, today), [loan, amount, mode, today]);
+  const amount = Math.min(extra, loan.outstanding);
+  const sim = useMemo(() => simulateRepayment(loan, amount, mode, today), [loan, amount, mode, today]);
+  const term = mode === "reduce_term";
+  const newPayment = sim?.newPayment ?? loan.payment;
+  const newEnd = sim ? sim.newEndDate : loan.endDate;
+  // Si la hipoteca pendiente no llega al tope, el deslizador termina en ella y solo se rotulan los extremos.
+  const marks = max === SIM_MAX ? [0, SIM_MAX / 3, (SIM_MAX * 2) / 3, SIM_MAX] : [0, Math.min(max, loan.outstanding)];
   return (
     <Card title="¿Y si amortizo?" note="una simulación: no registra nada">
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="relative w-40">
-          <input className="field h-10 pr-8 text-right text-[18px] font-[550]" inputMode="decimal" aria-label="Importe a amortizar" value={text} onChange={(e) => setText(e.target.value)} />
-          <span className="pointer-events-none absolute top-2.5 right-3 text-mute">€</span>
-        </div>
+      <div className="flex flex-wrap items-center gap-4">
+        <span className="min-w-[130px] text-[30px] font-medium tracking-[-0.01em] text-up" style={{ fontStretch: "108%" }}>
+          {eur(amount, 0)}
+        </span>
         <Pills
+          size="sm"
           label="Qué reduce la amortización"
           value={mode}
           onChange={setMode}
@@ -89,81 +62,203 @@ function WhatIf({ v, today }: { v: PropertyView; today: string }) {
           ]}
         />
       </div>
-      {sim ? (
-        <>
-          <div className="mt-4 flex flex-wrap gap-x-8 gap-y-3">
-            <div>
-              <div className="text-[12px] text-mute">Intereses que te ahorras</div>
-              <div className="mt-[3px] text-[20px] font-[550] text-up" style={{ fontStretch: "106%" }}>
-                {eur(sim.interestSaved, 0)}
-              </div>
-            </div>
-            <div>
-              <div className="text-[12px] text-mute">{mode === "reduce_term" ? "Terminas antes" : "La cuota baja a"}</div>
-              <div className="mt-[3px] text-[20px] font-[550]" style={{ fontStretch: "106%" }}>
-                {mode === "reduce_term" ? monthsText(sim.monthsSaved) : eur(sim.newPayment)}
-              </div>
-            </div>
-            <div>
-              <div className="text-[12px] text-mute">{mode === "reduce_term" ? "Nueva última cuota" : "Bajada mensual"}</div>
-              <div className="mt-[3px] text-[20px] font-[550]" style={{ fontStretch: "106%" }}>
-                {mode === "reduce_term" ? (sim.newEndDate ? dateShort(sim.newEndDate) : "—") : eur(sim.paymentBefore - sim.newPayment)}
-              </div>
-            </div>
-          </div>
-          <div className="mt-4">
-            <Btn onClick={() => openDialog({ kind: "mortgageEvent", mortgage: loan.mortgage, type: "early_repayment", amount: Math.min(amount, loan.outstanding), mode })}>Registrar esta amortización…</Btn>
-          </div>
-        </>
-      ) : (
-        <div className="mt-4 text-mute">Escribe un importe para ver el efecto.</div>
-      )}
+      <input
+        type="range"
+        min={0}
+        max={max}
+        step={SIM_STEP}
+        value={Math.min(extra, max)}
+        onChange={(e) => setExtra(+e.target.value)}
+        aria-label="Importe a amortizar"
+        aria-valuetext={eur(amount, 0)}
+        className="mt-3.5 block w-full"
+        style={{ accentColor: "var(--up)" }}
+      />
+      <div className="flex justify-between text-[11px] text-mute">
+        {marks.map((m) => (
+          <span key={m}>{eur(m, 0)}</span>
+        ))}
+      </div>
+      <div className="mt-4 flex flex-wrap gap-x-8 gap-y-3">
+        <Figure label="Intereses que te ahorras" up>
+          {eur(sim?.interestSaved ?? 0, 0)}
+        </Figure>
+        <Figure label={term ? "Terminas antes" : "La cuota baja a"}>{term ? monthsText(sim?.monthsSaved ?? 0) : eur(newPayment)}</Figure>
+        <Figure label={term ? "Nueva última cuota" : "Bajada mensual"}>{term ? (newEnd ? dateShort(newEnd) : "—") : eur(loan.payment - newPayment)}</Figure>
+      </div>
+      <div className="mt-4 flex flex-wrap items-center gap-x-3.5 gap-y-2">
+        <Btn disabled={!(amount > 0)} onClick={() => openDialog({ kind: "mortgageEvent", mortgage: loan.mortgage, type: "early_repayment", amount, mode })}>
+          Registrar esta amortización…
+        </Btn>
+        <span className="text-[12px] text-mute">en verde en el gráfico de arriba: lo que pasaría a ser tuyo cada año</span>
+      </div>
     </Card>
   );
 }
 
-function PropertyPanel({ v, today, portfolio }: { v: PropertyView; today: string; portfolio: number }) {
-  const model = useChart(v, today);
-  const [k, setK] = useState<number | null>(null);
-  const [allYears, setAllYears] = useState(false);
-  const { property, loan } = v;
-  const [heroI, heroD] = splitMoney(eur(v.equity));
-  const years = useMemo(() => (loan ? scheduleByYear(loan.schedule) : []), [loan]);
-  const thisYear = +today.slice(0, 4);
-  const shownYears = allYears ? years : years.filter((y) => y.year >= thisYear - 1).slice(0, 7);
-  // Sin cursor, la leyenda muestra la situación de hoy (no la de la próxima cuota).
-  const legend: Row[] =
-    model && k != null
-      ? model.rowsAt(Math.min(k, model.n - 1))
-      : [
-          { color: "var(--acc)", label: "Valor del inmueble", value: eur(v.value, 0) },
-          ...(loan ? [{ color: "var(--mute)", label: "Hipoteca pendiente", value: eur(loan.outstanding, 0) }] : []),
-          { color: "transparent", label: "Ya es tuyo", value: eur(v.equity, 0) },
-        ];
+const YEAR_COLS: CSSProperties = { gridTemplateColumns: "52px 1fr 1fr 1fr minmax(70px,.8fr) 1.1fr" };
 
-  const history = [
-    ...(loan?.events ?? []).map((e) => ({
-      key: `e-${e.id}`,
-      date: e.date,
-      label: EVENT_LABEL[e.type],
-      detail: e.type === "rate_change" ? `nuevo tipo ${num(e.ratePct ?? 0, 3, 2)} %` : e.type === "early_repayment" ? `${eur(e.amount ?? 0)} · ${e.mode === "reduce_installment" ? "reduce cuota" : "reduce plazo"}` : `${eur(e.amount ?? 0)} al mes`,
-      note: e.note,
-      remove: () => removeMortgageEvent(e.id),
-    })),
-    ...v.valuations.map((x) => ({ key: `v-${x.id}`, date: x.date, label: "Valoración", detail: eur(x.value, 0), note: x.note, remove: () => removeValuation(x.id) })),
-  ].sort((a, b) => b.date.localeCompare(a.date));
+function YearTable({ years, hot, onHover, total, all, onToggle }: { years: HomeYear[]; hot: number | null; onHover: (year: number | null) => void; total: number; all: boolean; onToggle: () => void }) {
+  return (
+    <section className="card min-w-0 overflow-x-auto">
+      <div className="flex items-baseline justify-between gap-4 px-5 pt-4 pb-2.5">
+        <span className="wide font-semibold">Cuadro por años</span>
+        {(total > years.length || all) && (
+          <button type="button" className="text-[12.5px] text-mute hover:text-ink" onClick={onToggle}>
+            {all ? "Ver solo los próximos" : `Ver los ${total} años`}
+          </button>
+        )}
+      </div>
+      <div className="min-w-[520px] text-right" role="table" aria-label="Cuadro de amortización por años" onMouseLeave={() => onHover(null)}>
+        <div className="thead border-t border-line" style={{ ...YEAR_COLS, padding: "8px 20px" }} role="row">
+          <span className="text-left">Año</span>
+          <span>Pagado</span>
+          <span>Intereses</span>
+          <span>Capital</span>
+          <span />
+          <span>Pendiente</span>
+        </div>
+        {years.map((y) => (
+          <div key={y.year} className={`trow ${hot === y.year ? "linked" : y.isNow ? "hot" : ""}`} style={YEAR_COLS} role="row" onMouseEnter={() => onHover(y.year)}>
+            <span className={`text-left ${y.isNow ? "font-[650]" : ""}`}>{y.year}</span>
+            <span>{eur(y.paid, 0)}</span>
+            <span className="text-ink2">{eur(y.interest, 0)}</span>
+            <span>{eur(y.principal, 0)}</span>
+            <PaidMiniBar principal={y.principal} interest={y.interest} />
+            <span className="font-semibold">{eur(y.remaining, 0)}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+type HistoryItem = { key: string; date: string; label: string; detail: string; tail: string; purchase?: boolean; remove?: () => Promise<Result> };
+
+function History({ v }: { v: PropertyView }) {
+  const { property, loan } = v;
+  const events: HistoryItem[] = (loan?.events ?? []).map((e) => ({
+    key: `e-${e.id}`,
+    date: e.date,
+    label: EVENT_LABEL[e.type],
+    detail: e.type === "rate_change" ? `nuevo tipo ${num(e.ratePct ?? 0, 3, 2)} %` : e.type === "early_repayment" ? `${eur(e.amount ?? 0)} · ${e.mode === "reduce_installment" ? "reduce cuota" : "reduce plazo"}` : `${eur(e.amount ?? 0)} al mes`,
+    tail: e.note,
+    remove: () => removeMortgageEvent(e.id),
+  }));
+  const valuations: HistoryItem[] = v.valuations.map((x) => ({ key: `v-${x.id}`, date: x.date, label: "Valoración", detail: eur(x.value, 0), tail: x.note, remove: () => removeValuation(x.id) }));
+  const items: HistoryItem[] = [
+    ...events,
+    ...valuations,
+    {
+      key: "compra",
+      date: property.purchaseDate,
+      label: "Compra",
+      detail: eur(property.purchasePrice, 0),
+      tail: [property.purchaseCosts > 0 ? `${eur(property.purchaseCosts, 0)} de gastos` : "", loan ? `hipoteca de ${eur(loan.mortgage.principal, 0)}` : ""].filter(Boolean).join(" · "),
+      purchase: true,
+    },
+  ].sort((a, b) => b.date.localeCompare(a.date) || Number(!!a.purchase) - Number(!!b.purchase));
+
+  return (
+    <section className="card min-w-0">
+      <div className="flex flex-wrap items-center gap-2 px-5 py-3.5">
+        <span className="wide flex-1 font-semibold">Historial</span>
+        {loan && (
+          <>
+            <Btn size="sm" onClick={() => openDialog({ kind: "mortgageEvent", mortgage: loan.mortgage, type: "early_repayment" })}>
+              <Plus size={12} /> Amortización
+            </Btn>
+            <Btn size="sm" onClick={() => openDialog({ kind: "mortgageEvent", mortgage: loan.mortgage, type: "rate_change" })}>
+              <Plus size={12} /> Revisión del tipo
+            </Btn>
+            <Btn size="sm" onClick={() => openDialog({ kind: "mortgageEvent", mortgage: loan.mortgage, type: "payment_override" })}>
+              <Plus size={12} /> Cuota real
+            </Btn>
+          </>
+        )}
+      </div>
+      {items.map((h) => (
+        <div key={h.key} className="group grid items-baseline gap-3 border-t border-line px-5 py-[var(--row)] transition-colors duration-[120ms] hover:bg-wash" style={{ gridTemplateColumns: "10px 84px minmax(0,1fr) 22px" }}>
+          {h.purchase ? <span className="size-2 self-center rounded-full bg-acc" /> : <span className="size-2 rotate-45 self-center border-[1.5px] border-ink2" />}
+          <span className="text-ink2">{dateShort(h.date)}</span>
+          <span className="selectable">
+            <span className="font-[550]">{h.label}</span> · {h.detail}
+            {h.tail && <span className="text-mute"> · {h.tail}</span>}
+          </span>
+          {h.remove ? (
+            // Solo aparece al pasar por la fila o al llegar con el teclado; no cambia el alto de la fila.
+            <IconBtn
+              label={`Quitar ${h.label.toLowerCase()} del ${dateShort(h.date)}`}
+              className="-my-1.5 -ml-1 size-[26px]! self-center opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+              onClick={async () => {
+                const res = await h.remove!();
+                if (res.ok) toast(`${h.label} eliminada`);
+                else toast(res.error, { tone: "error" });
+              }}
+            >
+              <X size={14} />
+            </IconBtn>
+          ) : (
+            <span />
+          )}
+        </div>
+      ))}
+    </section>
+  );
+}
+
+function PropertyPanel({ v, today, portfolio }: { v: PropertyView; today: string; portfolio: number }) {
+  const { property, loan } = v;
+  const [extra, setExtra] = useState(10_000);
+  const [mode, setMode] = useState<SimMode>("reduce_term");
+  const [hy, setHy] = useState<number | null>(null);
+  const [allYears, setAllYears] = useState(false);
+
+  const simMax = loan ? Math.max(SIM_STEP, Math.min(SIM_MAX, Math.ceil(loan.outstanding / SIM_STEP) * SIM_STEP)) : 0;
+  const amount = loan ? Math.min(extra, simMax, loan.outstanding) : 0;
+  // La geometría solo cambia con el inmueble, el importe simulado y el modo.
+  const model = useMemo(() => homeModel(v, today, amount, mode), [v, today, amount, mode]);
+
+  const [heroI, heroD] = splitMoney(eur(v.equity));
+  const thisYear = +today.slice(0, 4);
+  const tableYears = model.years.filter((y) => y.paid > 0);
+  const shownYears = allYears ? tableYears : tableYears.filter((y) => y.year >= thisYear - 1).slice(0, 7);
+
+  // Sin cursor, la leyenda muestra la situación de hoy; sobre un año, la de final de ese año.
+  const hot = hy == null ? undefined : model.years.find((y) => y.year === hy);
+  const legendTitle = hot ? `A final de ${hot.year}${hot.future ? (hot.gain > 0 ? " · previsto si amortizas" : " · previsto") : hot.gain > 0 ? " · si amortizas" : ""}` : `Hoy · ${dateShort(today)}`;
+  const legend: LegendRow[] = hot
+    ? loan
+      ? [
+          { color: HOME_COLOR.own, label: "Ya es tuyo", value: `${eur(hot.own + hot.gain, 0)} · ${pct(hot.value > 0 ? (hot.own + hot.gain) / hot.value : 0)}` },
+          { color: "var(--line2)", label: "Del banco", value: eur(hot.bank, 0) },
+          { color: HOME_COLOR.principal, label: "Capital pagado ese año", value: eur(hot.principal, 0) },
+          { color: HOME_COLOR.interest, label: "Intereses ese año", value: eur(hot.interest, 0) },
+        ]
+      : [{ color: HOME_COLOR.own, label: "Valor del inmueble", value: eur(hot.value, 0) }]
+    : [
+        { color: HOME_COLOR.own, label: "Valor del inmueble", value: eur(v.value, 0) },
+        ...(loan ? [{ color: "var(--mute)", label: "Hipoteca pendiente", value: eur(loan.outstanding, 0) }] : []),
+        { color: "transparent", label: "Ya es tuyo", value: eur(v.equity, 0) },
+      ];
 
   return (
     <>
       <section className="px-1 pt-2">
-        <div className="flex flex-wrap items-end justify-between gap-5">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2 text-[12px] text-mute">
-              <span className="wide text-[15px] font-semibold text-ink">{property.name}</span>
-              {property.address && <span className="selectable">{property.address}</span>}
-              <span>· comprado el {dateShort(property.purchaseDate)}</span>
-            </div>
-            <div className="mt-1 text-[12px] text-mute">Lo que ya es tuyo · valor menos hipoteca pendiente</div>
+        <div className="flex flex-wrap items-center gap-2.5 text-[12px] text-mute">
+          <span className="wide text-[15px] font-semibold text-ink">{property.name}</span>
+          {property.address && <span className="selectable">{property.address}</span>}
+          <span>· comprado el {dateShort(property.purchaseDate)}</span>
+          <Btn size="sm" className="text-ink" onClick={() => openDialog({ kind: "valuation", property })}>
+            <Plus size={12} /> Valoración
+          </Btn>
+          <Btn size="sm" className="text-ink" onClick={() => openDialog({ kind: "property", property })}>
+            <Pencil size={12} /> Editar
+          </Btn>
+        </div>
+        <div className="mt-1.5 flex flex-wrap items-end justify-between gap-5">
+          <div className="min-w-[300px] flex-[1_1_0]">
+            <div className="text-[12px] text-mute">{loan ? "Lo que ya es tuyo · valor menos hipoteca pendiente" : "Lo que ya es tuyo · sin hipoteca, el valor entero"}</div>
             <div className="mt-0.5 text-[56px] leading-[1.05] font-medium tracking-[-0.02em]" style={{ fontStretch: "108%" }}>
               {heroI}
               <span className="text-mute">{heroD}</span>
@@ -177,24 +272,18 @@ function PropertyPanel({ v, today, portfolio }: { v: PropertyView; today: string
               </span>
             </div>
           </div>
-          <div className="flex flex-col items-end gap-3">
-            <div className="flex gap-2">
-              <Btn onClick={() => openDialog({ kind: "valuation", property })}>
-                <Plus size={13} /> Valoración
-              </Btn>
-              <Btn onClick={() => openDialog({ kind: "property", property })}>
-                <Pencil size={13} /> Editar
-              </Btn>
-            </div>
-            <HeroLegend rows={legend} />
+          <div className="flex min-w-[270px] flex-col gap-[3px] pb-1 text-[12.5px]" aria-live="off">
+            <div className="mb-0.5 text-[12px] text-mute">{legendTitle}</div>
+            {legend.map((r) => (
+              <div key={r.label} className="flex items-center gap-2">
+                <Swatch color={r.color} />
+                <span className="flex-1 text-ink2">{r.label}</span>
+                <span className="font-medium">{r.value}</span>
+              </div>
+            ))}
           </div>
         </div>
-        <HeroChart
-          model={model}
-          laneLabel={loan ? "De cada tramo de cuotas: capital que amortizas (arriba) e intereses que pagas (abajo)" : undefined}
-          laneColors={["var(--acc)", "color-mix(in oklab, var(--down) 70%, var(--card))"]}
-          onHover={(_, kk) => setK(kk)}
-        />
+        <HomeChart model={model} hot={hy} onHover={setHy} />
       </section>
 
       {loan ? (
@@ -218,63 +307,22 @@ function PropertyPanel({ v, today, portfolio }: { v: PropertyView; today: string
           </Kpis>
 
           <div className="grid items-start gap-5" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))" }}>
+            {loan.outstanding > 0 && <WhatIf v={v} today={today} extra={extra} setExtra={setExtra} mode={mode} setMode={setMode} max={simMax} />}
             <Card title="A dónde ha ido lo pagado" aside={`${eur(v.totalPaid, 0)} en total`}>
-              <SplitBar
+              <PaidSplit
                 parts={[
-                  { key: "down", label: "Entrada", value: v.downPayment, color: "var(--acc)", display: eur(v.downPayment, 0) },
-                  { key: "principal", label: "Capital amortizado", value: loan.principalPaid, color: "color-mix(in oklab, var(--acc) 55%, var(--card))", display: eur(loan.principalPaid, 0) },
-                  { key: "interest", label: "Intereses", value: loan.interestPaid, color: "color-mix(in oklab, var(--down) 70%, var(--card))", display: eur(loan.interestPaid, 0) },
-                  { key: "costs", label: "Gastos de compra", value: property.purchaseCosts, color: "color-mix(in oklab, var(--ink2) 45%, var(--card))", display: eur(property.purchaseCosts, 0) },
+                  { key: "down", label: "Entrada", value: v.downPayment, color: HOME_COLOR.own, display: eur(v.downPayment, 0) },
+                  { key: "principal", label: "Capital amortizado", value: loan.principalPaid, color: HOME_COLOR.principal, display: eur(loan.principalPaid, 0) },
+                  { key: "interest", label: "Intereses", value: loan.interestPaid, color: HOME_COLOR.interest, display: eur(loan.interestPaid, 0) },
+                  { key: "costs", label: "Gastos de compra", value: property.purchaseCosts, color: HOME_COLOR.costs, display: eur(property.purchaseCosts, 0) },
                 ]}
               />
-              <p className="mt-3.5 text-[12px] text-mute">
-                {RATE_TYPE_LABEL[loan.mortgage.rateType]} al {num(loan.schedule.find((r) => r.date > today)?.ratePct ?? loan.mortgage.ratePct, 3, 2)} % TIN
+              <p className="mt-3.5 text-[12px] text-pretty text-mute">
+                Tipo {RATE_TYPE_LABEL[loan.mortgage.rateType].toLowerCase()} al {num(loan.schedule.find((r) => r.date > today)?.ratePct ?? loan.mortgage.ratePct, 3, 2)} % TIN
                 {loan.mortgage.lender ? ` · ${loan.mortgage.lender}` : ""} · {monthsText(loan.mortgage.termMonths)} · intereses totales previstos {eur(loan.totalInterest, 0)}
               </p>
             </Card>
-            {loan.outstanding > 0 && <WhatIf v={v} today={today} />}
           </div>
-
-          <Card
-            title="Cuadro de amortización por años"
-            pad={false}
-            className="overflow-hidden"
-            aside={
-              years.length > shownYears.length || allYears ? (
-                <button type="button" className="text-mute hover:text-ink" onClick={() => setAllYears((x) => !x)}>
-                  {allYears ? "Ver solo los próximos" : `Ver los ${years.length} años`}
-                </button>
-              ) : undefined
-            }
-          >
-            <Table cols="70px 70px 1fr 1fr 1fr minmax(160px,1.3fr) 1fr" minWidth={880}>
-              <THead>
-                <L>Año</L>
-                <span>Cuotas</span>
-                <span>Pagado</span>
-                <span>Intereses</span>
-                <span>Capital</span>
-                <L>Reparto de lo pagado</L>
-                <span>Pendiente a fin de año</span>
-              </THead>
-              {shownYears.map((y) => (
-                <TRow key={y.year} className={y.year === thisYear ? "linked" : ""}>
-                  <L className={y.year === thisYear ? "font-semibold" : "text-ink2"}>{y.year}</L>
-                  <span className="text-mute">{y.payments}</span>
-                  <span>{eur(y.paid, 0)}</span>
-                  <span className="text-ink2">{eur(y.interest, 0)}</span>
-                  <span>{eur(y.principal, 0)}</span>
-                  <L>
-                    <div className="flex h-1.5 gap-[2px]" title={`${pct(y.principal / Math.max(1, y.paid))} capital · ${pct(y.interest / Math.max(1, y.paid))} intereses`}>
-                      <div className="rounded-[2px] bg-acc" style={{ flex: `${y.principal} 1 0` }} />
-                      <div className="rounded-[2px]" style={{ flex: `${y.interest} 1 0`, background: "color-mix(in oklab, var(--down) 70%, var(--card))" }} />
-                    </div>
-                  </L>
-                  <span className="font-semibold">{eur(y.remaining, 0)}</span>
-                </TRow>
-              ))}
-            </Table>
-          </Card>
         </>
       ) : (
         <Kpis>
@@ -291,51 +339,10 @@ function PropertyPanel({ v, today, portfolio }: { v: PropertyView; today: string
         </Kpis>
       )}
 
-      <Card
-        title="Historial"
-        note="lo que cambia el cuadro y el valor"
-        pad={false}
-        aside={
-          loan ? (
-            <span className="flex flex-wrap gap-2">
-              <Btn size="sm" onClick={() => openDialog({ kind: "mortgageEvent", mortgage: loan.mortgage, type: "early_repayment" })}>
-                <Plus size={12} /> Amortización
-              </Btn>
-              <Btn size="sm" onClick={() => openDialog({ kind: "mortgageEvent", mortgage: loan.mortgage, type: "rate_change" })}>
-                <Plus size={12} /> Revisión del tipo
-              </Btn>
-              <Btn size="sm" onClick={() => openDialog({ kind: "mortgageEvent", mortgage: loan.mortgage, type: "payment_override" })}>
-                <Plus size={12} /> Cuota real
-              </Btn>
-            </span>
-          ) : undefined
-        }
-      >
-        {history.length === 0 ? (
-          <div className="px-5 pb-5 text-mute">Todavía no hay amortizaciones, revisiones ni valoraciones registradas.</div>
-        ) : (
-          history.map((h) => (
-            <div key={h.key} className="flex items-center gap-4 border-t border-line px-5 py-[var(--row)]">
-              <span className="w-24 shrink-0 text-ink2">{dateShort(h.date)}</span>
-              <span className="w-48 shrink-0 font-[550]">{h.label}</span>
-              <span className="flex-1 truncate">
-                {h.detail}
-                {h.note && <span className="text-mute"> · {h.note}</span>}
-              </span>
-              <IconBtn
-                label="Quitar"
-                onClick={async () => {
-                  const res = await h.remove();
-                  if (res.ok) toast(`${h.label} eliminada`);
-                  else toast(res.error, { tone: "error" });
-                }}
-              >
-                <X size={14} />
-              </IconBtn>
-            </div>
-          ))
-        )}
-      </Card>
+      <div className="grid items-start gap-5" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))" }}>
+        {loan && tableYears.length > 0 && <YearTable years={shownYears} hot={hy} onHover={setHy} total={tableYears.length} all={allYears} onToggle={() => setAllYears((x) => !x)} />}
+        <History v={v} />
+      </div>
     </>
   );
 }

@@ -1,9 +1,9 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { isoOf } from "../../shared/dates.ts";
 import { monthlyReturns, netInvested, periodStats, returnIndex, totalsIn } from "../../shared/engine/timeline.ts";
 import { HeroChart, HeroLegend, bandModel, lineModel, stackModel, type HeroModel, type Row } from "../charts/hero.tsx";
-import { Dumbbell, Heatmap, TreeMap, treeGroups, type TreeCell, type TreeItem } from "../charts/viz.tsx";
+import { GroupRows, MonthColumns, ReturnBars, treeGroups, type TreeCell, type TreeItem } from "../charts/viz.tsx";
 import { rangeBase, useApp, useDerived, type Derived } from "../data/store.ts";
 import { dateShort, eur, eurAxis, eurSigned, num, pct, pctSigned, seriesColor, splitMoney } from "../lib/format.ts";
 import { openDialog } from "../ui/dialogs.ts";
@@ -44,6 +44,30 @@ function treeItems(d: Derived, g: Group): TreeItem[] {
     });
   }
   return items;
+}
+
+/**
+ * Al abrir la app, la cifra principal cuenta desde el valor que había antes de
+ * actualizar precios hasta el nuevo, cuando la animación de arranque descubre los datos.
+ */
+function useBootCount(target: number): number | null {
+  const splash = useApp((s) => s.splash);
+  const [value, setValue] = useState<number | null>(null);
+  const [from, phase] = [splash?.from ?? null, splash?.phase];
+  useEffect(() => {
+    if (phase !== "data" || from == null || Math.abs(from - target) < 0.005) return;
+    const t0 = performance.now();
+    let id = requestAnimationFrame(function tick() {
+      const k = Math.min(1, (performance.now() - t0) / 900);
+      setValue(k < 1 ? from + (target - from) * (1 - (1 - k) ** 3) : null);
+      if (k < 1) id = requestAnimationFrame(tick);
+    });
+    return () => cancelAnimationFrame(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- solo se lanza al entrar en la fase de datos
+  }, [phase]);
+  // Mientras la app espera detrás de la carga se enseña el valor anterior; después, la cuenta.
+  if (from != null && Math.abs(from - target) >= 0.005 && (phase === "load" || phase === "enter")) return from;
+  return value;
 }
 
 export function Resumen() {
@@ -129,6 +153,8 @@ export function Resumen() {
   const groups = useMemo(() => treeGroups(treeItems(d, group), group === "Cuenta"), [d, group]);
   const months = useMemo(() => monthlyReturns(tl), [tl]);
 
+  // (Antes de cualquier salida anticipada: los hooks han de llamarse siempre en el mismo orden.)
+  const counted = useBootCount(tl.n ? tl.total[tl.n - 1]! : 0);
   if (d.state.accounts.length === 0) return <Welcome />;
   if (!view) {
     return (
@@ -142,7 +168,7 @@ export function Resumen() {
   // Con el cursor sobre el gráfico, la cifra principal pasa a ser la de esa fecha.
   const off = mode === "rent" ? dates.length - view.ret.length : 0;
   const at = hover ? Math.min(V.length - 1, hover.src + off) : V.length - 1;
-  const [heroI, heroD] = splitMoney(eur(V[at]!));
+  const [heroI, heroD] = splitMoney(eur(!hover && counted != null ? counted : V[at]!));
   const unrealized = d.positions.reduce((s, p) => s + p.unrealizedEur, 0);
   const cost = d.positions.reduce((s, p) => s + p.costEur, 0);
   const xirr = stats.xirr ?? all.xirr;
@@ -215,49 +241,22 @@ export function Resumen() {
         <Card
           className="col-span-full"
           title="Reparto"
-          aside={<span className="truncate">{cell ? `${cell.name} · ${eur(cell.value, 0)} · ${pct(cell.share)}` : ""}</span>}
+          aside={<span className="truncate">{cell ? `${cell.name} · ${eur(cell.value, 0)} · ${pct(cell.share)}` : "pasa el cursor para ver el detalle"}</span>}
           note={<Pills size="sm" label="Repartir por" value={group} onChange={setGroup} options={[["Tipo", "Tipo"], ["Cuenta", "Cuenta"], ["Divisa", "Divisa"]]} />}
         >
-          <TreeMap groups={groups} hot={cell?.key ?? null} onHover={setCell} />
+          <GroupRows groups={groups} hot={cell?.key ?? null} onHover={setCell} />
         </Card>
 
-        <Card title="Rentabilidad mes a mes" aside={<span className="text-mute">en %</span>}>
-          <Heatmap months={months} />
+        <Card title="Rentabilidad mes a mes" aside={<span className="text-[12px] text-mute">altura = rentabilidad del mes, en %</span>}>
+          <MonthColumns months={months} />
         </Card>
 
-        <Card
-          title="De coste a valor"
-          aside={
-            <span className="flex gap-3.5 text-[12px] text-mute">
-              <span className="flex items-center gap-1.5">
-                <span className="size-2 rounded-full border-[1.5px] border-mute" />
-                coste
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span className="size-2 rounded-full bg-ink2" />
-                valor hoy
-              </span>
-            </span>
-          }
-        >
+        <Card title="Rentabilidad de cada posición" aside={<span className="text-[12px] text-mute">largo = % sobre el coste · grosor = peso en la cartera</span>}>
           {d.positions.length ? (
-            <Dumbbell
-              axis={eurAxis}
-              toneOf={(r) => toneOf(r.to - r.from)}
-              rows={[...d.positions]
-                .sort((a, b) => b.unrealizedEur - a.unrealizedEur)
-                .map((p) => ({
-                  key: p.asset.id,
-                  name: p.asset.name,
-                  from: p.costEur,
-                  to: p.valueEur,
-                  onClick: () => go(`/activo/${p.asset.id}`),
-                  right: (
-                    <>
-                      {eurSigned(p.unrealizedEur)} <span className="text-[11.5px] opacity-70">{p.unrealizedPct == null ? "" : pctSigned(p.unrealizedPct)}</span>
-                    </>
-                  ),
-                }))}
+            <ReturnBars
+              rows={d.positions
+                .filter((p) => p.unrealizedPct != null)
+                .map((p) => ({ key: p.asset.id, name: p.asset.name, ret: p.unrealizedPct!, gain: p.unrealizedEur, weight: p.weight, onClick: () => go(`/activo/${p.asset.id}`) }))}
             />
           ) : (
             <div className="py-6 text-mute">No hay posiciones abiertas.</div>

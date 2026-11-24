@@ -4,7 +4,7 @@ import { txsToCsv } from "../../shared/csv.ts";
 import { isoOf } from "../../shared/dates.ts";
 import type { NTx } from "../../shared/engine/ledger.ts";
 import { TX_LABEL, type TxType } from "../../shared/types.ts";
-import { FlowChart, type FlowDot } from "../charts/viz.tsx";
+import { FlowColumns, type FlowDot } from "../charts/viz.tsx";
 import { rangeBase, useApp, useDerived } from "../data/store.ts";
 import { operationsSheet, saveText, saveXlsx } from "../lib/export.ts";
 import { dateShort, eur, eurSigned, money, num, priceDigits, seriesColor } from "../lib/format.ts";
@@ -126,12 +126,12 @@ export function Operaciones() {
         </Btn>
       </div>
 
-      <Card title="Flujo de efectivo" note="cada punto es una operación; su tamaño, el importe" aside={<span className="truncate text-ink">{hotRow ? describe(hotRow) : ""}</span>}>
-        {dots.length ? <FlowChart dots={dots} from={since} to={d.today} hot={hot} onHover={setHot} /> : <div className="py-10 text-center text-mute">Ninguna operación mueve efectivo en este periodo.</div>}
+      <Card title="Flujo de efectivo" note="cada tramo es una operación; su altura, el importe" aside={<span className="truncate text-ink">{hotRow ? describe(hotRow) : ""}</span>}>
+        {dots.length ? <FlowColumns dots={dots} from={since} to={d.today} hot={hot} onHover={setHot} /> : <div className="py-10 text-center text-mute">Ninguna operación mueve efectivo en este periodo.</div>}
         <div className="mt-3 flex flex-wrap gap-4 text-[12px] text-ink2">
           {LEGEND.map(([label, color]) => (
             <span key={label} className="flex items-center gap-1.5">
-              <span className="size-2 rounded-full" style={{ background: color }} />
+              <span className="size-2 rounded-[2px]" style={{ background: color }} />
               {label}
             </span>
           ))}

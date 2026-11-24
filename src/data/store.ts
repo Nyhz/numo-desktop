@@ -29,7 +29,7 @@ import type { Account, AppState, Asset, Goal, Mortgage, MortgageEvent, Point, Pr
 import { EMPTY_STATE, reduce, type AppInfo, type Backend, type Loaded, type Op } from "./backend.ts";
 import { browserBackend } from "./browser.ts";
 import { makeDemo } from "./demo.ts";
-import { fxOn, indexaStatus, syncMarket, type SyncIssue } from "./market.ts";
+import { dueAssets, fxOn, indexaStatus, syncMarket, type SyncIssue, type SyncProgress } from "./market.ts";
 import { tauriBackend } from "./tauri.ts";
 
 export const backend: Backend = "__TAURI_INTERNALS__" in window ? tauriBackend : browserBackend;
@@ -55,6 +55,10 @@ type S = {
   scope: string[] | null;
   range: RangeKey;
   syncing: boolean;
+  /** Qué activo se está actualizando y cuántos van, mientras dura la descarga. */
+  progress: SyncProgress | null;
+  /** Animación de arranque: completa si hay precios que actualizar, corta si están al día. */
+  splash: { mode: "full" | "short"; phase: SplashPhase; from: number | null } | null;
   issues: SyncIssue[];
   info: AppInfo | null;
 };
@@ -76,6 +80,8 @@ let s: S = {
   scope: null,
   range: saved<RangeKey>("caudal.range", "1A"),
   syncing: false,
+  progress: null,
+  splash: null,
   issues: [],
   info: null,
 };
@@ -110,6 +116,12 @@ function newId(): string {
   return `${h.slice(0, 4).join("")}-${h.slice(4, 6).join("")}-${h.slice(6, 8).join("")}-${h.slice(8, 10).join("")}-${h.slice(10).join("")}`;
 }
 
+/** load: cargando · enter: la app entra · data: se descubren los datos · done: terminada. */
+export type SplashPhase = "load" | "enter" | "data" | "done";
+export function setSplashPhase(phase: SplashPhase): void {
+  if (s.splash && s.splash.phase !== phase) set({ splash: { ...s.splash, phase } });
+}
+
 export type Result<T = void> = { ok: true; value: T } | { ok: false; error: string };
 const ok = <T>(value: T): Result<T> => ({ ok: true, value });
 const fail = (error: string): Result<never> => ({ ok: false, error });
@@ -136,7 +148,11 @@ async function attempt<T>(fn: () => Promise<T>): Promise<Result<T>> {
 export async function boot(): Promise<void> {
   try {
     const [info, loaded] = await Promise.all([backend.info(), backend.load()]);
-    set({ status: "ready", info, loaded });
+    // Con precios por actualizar, la carga se enseña entera; si la app se abrió hace poco, en corto.
+    const visible = !info.smoke && !info.import;
+    const stale = backend.native && dueAssets(loaded.state, loaded.meta).length > 0;
+    const tl = derive(loaded.state, null).timeline;
+    set({ status: "ready", info, loaded, splash: visible ? { mode: stale ? "full" : "short", phase: "load", from: tl.n ? tl.total[tl.n - 1]! : null } : null });
     if (!info.smoke && !info.import) void sync(false);
   } catch (e) {
     set({ status: "error", error: message(e) });
@@ -177,13 +193,13 @@ async function doSync(force: boolean): Promise<void> {
   set({ syncing: true });
   try {
     const { state, meta } = s.loaded;
-    const { ops, issues } = await syncMarket(state, meta, backend.httpGet, force);
+    const { ops, issues } = await syncMarket(state, meta, backend.httpGet, force, (progress) => set({ progress }));
     await commit(ops);
     set({ issues });
   } catch (e) {
     set({ issues: [{ what: "Datos de mercado", message: message(e) }] });
   } finally {
-    set({ syncing: false });
+    set({ syncing: false, progress: null });
   }
 }
 

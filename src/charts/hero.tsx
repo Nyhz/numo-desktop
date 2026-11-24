@@ -10,7 +10,7 @@ const W = 1000;
 const H = 300;
 
 export type Row = { color: string; label: string; value: string };
-type Layer = { d: string; fill?: string; opacity?: number; stroke?: string; width?: number; dash?: string };
+type Layer = { d: string; fill?: string; opacity?: number; stroke?: string; width?: number; dash?: string; /** La línea principal: es la que hereda la onda del arranque. */ main?: boolean };
 export type LaneBar = { up: number; down: number };
 
 export type HeroModel = {
@@ -150,7 +150,7 @@ export function bandModel(
       { d: `${f.path(c)}L${W} ${H}L0 ${H}Z`, fill: "var(--ink)", opacity: 0.04 },
       { d: `${f.path(v)}${f.back(c)}Z`, fill: "var(--acc)", opacity: 0.17 },
       { d: f.path(c), stroke: "var(--mute)", width: 1.1, dash: "4 4" },
-      { d: f.path(v), stroke: "var(--acc)", width: 1.9 },
+      { d: f.path(v), stroke: "var(--acc)", width: 1.9, main: true },
     ],
     ticks: f.ticks,
     xl: f.xl,
@@ -299,21 +299,28 @@ export function HeroChart({
               <span className="absolute -top-2 left-full pl-2 text-[11px] whitespace-nowrap text-mute">{t.label}</span>
             </div>
           ))}
-          <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="absolute inset-0 size-full overflow-visible" role="img" aria-label="Evolución en el tiempo">
-            {model.layers.map((l, i) => (
-              <path
-                key={i}
-                d={l.d}
-                fill={l.fill ?? "none"}
-                opacity={l.opacity ?? 1}
-                stroke={l.stroke ?? "none"}
-                strokeWidth={l.width ?? 0}
-                strokeDasharray={l.dash}
-                strokeLinejoin="round"
-                vectorEffect="non-scaling-stroke"
-              />
-            ))}
-          </svg>
+          {/* Dos capas: lo de debajo (que en el arranque se descubre de izquierda a derecha) y la línea principal. */}
+          {[false, true].map((main) => (
+            <div key={String(main)} data-hero={main ? "line" : "under"} className="absolute inset-0">
+              <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="absolute inset-0 size-full overflow-visible" role={main ? undefined : "img"} aria-label={main ? undefined : "Evolución en el tiempo"}>
+                {model.layers
+                  .filter((l) => !!l.main === main)
+                  .map((l, i) => (
+                    <path
+                      key={i}
+                      d={l.d}
+                      fill={l.fill ?? "none"}
+                      opacity={l.opacity ?? 1}
+                      stroke={l.stroke ?? "none"}
+                      strokeWidth={l.width ?? 0}
+                      strokeDasharray={l.dash}
+                      strokeLinejoin="round"
+                      vectorEffect="non-scaling-stroke"
+                    />
+                  ))}
+              </svg>
+            </div>
+          ))}
           {model.nowLeft != null && (
             <div className="absolute inset-y-0 border-l border-dashed border-line2" style={{ left: `${model.nowLeft}%` }}>
               <span className="absolute bottom-1 left-1.5 text-[11px] text-ink2">hoy</span>
