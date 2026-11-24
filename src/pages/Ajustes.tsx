@@ -39,7 +39,7 @@ export function Ajustes() {
   const syncing = useApp((s) => s.syncing);
   const issues = useApp((s) => s.issues);
   const [light, flipTheme] = useTheme();
-  const auto = state.assets.filter((a) => a.priceSource === "yahoo").length;
+  const auto = state.assets.filter((a) => a.priceSource !== "manual").length;
 
   const backup = async () => {
     try {
@@ -94,7 +94,7 @@ export function Ajustes() {
         >
           {example
             ? "La cartera de ejemplo usa precios inventados y no se actualiza."
-            : `Se actualizan solos al abrir la app. ${auto} de ${state.assets.length} activos tienen precio automático (Yahoo Finance); el resto es manual. Los tipos de cambio son los de referencia del BCE. Última actualización: ${ago(real.lastSync)}.`}
+            : `Se actualizan solos al abrir la app. ${auto} de ${state.assets.length} activos tienen precio automático (Yahoo Finance o Financial Times); el resto es manual. Los tipos de cambio son los de referencia del BCE. Última actualización: ${ago(real.lastSync)}.`}
         </Row>
         {issues.length > 0 && (
           <div className="border-t border-line px-5 py-4">
@@ -131,7 +131,7 @@ export function Ajustes() {
       </Group>
 
       <p className="m-0 px-1 text-[12px] text-pretty text-mute">
-        Caudal {info?.version}. Sin cuentas de usuario ni servidores: la app solo se conecta a Yahoo Finance y al BCE para pedir cotizaciones, y solo envía símbolos y divisas.
+        Caudal {info?.version}. Sin cuentas de usuario ni servidores: la app solo se conecta a Yahoo Finance, Financial Times y el BCE para pedir cotizaciones, y solo envía símbolos y divisas.
       </p>
     </div>
   );

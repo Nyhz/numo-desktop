@@ -316,7 +316,7 @@ export function HeroChart({
           </svg>
           {model.nowLeft != null && (
             <div className="absolute inset-y-0 border-l border-dashed border-line2" style={{ left: `${model.nowLeft}%` }}>
-              <span className="absolute top-1 left-1.5 text-[11px] text-ink2">hoy</span>
+              <span className="absolute bottom-1 left-1.5 text-[11px] text-ink2">hoy</span>
             </div>
           )}
           {model.markers.map((m, i) => (

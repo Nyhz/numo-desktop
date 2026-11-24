@@ -2,7 +2,7 @@ import { useState } from "react";
 import { detectCsv, matchSeries, parseNumber, parseSeriesCsv, parseTxCsv, planImport, type ImportPlan } from "../../shared/csv.ts";
 import { todayIso } from "../../shared/dates.ts";
 import { looksLikeExtras } from "../../shared/extras.ts";
-import { ACCOUNT_KINDS, ACCOUNT_KIND_LABEL, ASSET_KINDS, ASSET_KIND_LABEL, type Account, type Asset } from "../../shared/types.ts";
+import { ACCOUNT_KINDS, ACCOUNT_KIND_LABEL, ASSET_KINDS, ASSET_KIND_LABEL, PRICE_SOURCE_LABEL, type Account, type Asset } from "../../shared/types.ts";
 import { getApp, importExtras, importPlan, importSeries, sync, removeAccount, removeAsset, saveAccount, saveAsset, setPrice, useDerived } from "../data/store.ts";
 import { dateShort, num } from "../lib/format.ts";
 import { closeDialog, useDialog } from "../ui/dialogs.ts";
@@ -130,11 +130,14 @@ function AssetDialog({ asset }: { asset: Asset }) {
     symbol: asset.symbol ?? "",
     isin: asset.isin ?? "",
     currency: asset.currency,
+    priceSource: asset.priceSource,
   });
   const [error, setError] = useState<string | null>(null);
 
   const save = async () => {
-    const res = await saveAsset({ ...f, symbol: f.symbol.trim() || null, isin: f.isin.trim() || null, priceSource: f.symbol.trim() ? "yahoo" : "manual" }, asset.id);
+    if (f.priceSource === "yahoo" && !f.symbol.trim()) return setError("Para usar Yahoo Finance hace falta el símbolo");
+    if (f.priceSource === "ft" && !f.isin.trim()) return setError("Para usar Financial Times hace falta el ISIN");
+    const res = await saveAsset({ ...f, symbol: f.symbol.trim() || null, isin: f.isin.trim() || null }, asset.id);
     if (!res.ok) return setError(res.error);
     toast("Activo guardado");
     closeDialog();
@@ -189,16 +192,25 @@ function AssetDialog({ asset }: { asset: Asset }) {
             <input className="field uppercase" maxLength={3} value={f.currency} onChange={(e) => setF({ ...f, currency: e.target.value.toUpperCase() })} />
           </Field>
         </div>
+        <Field label="De dónde sale el precio">
+          <select className="field" value={f.priceSource} onChange={(e) => setF({ ...f, priceSource: e.target.value as Asset["priceSource"] })}>
+            {(["yahoo", "ft", "manual"] as const).map((k) => (
+              <option key={k} value={k}>
+                {PRICE_SOURCE_LABEL[k]}
+              </option>
+            ))}
+          </select>
+        </Field>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="ISIN" hint="opcional">
+          <Field label="ISIN" hint={f.priceSource === "ft" ? "necesario" : "opcional"}>
             <input className="field uppercase" maxLength={12} value={f.isin} onChange={(e) => setF({ ...f, isin: e.target.value.toUpperCase() })} />
           </Field>
-          <Field label="Símbolo de Yahoo Finance" hint="vacío = precio manual">
-            <input className="field" placeholder="p. ej. VWCE.DE" value={f.symbol} onChange={(e) => setF({ ...f, symbol: e.target.value })} />
+          <Field label="Símbolo de Yahoo" hint={f.priceSource === "yahoo" ? "necesario" : "no se usa"}>
+            <input className="field" placeholder="p. ej. VWCE.DE" disabled={f.priceSource !== "yahoo"} value={f.symbol} onChange={(e) => setF({ ...f, symbol: e.target.value })} />
           </Field>
         </div>
-        <p className="text-[12px] text-mute">
-          Con símbolo, el precio se actualiza solo. Si cambias el símbolo o la divisa se descarta el histórico de precios guardado y se vuelve a descargar.
+        <p className="text-[12px] text-pretty text-mute">
+          Con Yahoo o Financial Times el precio se actualiza solo al abrir la app. Si cambias la fuente, el símbolo o la divisa se vuelve a descargar el histórico.
         </p>
         <ErrorLine text={error} />
         <button type="submit" hidden />

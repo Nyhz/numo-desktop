@@ -68,7 +68,7 @@ export function Activo({ id }: { id: string }) {
               {asset.symbol && <span>{asset.symbol}</span>}
               {asset.isin && <span>{asset.isin}</span>}
               <span>{asset.currency}</span>
-              <span>· {asset.priceSource === "yahoo" ? "precio automático" : "precio manual"}</span>
+              <span>· {asset.priceSource === "yahoo" ? "precio de Yahoo Finance" : asset.priceSource === "ft" ? "precio de Financial Times" : "precio manual"}</span>
               {goal && <span>· plan: {goal.name}</span>}
             </div>
             <div className="mt-1 text-[56px] leading-[1.05] font-medium tracking-[-0.02em]" style={{ fontStretch: "108%" }}>

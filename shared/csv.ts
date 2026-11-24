@@ -9,6 +9,7 @@ import {
   type AppState,
   type AssetKind,
   type Point,
+  type PriceSource,
   type TxType,
 } from "./types.ts";
 
@@ -120,6 +121,7 @@ export const TX_CSV_HEADER = [
   "nota",
   "tipo_activo",
   "tipo_cuenta",
+  "fuente_precio",
 ] as const;
 type Col = (typeof TX_CSV_HEADER)[number];
 
@@ -158,6 +160,7 @@ export function txsToCsv(state: AppState, txIds?: Set<string>): string {
       t.note,
       asset?.kind ?? "",
       accounts.get(t.accountId)?.kind ?? "",
+      asset?.priceSource ?? "",
     ]);
   }
   return csvEncode(rows);
@@ -188,6 +191,7 @@ export type ImportRow = {
   /** Opcionales: solo se usan al crear un activo o una cuenta que no existía. */
   assetKind: AssetKind | null;
   accountKind: AccountKind | null;
+  priceSource: PriceSource | null;
 };
 
 export type ParsedCsv = { rows: ImportRow[]; errors: Array<{ line: number; message: string }> };
@@ -267,6 +271,7 @@ export function parseTxCsv(text: string): ParsedCsv {
       note: get("nota"),
       assetKind: (ASSET_KINDS as string[]).includes(get("tipo_activo")) ? (get("tipo_activo") as AssetKind) : null,
       accountKind: (ACCOUNT_KINDS as string[]).includes(get("tipo_cuenta")) ? (get("tipo_cuenta") as AccountKind) : null,
+      priceSource: ["yahoo", "ft", "manual"].includes(get("fuente_precio")) ? (get("fuente_precio") as PriceSource) : null,
     });
   });
   return { rows, errors };
@@ -315,7 +320,7 @@ export function planImport(rows: ImportRow[], state: AppState): ImportPlan {
       archived: false,
     });
   };
-  const needAsset = (ref: AssetRef | null, kind: AssetKind | null = null) => {
+  const needAsset = (ref: AssetRef | null, kind: AssetKind | null = null, source: PriceSource | null = null) => {
     if (!ref) return;
     const k = assetKey(ref);
     if (haveAssets.has(k) || haveAssets.has(`name:${fold(ref.name)}`) || newAssets.has(k)) return;
@@ -326,7 +331,8 @@ export function planImport(rows: ImportRow[], state: AppState): ImportPlan {
       symbol: ref.symbol || null,
       isin: /^[A-Z]{2}[A-Z0-9]{9}\d$/.test(ref.isin) ? ref.isin : null,
       currency: ref.currency,
-      priceSource: ref.symbol ? "yahoo" : "manual",
+      // Sin indicación expresa: Yahoo si hay símbolo, manual si no. FT necesita ISIN.
+      priceSource: source === "ft" && /^[A-Z]{2}[A-Z0-9]{9}\d$/.test(ref.isin) ? "ft" : source === "manual" ? "manual" : ref.symbol ? "yahoo" : "manual",
       goalId: null,
       planExcluded: false,
     });
@@ -334,7 +340,7 @@ export function planImport(rows: ImportRow[], state: AppState): ImportPlan {
   for (const r of rows) {
     needAccount(r.account, r.accountKind);
     needAccount(r.toAccount);
-    needAsset(r.asset, r.assetKind);
+    needAsset(r.asset, r.assetKind, r.priceSource);
     needAsset(r.toAsset, r.assetKind);
   }
   return { newAccounts: [...newAccounts.values()], newAssets: [...newAssets.values()], rows };

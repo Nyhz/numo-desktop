@@ -131,7 +131,15 @@ function PropertyPanel({ v, today, portfolio }: { v: PropertyView; today: string
   const years = useMemo(() => (loan ? scheduleByYear(loan.schedule) : []), [loan]);
   const thisYear = +today.slice(0, 4);
   const shownYears = allYears ? years : years.filter((y) => y.year >= thisYear - 1).slice(0, 7);
-  const legend = model ? model.rowsAt(k != null ? Math.min(k, model.n - 1) : Math.max(0, Math.round(((model.nowLeft ?? 100) / 100) * (model.n - 1)))) : [];
+  // Sin cursor, la leyenda muestra la situación de hoy (no la de la próxima cuota).
+  const legend: Row[] =
+    model && k != null
+      ? model.rowsAt(Math.min(k, model.n - 1))
+      : [
+          { color: "var(--acc)", label: "Valor del inmueble", value: eur(v.value, 0) },
+          ...(loan ? [{ color: "var(--mute)", label: "Hipoteca pendiente", value: eur(loan.outstanding, 0) }] : []),
+          { color: "transparent", label: "Ya es tuyo", value: eur(v.equity, 0) },
+        ];
 
   const history = [
     ...(loan?.events ?? []).map((e) => ({

@@ -14,6 +14,13 @@ export type TxType =
   | "fee"
   | "transfer";
 
+export type PriceSource = "yahoo" | "ft" | "manual";
+export const PRICE_SOURCE_LABEL: Record<PriceSource, string> = {
+  yahoo: "Yahoo Finance (por símbolo)",
+  ft: "Financial Times (fondos, por ISIN)",
+  manual: "Manual",
+};
+
 export type Account = {
   id: string;
   name: string;
@@ -33,12 +40,13 @@ export type Asset = {
   id: string;
   name: string;
   kind: AssetKind;
-  /** Símbolo de Yahoo Finance; null si el precio es manual. */
+  /** Símbolo de Yahoo Finance; solo se usa si el precio viene de Yahoo. */
   symbol: string | null;
   isin: string | null;
   /** Divisa en la que cotiza. */
   currency: string;
-  priceSource: "yahoo" | "manual";
+  /** De dónde sale el precio: Yahoo (por símbolo), Financial Times (fondos, por ISIN) o a mano. */
+  priceSource: PriceSource;
   /** Bloque del plan al que pertenece; null = sin asignar. */
   goalId: string | null;
   /** Fuera del plan: no cuenta en ningún bloque ni en el total repartido (p. ej. un plan de pensiones). */

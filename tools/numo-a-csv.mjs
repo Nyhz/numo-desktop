@@ -5,7 +5,7 @@
 //
 // Abre la base de datos de Numo SOLO para leer y no la modifica. Escribe:
 //   numo-operaciones.csv  operaciones en el formato de Caudal (Operaciones → Importar),
-//                         más dos columnas finales opcionales: tipo_activo y tipo_cuenta
+//                         más tres columnas finales opcionales: tipo_activo, tipo_cuenta y fuente_precio
 //   numo-precios.csv      histórico de precios de los activos que Caudal no puede
 //                         cotizar con Yahoo (fondos por ISIN, cripto, precios manuales)
 //   numo-splits.csv       splits y contra-splits registrados en Numo
@@ -37,7 +37,7 @@ const TX_HEADER = [
 ];
 // Columnas opcionales al final, con las claves de Caudal: el tipo de activo
 // (stock|etf|fund|crypto|bond|other) y el de cuenta (broker|bank|crypto|pension|other).
-const TX_COLUMNS = [...TX_HEADER, "tipo_activo", "tipo_cuenta"];
+const TX_COLUMNS = [...TX_HEADER, "tipo_activo", "tipo_cuenta", "fuente_precio"];
 const assetKind = (a) => ASSET_KIND[a.asset_type] ?? "other";
 const accountKind = (a) => ACCOUNT_KIND[a.account_type] ?? "other";
 
@@ -112,6 +112,14 @@ export function convert(db) {
     });
   }
 
+  // Fuente del precio en Caudal: FT para los fondos que Numo cotiza por ISIN en FT,
+  // Yahoo si hay símbolo válido y manual en el resto.
+  const sourceFor = (a) => {
+    const p = pricing.get(a.id);
+    if (p.provider === "ft" && a.isin) return "ft";
+    return p.yahooSymbol ? "yahoo" : "manual";
+  };
+
   const rows = []; // { when, order, cells, numoId, table, type }
   const skipped = []; // { date, type, asset, reason }
   const splits = [];
@@ -135,6 +143,7 @@ export function convert(db) {
     cells.simbolo = pricing.get(a.id).yahooSymbol;
     cells.divisa_activo = (a.currency ?? "EUR").toUpperCase();
     cells.tipo_activo = assetKind(a);
+    cells.fuente_precio = sourceFor(a);
   };
   /** Caudal guarda el cambio al estilo BCE (divisa por 1 EUR): el inverso del de Numo. */
   const fx = (cells, currency, rateToEur) => {
@@ -399,7 +408,7 @@ function main() {
       ...[...r.usedAssets].map((id) => {
         const a = r.assets.get(id);
         const p = r.pricing.get(id);
-        return [a.name, a.isin ?? "", p.yahooSymbol, (a.currency ?? "EUR").toUpperCase(), assetKind(a), p.provider, p.yahooSymbol ? "yahoo" : "manual"];
+        return [a.name, a.isin ?? "", p.yahooSymbol, (a.currency ?? "EUR").toUpperCase(), assetKind(a), p.provider, p.provider === "ft" && a.isin ? "ft" : p.yahooSymbol ? "yahoo" : "manual"];
       }),
     ]),
   );

@@ -33,6 +33,7 @@ const ALLOWED_HOSTS: &[&str] = &[
     "query1.finance.yahoo.com",
     "query2.finance.yahoo.com",
     "data-api.ecb.europa.eu",
+    "markets.ft.com",
 ];
 
 const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15";
@@ -246,7 +247,9 @@ fn reserve_yahoo_slot() -> Duration {
 #[tauri::command]
 async fn http_get(url: String) -> CmdResult<String> {
     let parsed = check_url(&url)?;
-    if parsed.host_str().is_some_and(|h| h.ends_with("finance.yahoo.com")) {
+    let host = parsed.host_str().unwrap_or_default().to_owned();
+    // Yahoo y FT bloquean las ráfagas: sus peticiones se espacian.
+    if host.ends_with("finance.yahoo.com") || host == "markets.ft.com" {
         tokio::time::sleep(reserve_yahoo_slot()).await;
     }
     let debug = std::env::var_os("CAUDAL_DEBUG").is_some();
@@ -258,9 +261,12 @@ async fn http_get(url: String) -> CmdResult<String> {
         .timeout(Duration::from_secs(25))
         .build()
         .map_err(err)?;
-    let res = client
-        .get(parsed)
-        .header("Accept", "*/*")
+    let mut request = client.get(parsed).header("Accept", "*/*");
+    if host == "markets.ft.com" && url.contains("/ajax/") {
+        // El histórico de FT solo responde a peticiones marcadas como AJAX.
+        request = request.header("X-Requested-With", "XMLHttpRequest");
+    }
+    let res = request
         .send()
         .await
         .map_err(|e| format!("Sin conexión: {e}"))?;
@@ -494,6 +500,7 @@ mod tests {
     fn only_market_hosts_are_reachable() {
         assert!(check_url("https://query1.finance.yahoo.com/v8/finance/chart/AAPL").is_ok());
         assert!(check_url("https://data-api.ecb.europa.eu/service/data/EXR").is_ok());
+        assert!(check_url("https://markets.ft.com/data/funds/tearsheet/summary?s=X").is_ok());
         assert!(check_url("http://query1.finance.yahoo.com/").is_err());
         assert!(check_url("https://example.com/").is_err());
         assert!(check_url("https://query1.finance.yahoo.com.evil.test/").is_err());

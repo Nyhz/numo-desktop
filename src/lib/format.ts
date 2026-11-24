@@ -72,8 +72,8 @@ export function ago(isoTimestamp: string | null): string {
   return days === 1 ? "ayer" : `hace ${days} días`;
 }
 
-/** Color de serie de una cuenta o bloque: seis tonos fijos; a partir del séptimo, gris. */
-export const seriesColor = (slot: number): string => `var(--s${slot >= 1 && slot <= 6 ? slot : 0})`;
+/** Color de serie de una cuenta o bloque: ocho tonos fijos; a partir del noveno, gris. */
+export const seriesColor = (slot: number): string => `var(--s${slot >= 1 && slot <= 8 ? slot : 0})`;
 
 /** Parte un importe ya formateado en entero y decimales («1.234» + «,56 €»). */
 export const splitMoney = (text: string): [string, string] => {

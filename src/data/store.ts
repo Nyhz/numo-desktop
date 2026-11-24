@@ -210,7 +210,7 @@ export function saveAccount(input: unknown, id?: string): Promise<Result<Account
     return Promise.resolve(fail("Ya hay una cuenta con ese nombre"));
   // El color se asigna una vez y acompaña a la cuenta para siempre.
   const used = new Set(accounts.map((a) => a.color));
-  const color = before?.color ?? [1, 2, 3, 4, 5, 6].find((c) => !used.has(c)) ?? 0;
+  const color = before?.color ?? [1, 2, 3, 4, 5, 6, 7, 8].find((c) => !used.has(c)) ?? 0;
   const row: Account = {
     ...parsed.data,
     id: id ?? newId(),
@@ -246,13 +246,15 @@ export function saveAsset(input: unknown, id?: string): Promise<Result<Asset>> {
     planExcluded: "planExcluded" in raw ? d.planExcluded : (before?.planExcluded ?? false),
     symbol: d.symbol || null,
     isin: d.isin || null,
-    priceSource: d.symbol ? d.priceSource : "manual",
+    // Cada fuente necesita su dato: Yahoo el símbolo, FT el ISIN. Sin él, manual.
+    priceSource: d.priceSource === "yahoo" && !d.symbol ? "manual" : d.priceSource === "ft" && !d.isin ? "manual" : d.priceSource,
     id: id ?? newId(),
     createdAt: before?.createdAt ?? new Date().toISOString(),
   };
   const ops: Op[] = [{ op: "putAsset", row }];
   // Si cambia de dónde sale el precio, las cotizaciones guardadas ya no valen.
-  if (before && (before.symbol !== row.symbol || before.currency !== row.currency || before.priceSource !== row.priceSource)) {
+  const sourceKey = (a: Asset) => `${a.priceSource}|${a.priceSource === "yahoo" ? a.symbol : a.priceSource === "ft" ? a.isin : ""}|${a.currency}`;
+  if (before && sourceKey(before) !== sourceKey(row) && row.priceSource !== "manual") {
     ops.push({ op: "prices", assetId: row.id, points: [], replace: true });
     ops.push({ op: "splits", assetId: row.id, points: [] });
     ops.push({ op: "meta", key: `fetched:asset:${row.id}`, value: "" });
@@ -334,7 +336,7 @@ export async function importPlan(plan: ImportPlan): Promise<Result<number>> {
   const accounts = new Map(state.accounts.map((a) => [accountKey(a.name), a]));
   const used = new Set(state.accounts.map((a) => a.color));
   for (const a of plan.newAccounts) {
-    const color = [1, 2, 3, 4, 5, 6].find((c) => !used.has(c)) ?? 0;
+    const color = [1, 2, 3, 4, 5, 6, 7, 8].find((c) => !used.has(c)) ?? 0;
     used.add(color);
     const row: Account = { ...a, id: newId(), color, createdAt: new Date(now).toISOString() };
     accounts.set(accountKey(a.name), row);
@@ -440,7 +442,7 @@ export function saveGoal(input: unknown, id?: string): Promise<Result<Goal>> {
   const row: Goal = {
     ...parsed.data,
     id: id ?? newId(),
-    color: before?.color ?? [1, 2, 3, 4, 5, 6].find((c) => !used.has(c)) ?? (goals.length % 6) + 1,
+    color: before?.color ?? [1, 2, 3, 4, 5, 6, 7, 8].find((c) => !used.has(c)) ?? 0,
     sortOrder: before?.sortOrder ?? goals.reduce((m, g) => Math.max(m, g.sortOrder), -1) + 1,
     createdAt: before?.createdAt ?? new Date().toISOString(),
   };
@@ -538,7 +540,7 @@ export function importExtras(json: unknown): Promise<Result<{ goals: number; ass
   let goals = 0;
   x.objetivos.forEach((o, i) => {
     if (goalIds.has(fold(o.nombre))) return;
-    const color = [1, 2, 3, 4, 5, 6].find((c) => !used.has(c)) ?? ((state.goals.length + i) % 6) + 1;
+    const color = [1, 2, 3, 4, 5, 6, 7, 8].find((c) => !used.has(c)) ?? 0;
     used.add(color);
     const row: Goal = { id: newId(), name: o.nombre.trim(), targetPct: o.objetivoPct, color, sortOrder: o.orden ?? state.goals.length + i, createdAt: now };
     goalIds.set(fold(o.nombre), row.id);

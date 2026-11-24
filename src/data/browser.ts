@@ -1,4 +1,5 @@
 import { todayIso } from "../../shared/dates.ts";
+import type { AppState } from "../../shared/types.ts";
 import type { Backend } from "./backend.ts";
 import { makeDemo } from "./demo.ts";
 
@@ -9,7 +10,8 @@ import { makeDemo } from "./demo.ts";
  */
 export const browserBackend: Backend = {
   native: false,
-  load: async () => ({ state: makeDemo(todayIso()), meta: {} }),
+  // Las pruebas automáticas pueden inyectar un estado concreto antes de cargar la página.
+  load: async () => ({ state: (window as unknown as { __CAUDAL_STATE__?: AppState }).__CAUDAL_STATE__ ?? makeDemo(todayIso()), meta: {} }),
   apply: async () => {},
   httpGet: async () => {
     throw new Error("La vista previa del navegador no tiene acceso a datos de mercado");

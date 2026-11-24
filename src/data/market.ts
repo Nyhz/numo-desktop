@@ -47,6 +47,8 @@ type YahooChart = {
         shortName?: string;
         fullExchangeName?: string;
         gmtoffset?: number;
+        regularMarketPrice?: number;
+        regularMarketTime?: number;
       };
       timestamp?: number[];
       events?: { splits?: Record<string, { date: number; numerator: number; denominator: number }> };
@@ -71,6 +73,14 @@ export function parseYahooChart(json: string): Quote {
     // Yahoo deja huecos nulos en festivos y sesiones sin negociación: se saltan.
     if (typeof c === "number" && Number.isFinite(c) && c > 0) byDate.set(dateOf(ts), c / divisor);
   });
+  // La vela de la última sesión llega con cierre nulo hasta que Yahoo la consolida
+  // (horas después del cierre). Su precio sí viene en los metadatos: se usa ese.
+  const { regularMarketPrice: last, regularMarketTime: lastAt } = r.meta;
+  if (typeof last === "number" && last > 0 && typeof lastAt === "number") {
+    const day = dateOf(lastAt);
+    const newest = [...byDate.keys()].sort().pop();
+    if (!byDate.has(day) && (!newest || day > newest)) byDate.set(day, last / divisor);
+  }
   const splits: Point[] = Object.values(r.events?.splits ?? {})
     .filter((s) => s.numerator > 0 && s.denominator > 0)
     .map((s) => [dateOf(s.date), s.numerator / s.denominator] as Point)
@@ -95,6 +105,62 @@ export async function yahooChart(get: Get, symbol: string, from: string, to: str
       `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?period1=${p1}&period2=${p2}&interval=1d&events=split`,
     ),
   );
+}
+
+// ── Financial Times: valor liquidativo de fondos por ISIN ──────────────────
+
+const FT = "https://markets.ft.com";
+const FT_MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+const ftNumber = (raw: string) => Number.parseFloat(raw.trim().replace(/,/g, ""));
+const ftMonth = (name: string) => FT_MONTHS.indexOf(name.slice(0, 3).toLowerCase());
+const iso = (y: string, m: number, d: string) => `${y}-${String(m + 1).padStart(2, "0")}-${d.padStart(2, "0")}`;
+
+/** Último valor liquidativo de la ficha de un fondo en FT. Falla si no hay un precio usable. */
+export function parseFtQuote(html: string): { price: number; currency: string; date: string | null; xid: string | null } {
+  const m = /Price \(([A-Za-z]{3})\)<\/span><span class="mod-ui-data-list__value">\s*([\d,]+\.\d+)/.exec(html);
+  if (!m) throw new Error("FT no muestra precio para este ISIN");
+  const price = ftNumber(m[2]!);
+  if (!(price > 0)) throw new Error("FT devuelve un precio no válido");
+  const asOf = /as of\s+([A-Za-z]{3,})\s+(\d{1,2})\s+(\d{4})/.exec(html);
+  const month = asOf ? ftMonth(asOf[1]!) : -1;
+  // El identificador interno de FT viene en un bloque de configuración, a veces con las comillas escapadas.
+  const xid = /(?:&quot;|")xid(?:&quot;|"):(?:&quot;|")(\d+)/.exec(html)?.[1] ?? null;
+  return { price, currency: m[1]!.toUpperCase(), date: asOf && month >= 0 ? iso(asOf[3]!, month, asOf[2]!) : null, xid };
+}
+
+/** Histórico de FT: filas con fecha y cuatro cifras (apertura, máximo, mínimo, cierre). */
+export function parseFtHistory(body: string): Point[] {
+  let html = body;
+  try {
+    html = (JSON.parse(body) as { html?: string }).html ?? "";
+  } catch {
+    // Algunas respuestas llegan ya como HTML.
+  }
+  const out = new Map<string, number>();
+  for (const row of html.matchAll(/<tr>([\s\S]*?)<\/tr>/g)) {
+    const d = /([A-Za-z]+)\s+(\d{1,2}),\s+(\d{4})/.exec(row[1]!);
+    const month = d ? ftMonth(d[1]!) : -1;
+    if (!d || month < 0) continue;
+    const nums = [...row[1]!.matchAll(/<td>\s*([\d,]+\.\d+)\s*<\/td>/g)].map((x) => ftNumber(x[1]!));
+    if (nums.length >= 4 && nums[3]! > 0) out.set(iso(d[3]!, month, d[2]!), nums[3]!);
+  }
+  return [...out.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+}
+
+/** Precios de un fondo en FT: el último y, si hace falta rellenar un hueco, el histórico desde `from`. */
+export async function ftPrices(get: Get, isin: string, currency: string, from: string | null, today: string): Promise<Point[]> {
+  const quote = parseFtQuote(await get(`${FT}/data/funds/tearsheet/summary?s=${encodeURIComponent(`${isin}:${currency}`)}`));
+  if (quote.currency !== currency) throw new Error(`FT lo cotiza en ${quote.currency}, no en ${currency}`);
+  const points: Point[] = [[quote.date ?? today, quote.price]];
+  if (from && quote.xid && from < (quote.date ?? today)) {
+    const d = (x: string) => x.replace(/-/g, "/");
+    try {
+      points.unshift(...parseFtHistory(await get(`${FT}/data/equities/ajax/get-historical-prices?startDate=${d(from)}&endDate=${d(today)}&symbol=${quote.xid}`)));
+    } catch {
+      // Sin histórico se conserva al menos el último valor liquidativo.
+    }
+  }
+  return points;
 }
 
 export type SearchHit = { symbol: string; name: string; kind: AssetKind; exchange: string };
@@ -268,6 +334,21 @@ export async function syncMarket(
         break;
       }
       issues.push({ what: a.name, message: msg });
+    }
+  }
+
+  // ── Fondos por ISIN en Financial Times ──
+  for (const a of state.assets) {
+    if (a.priceSource !== "ft" || !a.isin) continue;
+    if (fresh(meta, `fetched:asset:${a.id}`, force)) continue;
+    const have = span(state.prices[a.id]);
+    // Solo se pide histórico si falta más de una semana; lo normal es un valor liquidativo al día.
+    const gapFrom = !have ? addDays(firstByAsset.get(a.id) ?? today, -10) : have.max < addDays(today, -7) ? have.max : null;
+    try {
+      ops.push({ op: "prices", assetId: a.id, points: await ftPrices(get, a.isin, a.currency, gapFrom, today) });
+      ops.push({ op: "meta", key: `fetched:asset:${a.id}`, value: stamp() });
+    } catch (e) {
+      issues.push({ what: a.name, message: message(e) });
     }
   }
 
