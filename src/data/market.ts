@@ -509,10 +509,25 @@ const span = (pts: Point[] | undefined) =>
  * los cambios para que el almacén los aplique y los guarde de una vez.
  */
 /** Activos cuyo precio toca descargar: los de fuente automática sin precio o con la descarga caducada. */
-export function dueAssets(state: AppState, meta: Meta, force = false): AppState["assets"] {
-  return state.assets.filter((a) => {
-    // Los archivados ya no se siguen: su histórico basta para el pasado.
-    if (a.archived || a.priceSource === "manual") return false;
+/**
+ * A qué activos se les pide precio. Con `held` (los que se tienen hoy), solo a
+ * esos: lo que no se tiene está archivado y su histórico basta para el pasado.
+ * La excepción es un activo con operaciones y sin ningún precio guardado (se
+ * registró cuando ya estaba vendido): se baja una vez, para valorar bien su historia.
+ */
+function tracked(state: AppState, held?: ReadonlySet<string>): AppState["assets"] {
+  if (!held) return state.assets;
+  const traded = new Set<string>();
+  for (const t of state.txs) {
+    if (t.assetId) traded.add(t.assetId);
+    if (t.toAssetId) traded.add(t.toAssetId);
+  }
+  return state.assets.filter((a) => held.has(a.id) || (traded.has(a.id) && !state.prices[a.id]?.length));
+}
+
+export function dueAssets(state: AppState, meta: Meta, force = false, held?: ReadonlySet<string>): AppState["assets"] {
+  return tracked(state, held).filter((a) => {
+    if (a.priceSource === "manual") return false;
     if (a.priceSource !== "indexa" && !(SOURCE_BY_ISIN[a.priceSource] ? a.isin : a.symbol)) return false;
     return !(state.prices[a.id]?.length && fresh(meta, `fetched:asset:${a.id}`, force));
   });
@@ -526,6 +541,8 @@ export async function syncMarket(
   get: Get,
   force = false,
   onProgress?: (p: SyncProgress) => void,
+  /** Los activos que se tienen hoy; sin esto se actualizan todos. */
+  held?: ReadonlySet<string>,
 ): Promise<SyncResult> {
   const ops: Op[] = [];
   const issues: SyncIssue[] = [];
@@ -533,7 +550,8 @@ export async function syncMarket(
   const stamp = () => new Date().toISOString();
   let got = false;
   // Avance para la pantalla de carga: qué activo se está pidiendo y cuántos van.
-  const total = dueAssets(state, meta, force).length;
+  const assets = tracked(state, held);
+  const total = dueAssets(state, meta, force, held).length;
   let done = 0;
   const begin = (name: string) => onProgress?.({ name, done: Math.min(++done, total), total: Math.max(total, done) });
   // Cada activo recuerda su último fallo para que se vea cuál no se está actualizando.
@@ -589,7 +607,7 @@ export async function syncMarket(
     }
   }
   let limited = false;
-  for (const a of state.assets) {
+  for (const a of assets) {
     if (a.priceSource !== "yahoo" || !a.symbol) continue;
     const first = firstByAsset.get(a.id) ?? today;
     const need = addDays(first < floor ? first : floor, -10);
@@ -630,7 +648,7 @@ export async function syncMarket(
   }
 
   // ── Fondos por ISIN en Financial Times ──
-  for (const a of state.assets) {
+  for (const a of assets) {
     if (a.priceSource !== "ft" || !a.isin) continue;
     if (fresh(meta, `fetched:asset:${a.id}`, force)) continue;
     const have = span(state.prices[a.id]);
@@ -647,7 +665,7 @@ export async function syncMarket(
   }
 
   // ── Bolsas y fundinfo: fuente principal y, si falla, respaldo ──
-  for (const a of state.assets) {
+  for (const a of assets) {
     const src = a.priceSource;
     if (src !== "xetra" && src !== "bme" && src !== "nasdaq" && src !== "fundinfo") continue;
     const id = src === "nasdaq" ? a.symbol : a.isin;
@@ -726,7 +744,7 @@ export async function syncMarket(
   }
 
   // ── Binance: criptomonedas ──
-  for (const a of state.assets) {
+  for (const a of assets) {
     if (a.priceSource !== "binance" || !a.symbol) continue;
     const have = span(state.prices[a.id]);
     if (have && fresh(meta, `fetched:asset:${a.id}`, force)) continue;
@@ -741,7 +759,7 @@ export async function syncMarket(
   }
 
   // ── Indexa Capital: una consulta sirve para todos sus activos ──
-  const indexa = state.assets.filter((a) => a.priceSource === "indexa" && !(state.prices[a.id]?.length && fresh(meta, `fetched:asset:${a.id}`, force)));
+  const indexa = assets.filter((a) => a.priceSource === "indexa" && !(state.prices[a.id]?.length && fresh(meta, `fetched:asset:${a.id}`, force)));
   if (indexa.length) {
     try {
       const quotes = await indexaQuotes(get);

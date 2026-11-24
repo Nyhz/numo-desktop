@@ -345,7 +345,6 @@ export function planImport(rows: ImportRow[], state: AppState): ImportPlan {
             priceSource: resolveSource(source, ref),
       goalId: null,
       planExcluded: false,
-      archived: false,
     });
   };
   for (const r of rows) {

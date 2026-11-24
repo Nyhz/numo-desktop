@@ -1,15 +1,15 @@
-import { Archive, ArchiveRestore, ChevronDown, CirclePlus, Pencil, Plus, RefreshCw, TriangleAlert } from "lucide-react";
-import { Fragment, useMemo, useState } from "react";
+import { Archive, ChevronDown, CirclePlus, Pencil, Plus, RefreshCw, TriangleAlert } from "lucide-react";
+import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { fxHealth, needsAttention, parseFailure, type Failure, type HealthStatus, type PriceHealth } from "../../shared/engine/health.ts";
 import { ASSET_KIND_LABEL, PRICE_SOURCE_SHORT, SOURCE_BY_ISIN, type Asset } from "../../shared/types.ts";
-import { archiveAsset, derive, isExample, sync, useApp, useHealth } from "../data/store.ts";
+import { derive, isExample, sync, useApp, useHealth } from "../data/store.ts";
 import { ago, dateBrief, eur, money, num, priceDigits } from "../lib/format.ts";
 import { openDialog } from "../ui/dialogs.ts";
-import { Btn, Dot, Empty, HeaderSlot, IconBtn, Kpi, Kpis, Pills, toast } from "../ui/kit.tsx";
+import { Btn, Dot, Empty, HeaderSlot, IconBtn, Kpi, Kpis, Pills } from "../ui/kit.tsx";
 import { L, THead, TRow, Table } from "./common.tsx";
 
-type Filter = "all" | "held" | "gone" | "attention";
+type Filter = "all" | "attention";
 
 const STATUS: Record<HealthStatus, { label: string; color: string; rank: number }> = {
   failed: { label: "Falló la descarga", color: "var(--down)", rank: 0 },
@@ -37,7 +37,7 @@ function reason(a: Asset, h: PriceHealth, example: boolean): string {
   }
 }
 
-const COLS = "minmax(210px,2.1fr) 150px 118px 112px minmax(190px,1.5fr) 118px 92px";
+const COLS = "minmax(210px,2.1fr) 150px 118px 112px minmax(190px,1.5fr) 118px 64px";
 
 export function Activos() {
   const state = useApp((s) => (s.demo ?? s.loaded).state);
@@ -57,30 +57,21 @@ export function Activos() {
     return state.assets
       .map((asset) => ({ asset, health: byAsset.get(asset.id)!, position: held.get(asset.id) ?? null }))
       .filter((r) => r.health)
-      // Primero lo que está en cartera; dentro de cada grupo, lo que necesita atención arriba.
-      .sort(
-        (a, b) =>
-          Number(!a.position) - Number(!b.position) ||
-          STATUS[a.health.status].rank - STATUS[b.health.status].rank ||
-          a.asset.name.localeCompare(b.asset.name, "es"),
-      );
+      // Lo que necesita atención, arriba.
+      .sort((a, b) => STATUS[a.health.status].rank - STATUS[b.health.status].rank || a.asset.name.localeCompare(b.asset.name, "es"));
   }, [state.assets, byAsset, d.positions]);
-  // Los archivados no cuentan en nada de esta pantalla: van aparte, al final.
-  const rows = useMemo(() => everything.filter((r) => !r.asset.archived), [everything]);
-  const archived = useMemo(() => everything.filter((r) => r.asset.archived).sort((a, b) => a.asset.name.localeCompare(b.asset.name, "es")), [everything]);
-
-  const archive = async (asset: Asset, on: boolean) => {
-    const res = await archiveAsset(asset.id, on);
-    if (!res.ok) return toast(res.error, { tone: "error" });
-    toast(on ? `«${asset.name}» archivado` : `«${asset.name}» vuelve a la lista`, on ? { action: { label: "Deshacer", run: () => void archiveAsset(asset.id, false) } } : {});
-  };
+  // La lista es de lo que se tiene. Lo que no se tiene en ninguna cuenta está archivado: va
+  // aparte, al final, y no cuenta en nada de esta pantalla. Nadie lo archiva ni lo recupera:
+  // sale de las operaciones (se vende entero, se archiva; se compra, vuelve).
+  const rows = useMemo(() => everything.filter((r) => r.position), [everything]);
+  const archived = useMemo(() => everything.filter((r) => !r.position).sort((a, b) => a.asset.name.localeCompare(b.asset.name, "es")), [everything]);
 
   // Las divisas solo se mencionan aquí si su tipo de cambio se ha quedado atrás (el detalle está en Ajustes).
   const lateFx = useMemo(() => {
-    const set = new Set<string>([...state.assets, ...state.accounts].map((a) => a.currency));
+    const set = new Set<string>([...rows.map((r) => r.asset), ...state.accounts].map((a) => a.currency));
     set.delete("EUR");
     return [...set].sort().map((c) => ({ currency: c, ...fxHealth(state.fx[c], d.today) })).filter((c) => c.late);
-  }, [state.fx, state.assets, state.accounts, d.today]);
+  }, [state.fx, rows, state.accounts, d.today]);
 
   const addButton = (
     <Btn variant="ink" onClick={() => openDialog({ kind: "asset", stay: true })}>
@@ -90,14 +81,13 @@ export function Activos() {
 
   if (state.assets.length === 0) {
     return (
-      <Empty title="Todavía no sigues ningún activo" action={addButton}>
-        Añade una acción, un ETF, un fondo o una criptomoneda y su precio se actualizará solo, la tengas o no en cartera.
+      <Empty title="Todavía no tienes ningún activo" action={addButton}>
+        Los activos aparecen aquí al registrar su primera compra, y desde entonces su precio se actualiza solo. También puedes darlos de alta antes.
       </Empty>
     );
   }
 
   const attention = rows.filter((r) => needsAttention(r.health));
-  const held = rows.filter((r) => r.position).length;
   const count = (st: HealthStatus) => rows.filter((r) => r.health.status === st).length;
   const breakdown = (
     [
@@ -111,8 +101,7 @@ export function Activos() {
     .map(([st, text]) => `${count(st)} ${text}`)
     .join(" · ");
 
-  const shown = rows.filter((r) => (filter === "held" ? r.position : filter === "gone" ? !r.position : filter === "attention" ? needsAttention(r.health) : true));
-  const mixed = shown.some((r) => r.position) && shown.some((r) => !r.position);
+  const shown = rows.filter((r) => (filter === "attention" ? needsAttention(r.health) : true));
 
   return (
     <div className="screen flex flex-col gap-5">
@@ -122,16 +111,14 @@ export function Activos() {
           value={filter}
           onChange={setFilter}
           options={[
-            ["all", `Todos · ${rows.length}`],
-            ["held", `En cartera · ${held}`],
-            ["gone", `Sin posición · ${rows.length - held}`],
+            ["all", `En cartera · ${rows.length}`],
             ["attention", `Con avisos · ${attention.length}`],
           ]}
         />
       </HeaderSlot>
 
       <div className="flex flex-wrap items-center justify-between gap-4 px-1 pt-2">
-        <span className="max-w-[640px] text-pretty text-ink2">Todo lo que sigues, lo tengas o no en cartera. Cada activo dice de qué día es su precio y si se está actualizando.</span>
+        <span className="max-w-[640px] text-pretty text-ink2">Lo que tienes en cartera: de qué día es cada precio y si se está actualizando. Lo que vendes entero se archiva solo, y vuelve al comprarlo.</span>
         <div className="flex gap-2">
           {!example && (
             <Btn onClick={() => void sync(true)} disabled={syncing}>
@@ -143,7 +130,7 @@ export function Activos() {
       </div>
 
       <Kpis>
-        <Kpi label="Activos seguidos" note={`${held} en cartera · ${rows.length - held} sin posición`}>
+        <Kpi label="Activos en cartera" note={archived.length ? `${archived.length} ${archived.length === 1 ? "archivado" : "archivados"}, sin posición` : "ninguno archivado"}>
           {rows.length}
         </Kpi>
         <Kpi label="Al día" note="con el precio de la última sesión">
@@ -195,31 +182,22 @@ export function Activos() {
             <span>En cartera</span>
             <span />
           </THead>
-          {shown.map(({ asset: a, health: h, position: p }, i) => {
+          {shown.map(({ asset: a, health: h, position: p }) => {
             const st = STATUS[h.status];
-            // Con los dos grupos a la vista, un rótulo separa lo que tienes de lo que solo sigues.
-            const firstOfGroup = mixed && (i === 0 || !!shown[i - 1]!.position !== !!p);
             // Si la fuente principal falló y el precio vino del respaldo, se dice.
             const backup = parseFailure(meta[`backup:asset:${a.id}`]) as (Failure & { source?: string }) | null;
             const why = backup && h.status === "ok" ? `por respaldo (${backup.source ?? "otra fuente"}) · ${backup.message}` : reason(a, h, example);
             return (
-              <Fragment key={a.id}>
-              {firstOfGroup && (
-                <div className="flex items-baseline gap-2 border-t border-line bg-wash px-5 py-1.5 text-left text-[11.5px] text-mute" role="row">
-                  <span className="font-[550] text-ink2">{p ? "En cartera" : "Sin posición"}</span>
-                  <span>{p ? `${held} que tienes hoy` : `${rows.length - held} que sigues sin tenerlos`}</span>
-                </div>
-              )}
-              <TRow onClick={() => go(`/activo/${a.id}`)}>
+              <TRow key={a.id} onClick={() => go(`/activo/${a.id}`)}>
                 <L>
-                  <div className={`truncate ${p ? "font-[550]" : "text-ink2"}`}>{a.name}</div>
+                  <div className="truncate font-[550]">{a.name}</div>
                   <div className="truncate text-[11.5px] text-mute">{[ASSET_KIND_LABEL[a.kind], a.isin].filter(Boolean).join(" · ")}</div>
                 </L>
                 <L>
                   <div className={a.priceSource === "manual" ? "text-mute" : "text-ink2"}>{PRICE_SOURCE_SHORT[a.priceSource]}</div>
                   <div className="selectable truncate text-[11.5px] text-mute">{a.priceSource === "manual" ? "sin fuente automática" : ((SOURCE_BY_ISIN[a.priceSource] ? a.isin : a.symbol) ?? "—")}</div>
                 </L>
-                <span className={h.status === "ok" && p ? "" : "text-ink2"}>{h.price == null ? "—" : money(h.price, a.currency, priceDigits(h.price))}</span>
+                <span className={h.status === "ok" ? "" : "text-ink2"}>{h.price == null ? "—" : money(h.price, a.currency, priceDigits(h.price))}</span>
                 <div>
                   <div className={h.status === "ok" ? "text-ink2" : ""}>{h.priceDate ? dateBrief(h.priceDate, d.today) : "—"}</div>
                   <div className="text-[11.5px] text-mute">{daysAgo(h.ageDays)}</div>
@@ -243,21 +221,16 @@ export function Activos() {
                       <CirclePlus size={15} />
                     </IconBtn>
                   )}
-                  {/* Lo que ya no se tiene se puede archivar: conserva su historia y deja de seguirse. */}
-                  {!p && (
-                    <IconBtn label="Archivar: sale de la lista y deja de actualizarse; su historia se conserva" onClick={() => void archive(a, true)}>
-                      <Archive size={14} />
-                    </IconBtn>
-                  )}
                   <IconBtn label="Editar el activo y su fuente" onClick={() => openDialog({ kind: "asset", asset: a, stay: true })}>
                     <Pencil size={14} />
                   </IconBtn>
                 </span>
               </TRow>
-              </Fragment>
             );
           })}
-          {shown.length === 0 && <div className="border-t border-line px-5 py-8 text-center text-mute">Ningún activo en este grupo.</div>}
+          {shown.length === 0 && (
+            <div className="border-t border-line px-5 py-8 text-center text-mute">{rows.length ? "Ningún activo con avisos: todo se actualiza solo." : "Ahora mismo no tienes ninguna posición abierta."}</div>
+          )}
         </Table>
       </section>
       <p className="-mt-2 max-w-[820px] px-1 text-[12px] text-pretty text-mute">
@@ -268,27 +241,27 @@ export function Activos() {
       {archived.length > 0 && (
         <section className="card overflow-hidden">
           <button type="button" className="flex w-full items-center gap-2.5 px-5 py-3.5 text-left hover:bg-wash" aria-expanded={showArchived} onClick={() => setShowArchived((v) => !v)}>
-            <Archive size={14} className="text-mute" />
+            <Archive size={14} className="flex-none text-mute" />
             <span className="wide font-semibold">Archivados</span>
-            <span className="text-[12px] text-mute">
-              {archived.length} · ya no los tienes ni se actualizan; sus operaciones y su historia siguen contando
-            </span>
-            <ChevronDown size={13} className={`ml-auto text-mute transition-transform duration-200 ${showArchived ? "rotate-180" : ""}`} />
+            <span className="min-w-0 truncate text-[12px] text-mute">{archived.length} · no los tienes: no se actualizan, pero sus operaciones y su historia siguen contando</span>
+            <ChevronDown size={13} className={`ml-auto flex-none text-mute transition-transform duration-200 ${showArchived ? "rotate-180" : ""}`} />
           </button>
           {showArchived &&
             archived.map(({ asset: a, health: h }) => (
-              <div key={a.id} className="flex items-center gap-4 border-t border-line px-5 py-2.5 hover:bg-wash">
-                <button type="button" className="min-w-0 flex-1 text-left" onClick={() => go(`/activo/${a.id}`)}>
+              <div key={a.id} className="flex cursor-pointer items-center gap-4 border-t border-line px-5 py-2.5 hover:bg-wash" onClick={() => go(`/activo/${a.id}`)}>
+                <div className="min-w-0 flex-1">
                   <div className="truncate text-ink2">{a.name}</div>
                   <div className="truncate text-[11.5px] text-mute">{[ASSET_KIND_LABEL[a.kind], a.isin ?? a.symbol].filter(Boolean).join(" · ")}</div>
-                </button>
+                </div>
                 <span className="text-right text-[12px] whitespace-nowrap text-mute">
-                  {h.price == null ? "sin precio" : `último precio ${money(h.price, a.currency, priceDigits(h.price))}`}
+                  {h.price == null ? "sin precio guardado" : `último precio ${money(h.price, a.currency, priceDigits(h.price))}`}
                   {h.priceDate ? ` · ${dateBrief(h.priceDate, d.today)}` : ""}
                 </span>
-                <Btn size="sm" onClick={() => void archive(a, false)}>
-                  <ArchiveRestore size={12} /> Recuperar
-                </Btn>
+                <span onClick={(e) => e.stopPropagation()}>
+                  <IconBtn label="Editar el activo y su fuente" onClick={() => openDialog({ kind: "asset", asset: a, stay: true })}>
+                    <Pencil size={14} />
+                  </IconBtn>
+                </span>
               </div>
             ))}
         </section>

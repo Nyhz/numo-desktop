@@ -1,17 +1,18 @@
-import { Archive, ArchiveRestore, ArrowLeft, Pencil, Plus } from "lucide-react";
+import { ArrowLeft, Pencil, Plus } from "lucide-react";
 import { useMemo } from "react";
 import { Link } from "wouter";
 import { dayNum, isoOf } from "../../shared/dates.ts";
 import { ASSET_KIND_LABEL, TX_LABEL } from "../../shared/types.ts";
 import { HeroChart, lineModel } from "../charts/hero.tsx";
-import { archiveAsset, useDerived } from "../data/store.ts";
+import { useDerived, useHeld } from "../data/store.ts";
 import { dateShort, eur, eurSigned, money, num, priceDigits, seriesColor, splitMoney } from "../lib/format.ts";
 import { openDialog } from "../ui/dialogs.ts";
-import { Btn, Card, Dot, Empty, Kpi, Kpis, Money, Priv, Tag, toast, toneOf } from "../ui/kit.tsx";
+import { Btn, Card, Dot, Empty, Kpi, Kpis, Money, Priv, Tag, toneOf } from "../ui/kit.tsx";
 import { L, THead, TRow, Table } from "./common.tsx";
 
 export function Activo({ id }: { id: string }) {
   const d = useDerived();
+  const held = useHeld();
   const asset = d.assets.get(id);
 
   const data = useMemo(() => {
@@ -65,7 +66,12 @@ export function Activo({ id }: { id: string }) {
             <div className="selectable flex flex-wrap items-center gap-2 text-[12px] text-mute">
               <span className="wide text-[15px] font-semibold text-ink">{asset.name}</span>
               <Tag>{ASSET_KIND_LABEL[asset.kind]}</Tag>
-              {asset.archived && <Tag tone="warn">Archivado</Tag>}
+              {/* Lo que no se tiene en ninguna cuenta está archivado: conserva su historia y no se actualiza. */}
+              {!held.has(asset.id) && (
+                <span title="No lo tienes en cartera: no aparece en Activos ni se actualiza su precio. Vuelve solo al comprarlo.">
+                  <Tag>Archivado</Tag>
+                </span>
+              )}
               {asset.symbol && <span>{asset.symbol}</span>}
               {asset.isin && <span>{asset.isin}</span>}
               <span>{asset.currency}</span>
@@ -92,15 +98,6 @@ export function Activo({ id }: { id: string }) {
             </div>
           </div>
           <div className="flex shrink-0 gap-2 pb-1">
-            {/* Lo que ya no se tiene se puede archivar; lo archivado, recuperar. */}
-            {(asset.archived || !pos) && (
-              <Btn
-                title={asset.archived ? "Vuelve a la lista de activos y a actualizar su precio" : "Sale de la lista de activos y deja de actualizarse; su historia se conserva"}
-                onClick={() => void archiveAsset(asset.id, !asset.archived).then((r) => toast(r.ok ? (asset.archived ? "Recuperado" : "Archivado") : r.error, r.ok ? {} : { tone: "error" }))}
-              >
-                {asset.archived ? <ArchiveRestore size={13} /> : <Archive size={13} />} {asset.archived ? "Recuperar" : "Archivar"}
-              </Btn>
-            )}
             <Btn onClick={() => openDialog({ kind: "price", asset })}>Añadir precio</Btn>
             <Btn onClick={() => openDialog({ kind: "asset", asset })}>
               <Pencil size={13} /> Editar

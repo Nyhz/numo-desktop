@@ -37,7 +37,6 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/002_plan_inmuebles.sql"),
     include_str!("../migrations/003_sync.sql"),
     include_str!("../migrations/004_sin_cuenta_banco.sql"),
-    include_str!("../migrations/005_activos_archivados.sql"),
 ];
 
 /// Únicos servidores a los que la app puede conectarse.

@@ -260,7 +260,9 @@ function AssetDialog({ asset, stay }: { asset?: Asset; stay?: boolean }) {
     }
     const res = await saveAsset({ ...data, symbol: data.symbol || null, isin: data.isin || null }, asset?.id);
     if (!res.ok) return setError(res.error);
-    toast(probe ? `${asset ? "Activo guardado" : "Activo añadido"} · ${money(probe.price, probe.currency, priceDigits(probe.price))} a ${dateBrief(probe.date, todayIso())}` : asset ? "Activo guardado" : "Activo añadido");
+    // Uno recién dado de alta no se tiene todavía: queda archivado hasta su primera compra.
+    const done = asset ? "Activo guardado" : "Activo añadido: aparecerá en la lista al registrar su primera compra";
+    toast(probe ? `${done} · ${money(probe.price, probe.currency, priceDigits(probe.price))} a ${dateBrief(probe.date, todayIso())}` : done);
     closeDialog();
     if (changed) syncSoon();
   };

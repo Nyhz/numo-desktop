@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { addDays, todayIso } from "../../shared/dates.ts";
 import { ASSET_KINDS, ASSET_KIND_LABEL, type Asset, type AssetKind } from "../../shared/types.ts";
 import { searchMarket, yahooChart, type SearchHit } from "../data/market.ts";
-import { backend, isExample, saveAsset, useApp } from "../data/store.ts";
+import { backend, isExample, saveAsset, useApp, useHeld } from "../data/store.ts";
 import { Btn, toast } from "../ui/kit.tsx";
 
 type Item =
@@ -20,6 +20,7 @@ const ISIN = /^[A-Z]{2}[A-Z0-9]{9}\d$/;
 export function AssetPicker({ value, onChange, autoFocus, exclude }: { value: string; onChange: (id: string) => void; autoFocus?: boolean; exclude?: string }) {
   const assets = useApp((s) => (s.demo ?? s.loaded).state.assets);
   const example = useApp((s) => isExample(s));
+  const held = useHeld();
   const selected = assets.find((a) => a.id === value);
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
@@ -36,10 +37,10 @@ export function AssetPicker({ value, onChange, autoFocus, exclude }: { value: st
     return assets
       .filter((a) => a.id !== exclude)
       // Los archivados no se ofrecen de primeras, pero se encuentran al escribir su nombre.
-      .filter((a) => (t ? true : !a.archived))
+      .filter((a) => (t ? true : held.has(a.id)))
       .filter((a) => !t || a.name.toLowerCase().includes(t) || a.symbol?.toLowerCase().includes(t) || a.isin?.toLowerCase().includes(t))
       .slice(0, 8);
-  }, [assets, term, exclude]);
+  }, [assets, term, exclude, held]);
 
   // Búsqueda en el mercado, con espera para no lanzar una petición por tecla.
   useEffect(() => {

@@ -76,7 +76,7 @@ A partir de ahí **la app se actualiza sola**: al abrirla comprueba si hay una v
 | Plan | Cuánto te alejas de tu reparto objetivo, dónde poner la próxima aportación y a dónde llegarías con una aportación y una rentabilidad dadas. |
 | Inmuebles | Cuánto es ya tuyo, cuánto llevas pagado y en qué, y cuánto queda. |
 | Informes | Lo que pide Hacienda por ejercicio: ventas emparejadas, rendimientos, posiciones a cierre y pérdidas pendientes de compensar. |
-| Activos | Todo lo que sigues, lo tengas o no en cartera: de qué día es cada precio, de dónde sale y qué no se está actualizando. Aquí se añaden activos nuevos y se archivan los que ya no tienes ni quieres seguir: conservan su historia, pero salen de la lista y dejan de actualizarse. |
+| Activos | Lo que tienes en cartera: de qué día es cada precio, de dónde sale y qué no se está actualizando. Lo que vendes entero se archiva solo (conserva su historia, pero sale de la lista y deja de actualizarse) y vuelve al comprarlo. |
 | Cuentas · Ajustes | Cuentas, copias de seguridad, conexiones con servicios de datos, actualización de la app, tema y color de acento. |
 
 **Modo privado.** El ojo de la barra lateral (o la tecla `P`) emborrona importes, saldos y unidades en todas las pantallas, para enseñar la app sin enseñar cuánto hay; porcentajes, precios de mercado y fechas se siguen viendo. Se recuerda entre aperturas y no afecta a los datos ni a lo que se exporta.

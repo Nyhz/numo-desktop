@@ -42,7 +42,6 @@ const asset = (id: string, over: Partial<Asset> = {}): Asset => ({
   priceSource: "yahoo",
   goalId: null,
   planExcluded: false,
-  archived: false,
   createdAt: "2020-01-01T00:00:00Z",
   ...over,
 });

@@ -67,7 +67,7 @@ export function makeDemo(today: string): AppState {
   ) => {
     // Fuentes de mentira (no se consultan): sirven para enseñar cómo se ve cada una.
     const source = kind === "fund" ? "ft" : "yahoo";
-    const a: Asset = { id: `demo-${key}`, name, kind, symbol: source === "yahoo" ? `${key.toUpperCase()}.DEMO` : null, isin, currency, priceSource: source, goalId: null, planExcluded: false, archived: false, createdAt: at };
+    const a: Asset = { id: `demo-${key}`, name, kind, symbol: source === "yahoo" ? `${key.toUpperCase()}.DEMO` : null, isin, currency, priceSource: source, goalId: null, planExcluded: false, createdAt: at };
     assets.push(a);
     prices[a.id] = walk(seed, from, today, p0, drift, vol);
     return a;
@@ -83,7 +83,7 @@ export function makeDemo(today: string): AppState {
   const eth = asset("eth", "Ethereum", "crypto", "EUR", null, 97, 1650, -0.12, 0.6);
   const fundA = asset("fund-a", "Renta Fija Corto Plazo FI", "fund", "EUR", "ES00DEMO0083", 101, 10.02, 0.028, 0.008);
   const fundB = asset("fund-b", "Bolsa Global Indexado FI", "fund", "EUR", "ES00DEMO0091", 113, 101.5, 0.1, 0.12);
-  // Dos activos que solo se siguen, sin posición: la pantalla Activos los enseña aparte.
+  // Dos activos dados de alta que no se tienen: quedan archivados hasta que se compren.
   asset("aurora", "Aurora Renovables", "stock", "EUR", "ES00DEMO0109", 127, 14.2, 0.07, 0.3);
   asset("pacifico", "Pacífico Emergentes UCITS ETF", "etf", "EUR", "IE00DEMO0117", 131, 28.4, 0.06, 0.16);
 
