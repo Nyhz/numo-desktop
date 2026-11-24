@@ -2,7 +2,7 @@ import writeExcelFile from "write-excel-file/universal";
 import { csvEncode } from "../../shared/csv.ts";
 import type { Ledger, NTx } from "../../shared/engine/ledger.ts";
 import type { YearReport } from "../../shared/engine/reports.ts";
-import type { Scope } from "../../shared/engine/timeline.ts";
+import type { Position, Scope } from "../../shared/engine/timeline.ts";
 import { ASSET_KIND_LABEL, TX_LABEL, type Account, type Asset } from "../../shared/types.ts";
 import { backend } from "../data/store.ts";
 
@@ -41,6 +41,45 @@ export async function saveXlsx(name: string, sheets: Sheet[]): Promise<string | 
   const blob = await writeExcelFile(data as unknown as Parameters<typeof writeExcelFile>[0]).toBlob();
   return backend.saveFile(name, new Uint8Array(await blob.arrayBuffer()));
 }
+
+/** Las posiciones de hoy, una fila por activo, con su total. */
+export function positionsSheet(positions: Position[], accounts: Map<string, Account>): Sheet {
+  const rows: Cell[][] = [["Activo", "ISIN", "Símbolo", "Tipo", "Cuentas", "Divisa", "Unidades", "Precio", "Fecha del precio", "Valor EUR", "Coste EUR", "Plusvalía EUR", "Plusvalía %", "Peso %"]];
+  const r2 = (v: number) => Math.round(v * 100) / 100;
+  for (const p of positions) {
+    rows.push([
+      p.asset.name,
+      p.asset.isin ?? "",
+      p.asset.symbol ?? "",
+      ASSET_KIND_LABEL[p.asset.kind],
+      p.accounts.map((a) => accounts.get(a.accountId)?.name ?? "").filter(Boolean).join(", "),
+      p.asset.currency,
+      // Las unidades son sumas de decimales: sin esto salen colas como 0,08707500000000001.
+      Math.round(p.qty * 1e8) / 1e8,
+      p.price,
+      D(p.priceDate),
+      p.valueEur,
+      p.costEur,
+      p.unrealizedEur,
+      p.unrealizedPct == null ? null : r2(p.unrealizedPct * 100),
+      r2(p.weight * 100),
+    ]);
+  }
+  const sum = (f: (p: Position) => number) => r2(positions.reduce((s, p) => s + f(p), 0));
+  rows.push([]);
+  rows.push(["Total", "", "", "", "", "", null, null, null, sum((p) => p.valueEur), sum((p) => p.costEur), sum((p) => p.unrealizedEur), null, null]);
+  return { name: "Posiciones", rows, widths: [32, 15, 12, 11, 22, 8, 14, 12, 14, 14, 14, 14, 12, 9] };
+}
+
+/** El efectivo de hoy, cuenta a cuenta. */
+export function cashNowSheet(cash: Array<{ account: Account; balance: number; eur: number }>): Sheet {
+  const rows: Cell[][] = [["Cuenta", "Entidad", "Divisa", "Saldo", "Saldo EUR"]];
+  for (const c of cash) rows.push([c.account.name, c.account.institution, c.account.currency, c.balance, Math.round(c.eur * 100) / 100]);
+  return { name: "Efectivo", rows, widths: [24, 22, 8, 14, 14] };
+}
+
+/** Guarda un archivo ya generado (un PDF, por ejemplo). Devuelve la ruta o null si se cancela. */
+export const saveBytes = (name: string, bytes: Uint8Array): Promise<string | null> => backend.saveFile(name, bytes);
 
 /** Extracto de operaciones con todos los importes ya convertidos a EUR. */
 export function operationsSheet(ntxs: NTx[], accounts: Map<string, Account>, assets: Map<string, Asset>): Sheet {

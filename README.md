@@ -71,7 +71,7 @@ A partir de ahí **la app se actualiza sola**: al abrirla comprueba si hay una v
 | Pantalla | Qué responde |
 |---|---|
 | Resumen | Tu patrimonio neto (la cartera, el fondo de emergencia y lo que ya es tuyo de los inmuebles), cuánto has puesto, cuánto ha ganado y cómo se reparte. |
-| Posiciones | Qué tienes, cuánto pesa cada cosa y cuánto gana o pierde. |
+| Posiciones | Qué tienes, cuánto pesa cada cosa y cuánto gana o pierde; se descarga en PDF (con gráficos), Excel o CSV. |
 | Operaciones | El libro de operaciones y el flujo de efectivo; importar y exportar. |
 | Plan | Cuánto te alejas de tu reparto objetivo, dónde poner la próxima aportación y a dónde llegarías con una aportación y una rentabilidad dadas. |
 | Inmuebles | Cuánto es ya tuyo, cuánto llevas pagado y en qué, y cuánto queda. |

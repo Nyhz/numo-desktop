@@ -1,13 +1,14 @@
-import { TriangleAlert } from "lucide-react";
-import { useMemo, useState } from "react";
+import { ChevronDown, Download, TriangleAlert } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { cashReturn, sessionChange, type Position } from "../../shared/engine/timeline.ts";
 import { ASSET_KIND_LABEL } from "../../shared/types.ts";
 import { Spark, Strip } from "../charts/viz.tsx";
 import { useInvested } from "../data/store.ts";
 import { dateShort, eur, eurSigned, money, num, pct, pctSigned, priceDigits, seriesColor, splitMoney } from "../lib/format.ts";
+import { cashNowSheet, positionsSheet, saveBytes, saveCsv, saveXlsx } from "../lib/export.ts";
 import { openDialog } from "../ui/dialogs.ts";
-import { Btn, Dot, Empty, Money, toneOf } from "../ui/kit.tsx";
+import { Btn, Dot, Empty, Money, toast, toneOf } from "../ui/kit.tsx";
 import { L, TFoot, THead, TRow, Table, Welcome } from "./common.tsx";
 
 type SortKey = "name" | "day" | "value" | "gain" | "weight";
@@ -21,10 +22,61 @@ const SORT: Record<SortKey, (p: Position) => number | string> = {
 // La primera columna cede sitio: con el menú desplegado la tabla ha de caber sin barra horizontal.
 const COLS = "minmax(180px,2.2fr) 84px 124px 64px 88px 128px 128px 132px";
 
+/** Botón con las tres formas de llevarse las posiciones: PDF (con gráficos), Excel o CSV. */
+function DownloadMenu({ onPick, busy }: { onPick: (format: "pdf" | "xlsx" | "csv") => void; busy: boolean }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => {
+      if (!box.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    window.addEventListener("mousedown", close);
+    window.addEventListener("keydown", esc);
+    return () => {
+      window.removeEventListener("mousedown", close);
+      window.removeEventListener("keydown", esc);
+    };
+  }, [open]);
+  const options = [
+    ["pdf", "PDF", "informe con gráficos y tablas"],
+    ["xlsx", "Excel", "posiciones y efectivo, en dos hojas"],
+    ["csv", "CSV", "las posiciones, para una hoja de cálculo"],
+  ] as const;
+  return (
+    <div ref={box} className="relative">
+      <Btn onClick={() => setOpen((o) => !o)} disabled={busy} aria-haspopup="menu" aria-expanded={open}>
+        <Download size={13} /> {busy ? "Preparando…" : "Descargar"} <ChevronDown size={11} className="text-mute" />
+      </Btn>
+      {open && (
+        <div role="menu" className="absolute right-0 z-30 mt-1.5 w-72 rounded-xl border border-line2 bg-raised p-1 text-left" style={{ boxShadow: "var(--shadow-pop)" }}>
+          {options.map(([format, label, note]) => (
+            <button
+              key={format}
+              type="button"
+              role="menuitem"
+              className="flex w-full items-baseline gap-2.5 rounded-lg px-2.5 py-2 text-left hover:bg-wash"
+              onClick={() => {
+                setOpen(false);
+                onPick(format);
+              }}
+            >
+              <span className="w-10 font-semibold">{label}</span>
+              <span className="text-[12px] text-mute">{note}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function Posiciones() {
   // La cartera, sin el fondo de emergencia; este va en su propia tarjeta.
-  const { d, reserve } = useInvested();
+  const { d, reserve, filtered } = useInvested();
   const [, go] = useLocation();
+  const [exporting, setExporting] = useState(false);
   const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({ key: "value", desc: true });
   const [hot, setHot] = useState<string | null>(null);
 
@@ -75,6 +127,52 @@ export function Posiciones() {
     : [];
   const cushionTotal = cushion.reduce((s, c) => s + c.eur, 0);
   const noCashAccounts = d.state.accounts.filter((a) => !a.archived && (!d.scope || d.scope.has(a.id)) && !cash.some((c) => c.account.id === a.id)).length;
+
+  const download = async (format: "pdf" | "xlsx" | "csv") => {
+    setExporting(true);
+    try {
+      const name = `numo-posiciones-${d.today}`;
+      let path: string | null;
+      if (format === "csv") path = await saveCsv(`${name}.csv`, positionsSheet(d.positions, d.accounts).rows);
+      else if (format === "xlsx") path = await saveXlsx(`${name}.xlsx`, [positionsSheet(d.positions, d.accounts), ...(cash.length ? [cashNowSheet(cash)] : [])]);
+      else {
+        // El informe se monta (y su librería se carga) solo cuando se pide.
+        const { positionsPdf } = await import("../lib/pdf.ts");
+        const byKind = new Map<string, number>();
+        for (const p of d.positions) byKind.set(ASSET_KIND_LABEL[p.asset.kind], (byKind.get(ASSET_KIND_LABEL[p.asset.kind]) ?? 0) + p.valueEur);
+        if (cashTotal > 0.005) byKind.set("Efectivo", cashTotal);
+        const bytes = await positionsPdf({
+          date: dateShort(d.today),
+          scope: filtered ? d.state.accounts.filter((a) => d.scope?.has(a.id)).map((a) => a.name).join(", ") : "Todas las cuentas",
+          total,
+          invested: value,
+          cashTotal,
+          cost,
+          positions: d.positions.map((p) => ({
+            name: p.asset.name,
+            detail: [ASSET_KIND_LABEL[p.asset.kind], p.asset.isin ?? p.asset.symbol].filter(Boolean).join(" · "),
+            accounts: p.accounts.map((a) => d.accounts.get(a.accountId)?.name ?? "").filter(Boolean).join(", "),
+            units: num(p.qty, 6),
+            price: p.price == null ? "—" : money(p.price, p.asset.currency, priceDigits(p.price)),
+            valueEur: p.valueEur,
+            costEur: p.costEur,
+            unrealizedEur: p.unrealizedEur,
+            unrealizedPct: p.unrealizedPct,
+            weight: p.weight,
+          })),
+          kinds: [...byKind].map(([label, v]) => ({ label, value: v })).sort((a, b) => b.value - a.value),
+          cash: cash.map((c) => ({ name: c.account.name, balance: money(c.balance, c.account.currency), eur: c.eur })),
+          reserve: cushion.length ? cushionTotal : null,
+        });
+        path = await saveBytes(`${name}.pdf`, bytes);
+      }
+      if (path) toast("Posiciones descargadas");
+    } catch (e) {
+      toast(`No se pudo generar el archivo: ${e instanceof Error ? e.message : e}`, { tone: "error" });
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const Th = ({ k, children, left }: { k: SortKey; children: string; left?: boolean }) => (
     <button type="button" className={`hover:text-ink ${left ? "text-left" : "text-right"} ${sort.key === k ? "text-ink2" : ""}`} onClick={() => setSort((s) => ({ key: k, desc: s.key === k ? !s.desc : k !== "name" }))}>
@@ -237,6 +335,12 @@ export function Posiciones() {
         </Empty>
       ) : (
         <>
+          <div className="-mb-2 flex items-center justify-between gap-3 px-1">
+            <span className="text-[12.5px] text-mute">
+              {rows.length} {rows.length === 1 ? "posición" : "posiciones"} · pulsa una para ver su detalle
+            </span>
+            <DownloadMenu onPick={(f) => void download(f)} busy={exporting} />
+          </div>
           <section className="card overflow-hidden" onMouseLeave={() => setHot(null)}>
             <Table cols={COLS} minWidth={990}>
               <THead>
