@@ -1,10 +1,12 @@
-import { useState } from "react";
+import { Check, Search } from "lucide-react";
+import { useEffect, useState } from "react";
 import { detectCsv, matchSeries, parseNumber, parseSeriesCsv, parseTxCsv, planImport, type ImportPlan } from "../../shared/csv.ts";
 import { todayIso } from "../../shared/dates.ts";
 import { looksLikeExtras } from "../../shared/extras.ts";
-import { ACCOUNT_KINDS, ACCOUNT_KIND_LABEL, ASSET_KINDS, ASSET_KIND_LABEL, PRICE_SOURCE_LABEL, type Account, type Asset } from "../../shared/types.ts";
-import { getApp, importExtras, importPlan, importSeries, sync, removeAccount, removeAsset, saveAccount, saveAsset, setPrice, useDerived } from "../data/store.ts";
-import { dateShort, num } from "../lib/format.ts";
+import { ACCOUNT_KINDS, ACCOUNT_KIND_LABEL, ASSET_KINDS, ASSET_KIND_LABEL, PRICE_SOURCE_LABEL, PRICE_SOURCE_SHORT, type Account, type Asset } from "../../shared/types.ts";
+import { probeSource, searchMarket, type Probe, type SearchHit } from "../data/market.ts";
+import { backend, getApp, importExtras, importPlan, importSeries, isExample, sync, syncSoon, removeAccount, removeAsset, saveAccount, saveAsset, setPrice, useApp, useDerived } from "../data/store.ts";
+import { dateBrief, dateShort, money, num } from "../lib/format.ts";
 import { closeDialog, useDialog } from "../ui/dialogs.ts";
 import { Btn, Dialog, ErrorLine, Field, toast } from "../ui/kit.tsx";
 import { MortgageEventDialog, PropertyDialog, ValuationDialog } from "./property-dialogs.tsx";
@@ -123,47 +125,136 @@ function AccountDialog({ account }: { account?: Account }) {
 
 // ── Activo ─────────────────────────────────────────────────────────────────
 
-function AssetDialog({ asset }: { asset: Asset }) {
-  const [f, setF] = useState({
-    name: asset.name,
-    kind: asset.kind,
-    symbol: asset.symbol ?? "",
-    isin: asset.isin ?? "",
-    currency: asset.currency,
-    priceSource: asset.priceSource,
+const ISIN = /^[A-Z]{2}[A-Z0-9]{9}\d$/;
+type AssetForm = { name: string; kind: Asset["kind"]; symbol: string; isin: string; currency: string; priceSource: Asset["priceSource"] };
+const sourceKey = (f: Pick<AssetForm, "priceSource" | "symbol" | "isin" | "currency">) =>
+  `${f.priceSource}|${f.priceSource === "yahoo" ? f.symbol.trim() : f.priceSource === "ft" ? f.isin.trim() : ""}|${f.currency}`;
+
+/**
+ * Alta y edición de un activo. Se puede buscar en el mercado para rellenarlo y,
+ * antes de guardar, se pregunta a la fuente para no dejar un activo sin precio.
+ */
+function AssetDialog({ asset, stay }: { asset?: Asset; stay?: boolean }) {
+  const example = useApp((s) => isExample(s));
+  const assets = useApp((s) => (s.demo ?? s.loaded).state.assets);
+  const [f, setF] = useState<AssetForm>({
+    name: asset?.name ?? "",
+    kind: asset?.kind ?? "stock",
+    symbol: asset?.symbol ?? "",
+    isin: asset?.isin ?? "",
+    currency: asset?.currency ?? "EUR",
+    priceSource: asset?.priceSource ?? "yahoo",
   });
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  /** Última comprobación correcta y a qué datos corresponde. */
+  const [check, setCheck] = useState<{ key: string; probe: Probe } | null>(null);
+  /** Clave de la fuente que falló: permite guardar igualmente sin volver a preguntar. */
+  const [failedKey, setFailedKey] = useState<string | null>(null);
+  const [q, setQ] = useState("");
+  const [hits, setHits] = useState<SearchHit[]>([]);
+  const [searching, setSearching] = useState(false);
+
+  const key = sourceKey(f);
+  const verified = check?.key === key ? check.probe : null;
+  const term = q.trim();
+  const termIsin = ISIN.test(term.toUpperCase()) ? term.toUpperCase() : null;
+
+  useEffect(() => {
+    setHits([]);
+    if (example || term.length < 2) return;
+    let alive = true;
+    setSearching(true);
+    const timer = setTimeout(async () => {
+      try {
+        const found = await searchMarket(backend.httpGet, term);
+        if (alive) setHits(found.filter((h) => !assets.some((a) => a.id !== asset?.id && a.symbol === h.symbol)).slice(0, 6));
+      } catch {
+        // Sin conexión o con el límite de peticiones se puede seguir rellenando a mano.
+      } finally {
+        if (alive) setSearching(false);
+      }
+    }, 320);
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+      setSearching(false);
+    };
+  }, [term, example, assets, asset?.id]);
+
+  /** Rellena el formulario con lo que dice la fuente y lo deja comprobado. */
+  const adopt = async (next: AssetForm, takeName: boolean) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const probe = await probeSource(backend.httpGet, { priceSource: next.priceSource as "yahoo" | "ft", symbol: next.symbol || null, isin: next.isin || null, currency: next.currency });
+      const filled = { ...next, currency: probe.currency, kind: probe.kind ?? next.kind, name: takeName && probe.name ? probe.name : next.name };
+      setF(filled);
+      setCheck({ key: sourceKey(filled), probe });
+      setFailedKey(null);
+      setQ("");
+    } catch (e) {
+      setError(`No se pudo consultar ${next.priceSource === "ft" ? next.isin : next.symbol}: ${e instanceof Error ? e.message : e}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const pickHit = (h: SearchHit) => adopt({ ...f, name: asset ? f.name : h.name, kind: h.kind, symbol: h.symbol, priceSource: "yahoo", isin: termIsin ?? f.isin }, false);
+  const pickFt = () => adopt({ ...f, kind: "fund", symbol: "", isin: termIsin!, priceSource: "ft" }, !asset || !f.name.trim());
 
   const save = async () => {
-    if (f.priceSource === "yahoo" && !f.symbol.trim()) return setError("Para usar Yahoo Finance hace falta el símbolo");
-    if (f.priceSource === "ft" && !f.isin.trim()) return setError("Para usar Financial Times hace falta el ISIN");
-    const res = await saveAsset({ ...f, symbol: f.symbol.trim() || null, isin: f.isin.trim() || null }, asset.id);
+    setError(null);
+    let data = { ...f, symbol: f.symbol.trim(), isin: f.isin.trim().toUpperCase() };
+    if (data.priceSource === "yahoo" && !data.symbol) return setError("Para usar Yahoo Finance hace falta el símbolo");
+    if (data.priceSource === "ft" && !data.isin) return setError("Para usar Financial Times hace falta el ISIN");
+    const changed = !asset || sourceKey({ priceSource: asset.priceSource, symbol: asset.symbol ?? "", isin: asset.isin ?? "", currency: asset.currency }) !== key;
+    let probe = verified;
+    // Antes de guardar una fuente nueva se comprueba que da precio.
+    if (data.priceSource !== "manual" && changed && !probe && failedKey !== key && !example) {
+      setBusy(true);
+      try {
+        probe = await probeSource(backend.httpGet, { priceSource: data.priceSource, symbol: data.symbol || null, isin: data.isin || null, currency: data.currency });
+        data = { ...data, currency: probe.currency };
+      } catch (e) {
+        setFailedKey(key);
+        return setError(
+          `${PRICE_SOURCE_SHORT[data.priceSource]} no da precio para ${data.priceSource === "ft" ? `${data.isin} en ${data.currency}` : data.symbol}: ${e instanceof Error ? e.message : e}. Corrige el dato, o guárdalo igualmente y quedará con aviso en Activos.`,
+        );
+      } finally {
+        setBusy(false);
+      }
+    }
+    const res = await saveAsset({ ...data, symbol: data.symbol || null, isin: data.isin || null }, asset?.id);
     if (!res.ok) return setError(res.error);
-    toast("Activo guardado");
+    toast(probe ? `${asset ? "Activo guardado" : "Activo añadido"} · ${money(probe.price, probe.currency, probe.price < 10 ? 4 : 2)} a ${dateBrief(probe.date, todayIso())}` : asset ? "Activo guardado" : "Activo añadido");
     closeDialog();
+    if (changed) syncSoon();
   };
   const remove = async () => {
+    if (!asset) return;
     const res = await removeAsset(asset.id);
     if (!res.ok) return setError(res.error);
     toast("Activo eliminado");
     closeDialog();
-    history.back();
+    if (!stay) history.back();
   };
 
   return (
     <Dialog
       open
       onClose={closeDialog}
-      title="Editar activo"
-      width={480}
+      title={asset ? "Editar activo" : "Añadir activo"}
+      width={500}
       footer={
         <>
-          <Btn variant="danger" className="mr-auto" onClick={remove}>
-            Eliminar
-          </Btn>
+          {asset && (
+            <Btn variant="danger" className="mr-auto" onClick={remove}>
+              Eliminar
+            </Btn>
+          )}
           <Btn onClick={closeDialog}>Cancelar</Btn>
-          <Btn variant="cta" onClick={save}>
-            Guardar
+          <Btn variant="cta" onClick={save} disabled={busy}>
+            {busy ? "Comprobando…" : failedKey === key ? "Guardar igualmente" : asset ? "Guardar" : "Añadir activo"}
           </Btn>
         </>
       }
@@ -175,8 +266,52 @@ function AssetDialog({ asset }: { asset: Asset }) {
           void save();
         }}
       >
+        {!example && (
+          <div className="pt-0.5">
+            <div className="relative">
+              <Search size={14} className="pointer-events-none absolute top-2.5 left-3 text-mute" />
+              <input
+                className="field pl-9"
+                data-autofocus={asset ? undefined : ""}
+                placeholder={asset ? "Buscar otra cotización: nombre, símbolo o ISIN" : "Buscar en el mercado: nombre, símbolo o ISIN"}
+                value={q}
+                disabled={busy}
+                onChange={(e) => setQ(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && term) {
+                    e.preventDefault();
+                    if (hits[0]) void pickHit(hits[0]);
+                    else if (termIsin) void pickFt();
+                  }
+                }}
+              />
+            </div>
+            {term.length >= 2 && (
+              <ul className="mt-1.5 rounded-xl border border-line2 bg-raised p-1">
+                {hits.map((h) => (
+                  <li key={h.symbol}>
+                    <button type="button" className="flex w-full items-baseline gap-2 rounded-lg px-2.5 py-1.5 text-left hover:bg-wash" onClick={() => void pickHit(h)}>
+                      <span className="truncate">{h.name}</span>
+                      <span className="ml-auto shrink-0 text-[12px] text-mute">{[h.symbol, h.exchange, ASSET_KIND_LABEL[h.kind]].filter(Boolean).join("  ")}</span>
+                    </button>
+                  </li>
+                ))}
+                {termIsin && (
+                  <li>
+                    <button type="button" className="flex w-full items-baseline gap-2 rounded-lg px-2.5 py-1.5 text-left hover:bg-wash" onClick={() => void pickFt()}>
+                      <span className="text-ink2">Buscar el fondo {termIsin} en Financial Times</span>
+                      <span className="ml-auto shrink-0 text-[12px] text-mute">en {f.currency}</span>
+                    </button>
+                  </li>
+                )}
+                {searching && <li className="px-2.5 py-1.5 text-[12px] text-mute">Buscando…</li>}
+                {!searching && hits.length === 0 && !termIsin && <li className="px-2.5 py-1.5 text-[12px] text-mute">Sin resultados. Puedes rellenar los datos a mano.</li>}
+              </ul>
+            )}
+          </div>
+        )}
         <Field label="Nombre">
-          <input className="field" autoFocus value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
+          <input className="field" data-autofocus={asset ? "" : undefined} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
         </Field>
         <div className="grid grid-cols-[1fr_96px] gap-3">
           <Field label="Tipo">
@@ -209,9 +344,21 @@ function AssetDialog({ asset }: { asset: Asset }) {
             <input className="field" placeholder="p. ej. VWCE.DE" disabled={f.priceSource !== "yahoo"} value={f.symbol} onChange={(e) => setF({ ...f, symbol: e.target.value })} />
           </Field>
         </div>
-        <p className="text-[12px] text-pretty text-mute">
-          Con Yahoo o Financial Times el precio se actualiza solo al abrir la app. Si cambias la fuente, el símbolo o la divisa se vuelve a descargar el histórico.
-        </p>
+        {verified ? (
+          <p className="flex items-center gap-2 text-[12.5px] text-ink2">
+            <Check size={14} strokeWidth={2.4} className="shrink-0 text-up" />
+            <span>
+              {PRICE_SOURCE_SHORT[f.priceSource]} lo cotiza a <span className="font-medium text-ink">{money(verified.price, verified.currency, verified.price < 10 ? 4 : 2)}</span>, precio del{" "}
+              {dateBrief(verified.date, todayIso())}.
+            </span>
+          </p>
+        ) : (
+          <p className="text-[12px] text-pretty text-mute">
+            {f.priceSource === "manual"
+              ? "Con precio manual el activo no se actualiza solo: tendrás que poner tú cada precio y aparecerá con aviso en Activos."
+              : "Al guardar se comprueba que la fuente da precio. Después se actualiza solo, lo tengas o no en cartera."}
+          </p>
+        )}
         <ErrorLine text={error} />
         <button type="submit" hidden />
       </form>
@@ -449,7 +596,7 @@ export function Dialogs() {
     case "account":
       return <AccountDialog account={dlg.account} />;
     case "asset":
-      return <AssetDialog asset={dlg.asset} />;
+      return <AssetDialog key={dlg.asset?.id ?? "new"} asset={dlg.asset} stay={dlg.stay} />;
     case "price":
       return <PriceDialog asset={dlg.asset} />;
     case "import":

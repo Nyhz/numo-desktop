@@ -1,6 +1,7 @@
-import { useSyncExternalStore } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 import { accountKey, assetKey, type ImportPlan } from "../../shared/csv.ts";
 import { addMonths, todayIso } from "../../shared/dates.ts";
+import { fxHealth, needsAttention, parseFailure, priceHealth, type PriceHealth } from "../../shared/engine/health.ts";
 import { buildLedger, type Ledger } from "../../shared/engine/ledger.ts";
 import {
   buildPositions,
@@ -186,7 +187,7 @@ async function doSync(force: boolean): Promise<void> {
 }
 
 /** Actualización en segundo plano tras un cambio; no se lanza en los modos sin interfaz. */
-const syncSoon = () => {
+export const syncSoon = () => {
   if (!s.info?.smoke && !s.info?.import) void sync(false);
 };
 
@@ -258,6 +259,7 @@ export function saveAsset(input: unknown, id?: string): Promise<Result<Asset>> {
     ops.push({ op: "prices", assetId: row.id, points: [], replace: true });
     ops.push({ op: "splits", assetId: row.id, points: [] });
     ops.push({ op: "meta", key: `fetched:asset:${row.id}`, value: "" });
+    ops.push({ op: "meta", key: `failed:asset:${row.id}`, value: "" });
   }
   return attempt(async () => {
     await commit(ops);
@@ -630,6 +632,26 @@ export function derive(state: AppState, scopeIds: string[] | null): Derived {
   };
   derivedCache = { key, ledger, value };
   return value;
+}
+
+/** Estado del precio de cada activo (de qué día es y si se está actualizando) y de las divisas. */
+export function useHealth(): { byAsset: Map<string, PriceHealth>; attention: number; fxLate: number } {
+  const loaded = useApp((x) => x.demo ?? x.loaded);
+  return useMemo(() => {
+    const today = todayIso();
+    const { state, meta } = loaded;
+    const byAsset = new Map<string, PriceHealth>();
+    let attention = 0;
+    for (const a of state.assets) {
+      const h = priceHealth(a, state.prices[a.id], meta[`fetched:asset:${a.id}`] || null, parseFailure(meta[`failed:asset:${a.id}`]), today);
+      byAsset.set(a.id, h);
+      if (needsAttention(h)) attention++;
+    }
+    const currencies = new Set([...state.assets, ...state.accounts].map((x) => x.currency));
+    currencies.delete("EUR");
+    const fxLate = [...currencies].filter((c) => fxHealth(state.fx[c], today).late).length;
+    return { byAsset, attention, fxLate };
+  }, [loaded]);
 }
 
 export function useDerived(): Derived {

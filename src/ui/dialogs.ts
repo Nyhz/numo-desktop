@@ -5,7 +5,7 @@ import type { Account, Asset, Mortgage, MortgageEventType, Property, Tx, TxType 
 export type DialogState =
   | { kind: "tx"; tx?: Tx; preset?: { type?: TxType; assetId?: string; accountId?: string } }
   | { kind: "account"; account?: Account }
-  | { kind: "asset"; asset: Asset }
+  | { kind: "asset"; asset?: Asset; stay?: boolean }
   | { kind: "price"; asset: Asset }
   | { kind: "import" }
   | { kind: "property"; property?: Property }

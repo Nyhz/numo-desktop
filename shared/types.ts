@@ -21,6 +21,12 @@ export const PRICE_SOURCE_LABEL: Record<PriceSource, string> = {
   manual: "Manual",
 };
 
+export const PRICE_SOURCE_SHORT: Record<PriceSource, string> = {
+  yahoo: "Yahoo Finance",
+  ft: "Financial Times",
+  manual: "Manual",
+};
+
 export type Account = {
   id: string;
   name: string;

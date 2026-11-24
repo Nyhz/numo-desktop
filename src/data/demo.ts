@@ -64,7 +64,9 @@ export function makeDemo(today: string): AppState {
     drift: number,
     vol: number,
   ) => {
-    const a: Asset = { id: `demo-${key}`, name, kind, symbol: null, isin, currency, priceSource: "manual", goalId: null, planExcluded: false, createdAt: at };
+    // Fuentes de mentira (no se consultan): sirven para enseñar cómo se ve cada una.
+    const source = kind === "fund" ? "ft" : "yahoo";
+    const a: Asset = { id: `demo-${key}`, name, kind, symbol: source === "yahoo" ? `${key.toUpperCase()}.DEMO` : null, isin, currency, priceSource: source, goalId: null, planExcluded: false, createdAt: at };
     assets.push(a);
     prices[a.id] = walk(seed, from, today, p0, drift, vol);
     return a;

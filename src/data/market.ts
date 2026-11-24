@@ -8,6 +8,7 @@ import type { Meta, Op } from "./backend.ts";
 type Get = (url: string) => Promise<string>;
 
 const FRESH_MS = 6 * 3600_000;
+const YAHOO_LIMIT = "Yahoo está limitando las peticiones";
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 // Algunas bolsas cotizan en céntimos de su divisa.
@@ -116,7 +117,7 @@ const ftMonth = (name: string) => FT_MONTHS.indexOf(name.slice(0, 3).toLowerCase
 const iso = (y: string, m: number, d: string) => `${y}-${String(m + 1).padStart(2, "0")}-${d.padStart(2, "0")}`;
 
 /** Último valor liquidativo de la ficha de un fondo en FT. Falla si no hay un precio usable. */
-export function parseFtQuote(html: string): { price: number; currency: string; date: string | null; xid: string | null } {
+export function parseFtQuote(html: string): { price: number; currency: string; date: string | null; xid: string | null; name: string | null } {
   const m = /Price \(([A-Za-z]{3})\)<\/span><span class="mod-ui-data-list__value">\s*([\d,]+\.\d+)/.exec(html);
   if (!m) throw new Error("FT no muestra precio para este ISIN");
   const price = ftNumber(m[2]!);
@@ -125,7 +126,8 @@ export function parseFtQuote(html: string): { price: number; currency: string; d
   const month = asOf ? ftMonth(asOf[1]!) : -1;
   // El identificador interno de FT viene en un bloque de configuración, a veces con las comillas escapadas.
   const xid = /(?:&quot;|")xid(?:&quot;|"):(?:&quot;|")(\d+)/.exec(html)?.[1] ?? null;
-  return { price, currency: m[1]!.toUpperCase(), date: asOf && month >= 0 ? iso(asOf[3]!, month, asOf[2]!) : null, xid };
+  const name = /mod-tearsheet-overview__header__name[^>]*>([^<]+)</.exec(html)?.[1]?.trim().replace(/&amp;/g, "&") ?? null;
+  return { price, currency: m[1]!.toUpperCase(), date: asOf && month >= 0 ? iso(asOf[3]!, month, asOf[2]!) : null, xid, name };
 }
 
 /** Histórico de FT: filas con fecha y cuatro cifras (apertura, máximo, mínimo, cierre). */
@@ -161,6 +163,29 @@ export async function ftPrices(get: Get, isin: string, currency: string, from: s
     }
   }
   return points;
+}
+
+export type Probe = { price: number; date: string; currency: string; name: string | null; kind: AssetKind | null };
+
+/**
+ * Pregunta a la fuente por un activo antes de guardarlo: confirma que existe,
+ * en qué divisa cotiza y cuál es su último precio.
+ */
+export async function probeSource(
+  get: Get,
+  src: { priceSource: "yahoo" | "ft"; symbol: string | null; isin: string | null; currency: string },
+): Promise<Probe> {
+  const today = todayIso();
+  if (src.priceSource === "yahoo") {
+    if (!src.symbol) throw new Error("Falta el símbolo");
+    const q = await yahooChart(get, src.symbol, addDays(today, -10), today);
+    const last = q.points[q.points.length - 1];
+    if (!last) throw new Error("Yahoo no tiene precios recientes de este símbolo");
+    return { price: last[1], date: last[0], currency: q.currency, name: q.name, kind: q.kind };
+  }
+  if (!src.isin) throw new Error("Falta el ISIN");
+  const q = parseFtQuote(await get(`${FT}/data/funds/tearsheet/summary?s=${encodeURIComponent(`${src.isin}:${src.currency}`)}`));
+  return { price: q.price, date: q.date ?? today, currency: q.currency, name: q.name, kind: "fund" };
 }
 
 export type SearchHit = { symbol: string; name: string; kind: AssetKind; exchange: string };
@@ -259,6 +284,14 @@ export async function syncMarket(
   const issues: SyncIssue[] = [];
   const today = todayIso();
   const stamp = () => new Date().toISOString();
+  let got = false;
+  // Cada activo recuerda su último fallo para que se vea cuál no se está actualizando.
+  const failed = (id: string, why: string) => ops.push({ op: "meta", key: `failed:asset:${id}`, value: JSON.stringify({ at: stamp(), message: why }) });
+  const fetched = (id: string) => {
+    got = true;
+    ops.push({ op: "meta", key: `fetched:asset:${id}`, value: stamp() });
+    if (meta[`failed:asset:${id}`]) ops.push({ op: "meta", key: `failed:asset:${id}`, value: "" });
+  };
   const firstTx = state.txs.reduce((m, t) => (t.date < m ? t.date : m), today);
   const floor = addDays(today, -400);
   const globalStart = addDays(firstTx < floor ? firstTx : floor, -10);
@@ -287,6 +320,7 @@ export async function syncMarket(
           issues.push({ what: c, message: "El BCE no publica esta divisa; se usa el cambio de tus operaciones." });
         }
         ops.push({ op: "meta", key: `fetched:fx:${c}`, value: stamp() });
+        got = true;
       }
     } catch (e) {
       issues.push({ what: list.join(", "), message: `Tipos de cambio: ${message(e)}` });
@@ -303,6 +337,7 @@ export async function syncMarket(
       if (id && (!firstByAsset.has(id) || t.date < firstByAsset.get(id)!)) firstByAsset.set(id, t.date);
     }
   }
+  let limited = false;
   for (const a of state.assets) {
     if (a.priceSource !== "yahoo" || !a.symbol) continue;
     const first = firstByAsset.get(a.id) ?? today;
@@ -310,6 +345,11 @@ export async function syncMarket(
     const have = span(state.prices[a.id]);
     const covers = !!have && have.min <= addDays(need, 10);
     if (covers && fresh(meta, `fetched:asset:${a.id}`, force)) continue;
+    if (limited) {
+      // Tras un bloqueo no se insiste, pero queda anotado qué se quedó sin actualizar.
+      failed(a.id, YAHOO_LIMIT);
+      continue;
+    }
     try {
       let q = await yahooChart(get, a.symbol, covers ? addDays(have!.max, -7) : need, today);
       let full = !covers;
@@ -323,17 +363,17 @@ export async function syncMarket(
       }
       if (full) ops.push({ op: "splits", assetId: a.id, points: mergeSplits(state.splits[a.id] ?? [], q.splits) });
       ops.push({ op: "prices", assetId: a.id, points: q.points, replace: full });
-      ops.push({ op: "meta", key: `fetched:asset:${a.id}`, value: stamp() });
+      fetched(a.id);
     } catch (e) {
       const msg = message(e);
       if (msg.includes("429")) {
-        issues.push({
-          what: "Yahoo Finance",
-          message: "Yahoo está limitando las peticiones. Se conservan los últimos precios guardados; vuelve a intentarlo en unos minutos.",
-        });
-        break;
+        issues.push({ what: "Yahoo Finance", message: `${YAHOO_LIMIT}. Se conservan los últimos precios guardados; vuelve a intentarlo en unos minutos.` });
+        failed(a.id, YAHOO_LIMIT);
+        limited = true;
+        continue;
       }
       issues.push({ what: a.name, message: msg });
+      failed(a.id, msg);
     }
   }
 
@@ -346,14 +386,15 @@ export async function syncMarket(
     const gapFrom = !have ? addDays(firstByAsset.get(a.id) ?? today, -10) : have.max < addDays(today, -7) ? have.max : null;
     try {
       ops.push({ op: "prices", assetId: a.id, points: await ftPrices(get, a.isin, a.currency, gapFrom, today) });
-      ops.push({ op: "meta", key: `fetched:asset:${a.id}`, value: stamp() });
+      fetched(a.id);
     } catch (e) {
       issues.push({ what: a.name, message: message(e) });
+      failed(a.id, message(e));
     }
   }
 
   // Solo cuenta como actualización si de verdad se descargó algo.
-  if (ops.length) ops.push({ op: "meta", key: "lastSync", value: stamp() });
+  if (got) ops.push({ op: "meta", key: "lastSync", value: stamp() });
   return { ops, issues };
 }
 

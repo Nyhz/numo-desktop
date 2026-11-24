@@ -26,7 +26,8 @@ Requisitos: Node 22+, pnpm, Rust y las herramientas de línea de comandos de Xco
 | Plan | Cuánto te alejas de tu reparto objetivo y dónde poner la próxima aportación. |
 | Inmuebles | Cuánto es ya tuyo, cuánto llevas pagado, cuánto queda y qué pasa si amortizas. |
 | Informes | Lo que pide Hacienda por ejercicio: ventas emparejadas, rendimientos, posiciones a cierre. |
-| Cuentas · Ajustes | Cuentas, copias de seguridad, precios y tema. |
+| Activos | Todo lo que sigues, lo tengas o no en cartera: de qué día es cada precio, de dónde sale y qué no se está actualizando. Aquí se añaden activos nuevos. |
+| Cuentas · Ajustes | Cuentas, copias de seguridad y tema. |
 
 ## Cómo está hecha
 
@@ -46,7 +47,7 @@ Decisiones de cálculo que conviene conocer:
 - **Traspasos** entre fondos: no son una venta; el destino hereda fecha y coste de adquisición.
 - **Splits**: las operaciones se registran tal como se ejecutaron; las unidades se ajustan solas.
 - **Rentabilidad**: TWR (ponderada por tiempo) para el porcentaje y TIR anualizada (ponderada por dinero).
-- **Precios**: Yahoo Finance por símbolo, Financial Times por ISIN para fondos, o manual. Se actualizan al abrir la app.
+- **Precios**: Yahoo Finance por símbolo, Financial Times por ISIN para fondos, o manual. Se actualizan al abrir la app (si han pasado más de 6 horas) para todos los activos dados de alta, con o sin posición. Al añadir un activo se comprueba que su fuente da precio; cada fallo de descarga queda anotado por activo y se ve en Activos.
 - **Plan**: el reparto de una aportación va primero a lo más retrasado respecto a su objetivo y nunca propone vender.
 - **Hipoteca**: amortización francesa; el cuadro se deriva de las condiciones y de los eventos (amortización anticipada, revisión del tipo, cuota real).
 - Caudal **no calcula impuestos**. El informe anual entrega los datos y avisa de pérdidas con recompra cercana, sin decidir nada.

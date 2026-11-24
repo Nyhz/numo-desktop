@@ -1,11 +1,12 @@
-import { ArrowLeftRight, Check, ChevronDown, FileText, House, Landmark, Layers, LineChart, Moon, Plus, RefreshCw, Settings, Sun, Target, Waves } from "lucide-react";
+import { ArrowLeftRight, Check, ChevronDown, FileText, House, Landmark, Layers, LineChart, Moon, Plus, Radar, RefreshCw, Settings, Sun, Target, Waves } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, Route, Router, Switch, useLocation } from "wouter";
 import { useHashLocation } from "wouter/use-hash-location";
-import { backend, isExample, setDemo, setScope, sync, useApp } from "./data/store.ts";
+import { backend, isExample, setDemo, setScope, sync, useApp, useHealth } from "./data/store.ts";
 import { Dialogs } from "./features/dialogs.tsx";
 import { ago, seriesColor } from "./lib/format.ts";
 import { Activo } from "./pages/Activo.tsx";
+import { Activos } from "./pages/Activos.tsx";
 import { Ajustes } from "./pages/Ajustes.tsx";
 import { Cuentas } from "./pages/Cuentas.tsx";
 import { Informes } from "./pages/Informes.tsx";
@@ -27,28 +28,31 @@ const NAV_MAIN: Nav[] = [
   { href: "/informes", label: "Informes", icon: FileText, scoped: true },
 ];
 const NAV_SUB: Nav[] = [
+  { href: "/activos", label: "Activos", icon: Radar },
   { href: "/cuentas", label: "Cuentas", icon: Landmark },
   { href: "/ajustes", label: "Ajustes", icon: Settings },
 ];
 
 const isMac = /Mac/i.test(navigator.platform);
-const matches = (n: Nav, loc: string) => (n.href === "/" ? loc === "/" : loc.startsWith(n.href) || (n.href === "/posiciones" && loc.startsWith("/activo")));
+const matches = (n: Nav, loc: string) => (n.href === "/" ? loc === "/" : loc.startsWith(n.href) || (n.href === "/posiciones" && loc.startsWith("/activo/")));
 
-function RailLink({ nav }: { nav: Nav }) {
+function RailLink({ nav, alerts = 0 }: { nav: Nav; alerts?: number }) {
   const [loc] = useLocation();
   const active = matches(nav, loc);
   const Icon = nav.icon;
+  const label = alerts ? `${nav.label} · ${alerts === 1 ? "1 precio necesita" : `${alerts} precios necesitan`} atención` : nav.label;
   return (
     <Link
       href={nav.href}
-      title={nav.label}
-      aria-label={nav.label}
+      title={label}
+      aria-label={label}
       aria-current={active ? "page" : undefined}
-      className={`grid size-10 place-items-center rounded-[11px] transition-[background,color] duration-150 active:scale-[.94] ${
+      className={`relative grid size-10 place-items-center rounded-[11px] transition-[background,color] duration-150 active:scale-[.94] ${
         active ? "bg-raised text-acc shadow-[var(--shadow-active)]" : "text-mute hover:text-ink"
       }`}
     >
       <Icon size={19} strokeWidth={1.8} />
+      {alerts > 0 && <span className="absolute top-2 right-2 size-1.5 rounded-full bg-acc" />}
     </Link>
   );
 }
@@ -138,7 +142,7 @@ function SyncButton() {
   const lastSync = useApp((s) => s.loaded.state.lastSync);
   const example = useApp((s) => isExample(s));
   if (example) return null;
-  const title = syncing ? "Actualizando precios…" : `Precios actualizados ${ago(lastSync)}${issues.length ? ` · ${issues.length} avisos (ver Ajustes)` : ""}. Pulsa para actualizar ahora.`;
+  const title = syncing ? "Actualizando precios…" : `Precios actualizados ${ago(lastSync)}${issues.length ? ` · ${issues.length} avisos (ver Activos)` : ""}. Pulsa para actualizar ahora.`;
   return (
     <button
       type="button"
@@ -161,6 +165,7 @@ function Shell({ children }: { children: ReactNode }) {
   const example = useApp((s) => isExample(s));
   const dialog = useDialog();
   const [light, flipTheme] = useTheme();
+  const { attention, fxLate } = useHealth();
   const here = [...NAV_MAIN, ...NAV_SUB].find((n) => matches(n, loc));
 
   // «N» abre una operación nueva desde cualquier pantalla.
@@ -194,7 +199,7 @@ function Shell({ children }: { children: ReactNode }) {
         ))}
         <div data-tauri-drag-region className="flex-1 self-stretch" />
         {NAV_SUB.map((n) => (
-          <RailLink key={n.href} nav={n} />
+          <RailLink key={n.href} nav={n} alerts={n.href === "/activos" ? attention + fxLate : 0} />
         ))}
         <div className="my-1.5 h-px w-6 bg-line2" />
         <SyncButton />
@@ -273,6 +278,7 @@ export function App() {
           <Route path="/plan" component={Plan} />
           <Route path="/inmuebles" component={Inmuebles} />
           <Route path="/informes" component={Informes} />
+          <Route path="/activos" component={Activos} />
           <Route path="/cuentas" component={Cuentas} />
           <Route path="/ajustes" component={Ajustes} />
           <Route>
