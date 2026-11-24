@@ -2,6 +2,7 @@
   "name": "caudal",
   "private": true,
   "version": "0.1.0",
+  "packageManager": "pnpm@10.31.0",
   "type": "module",
   "scripts": {
     "dev": "tauri dev",
@@ -11,7 +12,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:native": "cargo test --manifest-path src-tauri/Cargo.toml",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "publicar": "node tools/publicar.mjs"
   },
   "dependencies": {
     "@fontsource-variable/archivo": "^5.3.0",

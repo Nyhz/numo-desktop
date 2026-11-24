@@ -14,7 +14,7 @@ pnpm typecheck
 pnpm dev:web        # solo la interfaz en un navegador, con la cartera de ejemplo
 ```
 
-Requisitos: Node 22+, pnpm, Rust y las herramientas de línea de comandos de Xcode.
+Requisitos para compilar en local: Node 22+, pnpm, Rust y, en macOS, las herramientas de línea de comandos de Xcode.
 
 ## Pantallas
 
@@ -58,10 +58,28 @@ Decisiones de cálculo que conviene conocer:
 
 ## Datos y copias
 
-- Base de datos: `~/Library/Application Support/app.caudal.desktop/caudal.db`.
+- Base de datos: `~/Library/Application Support/app.caudal.desktop/caudal.db` en macOS; `%APPDATA%\app.caudal.desktop\caudal.db` en Windows.
 - Copia diaria automática (las 14 últimas) en la carpeta `copias/` de al lado.
 - Ajustes → «Guardar una copia…» y «Exportar todas las operaciones» (CSV que la propia app vuelve a importar).
 - `CAUDAL_DATA_DIR=/otra/carpeta` usa otra carpeta de datos (pruebas).
+
+## Versiones y descargas
+
+Los instaladores para **macOS** (un `.dmg` que sirve para Apple Silicon e Intel) y **Windows** (`-setup.exe`, 64 bits) están en la página de versiones del repositorio (Releases). Los compila GitHub; no hace falta tener nada instalado.
+
+Para publicar una versión nueva, con todos los cambios ya subidos a `main`:
+
+```
+pnpm publicar            # parche: 0.1.0 → 0.1.1 (arreglos)
+pnpm publicar minor      # 0.1.4 → 0.2.0 (funciones nuevas)
+pnpm publicar major      # 0.9.2 → 1.0.0 (la versión redonda)
+```
+
+También desde la web de GitHub: Actions → «Publicar versión» → Run workflow. El flujo (`.github/workflows/release.yml`) sube el número en `package.json` (el único sitio donde está escrito; la app lo lee de ahí), pasa los tipos y los tests, crea la etiqueta `vX.Y.Z`, compila para los dos sistemas y publica la versión con sus instaladores y la lista de cambios. Si una compilación falla, la versión se queda en borrador: se relanza el trabajo fallido desde Actions. Al terminar, `git pull` trae el commit «Versión X.Y.Z».
+
+Cada cambio que se sube a `main` pasa además las comprobaciones de `.github/workflows/ci.yml` (tipos, tests del motor y tests del núcleo nativo).
+
+Los instaladores no están firmados con certificados de pago: la primera vez, macOS pide abrir la app desde Ajustes del Sistema → Privacidad y seguridad → «Abrir igualmente», y Windows muestra «Windows protegió su PC» → «Más información» → «Ejecutar de todas formas». Cada instalación guarda sus datos en su ordenador (en Windows, `%APPDATA%\app.caudal.desktop\caudal.db`); instalar una versión nueva encima los conserva.
 
 ## Importar desde Numo
 

@@ -1,0 +1,149 @@
+# Publica una versión de Caudal: sube el número, etiqueta, compila para macOS y
+# Windows y deja los instaladores en la página de versiones del repositorio.
+#
+# Se lanza a mano (pestaña Actions → «Publicar versión», o `pnpm publicar` en el
+# terminal) eligiendo qué número sube:
+#   parche  0.1.0 → 0.1.1   arreglos
+#   minor   0.1.4 → 0.2.0   funciones nuevas
+#   major   0.9.2 → 1.0.0   la versión redonda
+#   actual  publica la versión que ya está escrita en package.json (la primera, 0.1.0)
+name: Publicar versión
+run-name: Publicar versión · ${{ inputs.tipo }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      tipo:
+        description: "Qué número sube: parche (0.1.0 → 0.1.1), minor (→ 0.2.0), major (→ 1.0.0) o actual (la que ya está escrita)"
+        type: choice
+        options: [parche, minor, major, actual]
+        default: parche
+
+permissions:
+  contents: write
+
+# Nunca dos publicaciones a la vez: la segunda espera.
+concurrency:
+  group: publicar
+  cancel-in-progress: false
+
+jobs:
+  preparar:
+    name: Versión y comprobaciones
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      release_id: ${{ steps.release.outputs.id }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Calcular la versión
+        id: version
+        run: node tools/version.mjs "${{ inputs.tipo }}" >> "$GITHUB_OUTPUT"
+
+      - name: Comprobar que esa versión no existe ya
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" > /dev/null; then
+            echo "::error::La versión $TAG ya está publicada. Elige parche, minor o major."
+            exit 1
+          fi
+
+      # No se publica nada que no pase las comprobaciones.
+      - run: pnpm typecheck
+      - run: pnpm test
+
+      - name: Guardar el número y etiquetar
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if ! git diff --quiet; then git commit -am "Versión $VERSION"; fi
+          git tag "$TAG"
+          git push origin "HEAD:${{ github.ref_name }}" "$TAG"
+
+      # La versión nace como borrador y solo se hace pública cuando están los dos instaladores.
+      - name: Crear el borrador de la versión
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          body=$(cat <<'NOTAS'
+          ## Instalar
+
+          - **macOS** (Apple Silicon e Intel): descarga el `.dmg`, ábrelo y arrastra Caudal a Aplicaciones. La app no está firmada con una cuenta de desarrollador de Apple: la primera vez, macOS la bloquea; ve a Ajustes del Sistema → Privacidad y seguridad y pulsa «Abrir igualmente».
+          - **Windows** (64 bits): descarga el `-setup.exe` y ejecútalo. Tampoco está firmada: si Windows muestra «Windows protegió su PC», pulsa «Más información» → «Ejecutar de todas formas».
+
+          Instalar una versión nueva encima de la anterior conserva tus datos.
+          NOTAS
+          )
+          id=$(gh api -X POST "repos/${{ github.repository }}/releases" \
+            -f tag_name="$TAG" -f name="Caudal $VERSION" -f body="$body" \
+            -F draft=true -F generate_release_notes=true --jq .id)
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+
+  compilar:
+    name: Compilar · ${{ matrix.nombre }}
+    needs: preparar
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - nombre: macOS
+            os: macos-latest
+            # Un solo instalador que sirve para Apple Silicon y para Intel.
+            args: --target universal-apple-darwin --bundles app,dmg
+            targets: aarch64-apple-darwin,x86_64-apple-darwin
+          - nombre: Windows
+            os: windows-latest
+            args: --bundles nsis
+            targets: ""
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.preparar.outputs.tag }}
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.targets }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: pnpm install --frozen-lockfile
+      - uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          releaseId: ${{ needs.preparar.outputs.release_id }}
+          args: ${{ matrix.args }}
+          # Sin actualizador dentro de la app: las versiones se descargan de GitHub.
+          uploadUpdaterJson: false
+          uploadUpdaterSignatures: false
+
+  publicar:
+    name: Hacer pública la versión
+    needs: [preparar, compilar]
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api -X PATCH "repos/${{ github.repository }}/releases/${{ needs.preparar.outputs.release_id }}" \
+            -F draft=false -f make_latest=true --jq .html_url

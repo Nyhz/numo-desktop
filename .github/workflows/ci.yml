@@ -1,0 +1,38 @@
+# Comprobaciones en cada cambio: tipos, tests del motor y tests del núcleo nativo.
+name: Comprobaciones
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["**.md"]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  comprobar:
+    name: Tipos y tests
+    # El commit «Versión X.Y.Z» lo hace la propia publicación, que ya ha pasado las comprobaciones.
+    if: ${{ !startsWith(github.event.head_commit.message, 'Versión ') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+
+      - name: Dependencias del sistema para compilar el núcleo nativo en Linux
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      # tauri::generate_context! necesita que exista la carpeta de la interfaz compilada.
+      - run: mkdir -p dist && pnpm test:native
