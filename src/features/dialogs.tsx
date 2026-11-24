@@ -89,7 +89,7 @@ function AccountDialog({ account }: { account?: Account }) {
         </Field>
         <div className="grid grid-cols-[1fr_96px] gap-3">
           <Field label="Tipo">
-            <select className="field" value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value as Account["kind"] })}>
+            <select className="field" value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value as Account["kind"], trackCash: e.target.value === "emergency" ? true : f.trackCash })}>
               {ACCOUNT_KINDS.map((k) => (
                 <option key={k} value={k}>
                   {ACCOUNT_KIND_LABEL[k]}
@@ -101,6 +101,11 @@ function AccountDialog({ account }: { account?: Account }) {
             <input className="field uppercase" maxLength={3} value={f.currency} onChange={(e) => setF({ ...f, currency: e.target.value.toUpperCase() })} />
           </Field>
         </div>
+        {f.kind === "emergency" && (
+          <p className="-mt-1 text-[12px] text-pretty text-mute">
+            El fondo de emergencia cuenta para tu patrimonio, pero queda fuera de la cartera y de su rentabilidad: es dinero que no se invierte. Lleva su efectivo y registra en ella los intereses que te pague.
+          </p>
+        )}
         <label className="flex items-start gap-2.5">
           <input type="checkbox" className="mt-[3px] accent-[var(--acc)]" checked={f.trackCash} onChange={(e) => setF({ ...f, trackCash: e.target.checked })} />
           <span>

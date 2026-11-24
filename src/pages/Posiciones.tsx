@@ -1,10 +1,10 @@
 import { TriangleAlert } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
-import { sessionChange, type Position } from "../../shared/engine/timeline.ts";
+import { cashReturn, sessionChange, type Position } from "../../shared/engine/timeline.ts";
 import { ASSET_KIND_LABEL } from "../../shared/types.ts";
 import { Spark, Strip } from "../charts/viz.tsx";
-import { useDerived } from "../data/store.ts";
+import { useInvested } from "../data/store.ts";
 import { dateShort, eur, eurSigned, money, num, pct, pctSigned, priceDigits, seriesColor, splitMoney } from "../lib/format.ts";
 import { openDialog } from "../ui/dialogs.ts";
 import { Btn, Dot, Empty, Money, toneOf } from "../ui/kit.tsx";
@@ -18,10 +18,12 @@ const SORT: Record<SortKey, (p: Position) => number | string> = {
   gain: (p) => p.unrealizedEur,
   weight: (p) => p.weight,
 };
-const COLS = "minmax(230px,2.2fr) 84px 124px 64px 88px 128px 128px 132px";
+// La primera columna cede sitio: con el menú desplegado la tabla ha de caber sin barra horizontal.
+const COLS = "minmax(180px,2.2fr) 84px 124px 64px 88px 128px 128px 132px";
 
 export function Posiciones() {
-  const d = useDerived();
+  // La cartera, sin el fondo de emergencia; este va en su propia tarjeta.
+  const { d, reserve } = useInvested();
   const [, go] = useLocation();
   const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({ key: "value", desc: true });
   const [hot, setHot] = useState<string | null>(null);
@@ -63,6 +65,15 @@ export function Posiciones() {
   const total = value + cashTotal;
   const [totalI, totalD] = splitMoney(eur(total));
   const session = sessionChange(d.positions);
+  // Fondo de emergencia: saldo de cada cuenta y lo que ha rentado en el último año.
+  const cushion = reserve
+    ? [...reserve.timeline.cash.entries()].map(([id, series]) => {
+        const account = reserve.accounts.get(id)!;
+        const balance = series[series.length - 1] ?? 0;
+        return { account, balance, eur: balance / reserve.ledger.market.fx(account.currency, reserve.timeline.start + reserve.timeline.n - 1), ret: cashReturn(reserve.timeline, reserve.ledger, id) };
+      })
+    : [];
+  const cushionTotal = cushion.reduce((s, c) => s + c.eur, 0);
   const noCashAccounts = d.state.accounts.filter((a) => !a.archived && (!d.scope || d.scope.has(a.id)) && !cash.some((c) => c.account.id === a.id)).length;
 
   const Th = ({ k, children, left }: { k: SortKey; children: string; left?: boolean }) => (
@@ -179,6 +190,47 @@ export function Posiciones() {
         )}
       </div>
 
+      {cushion.length > 0 && (
+        <section className="card">
+          <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 px-5 pt-4 pb-3">
+            <span className="wide font-semibold">Fondo de emergencia</span>
+            <span className="text-[12px] text-mute">cuenta para tu patrimonio, pero no es cartera: no se invierte ni entra en su rentabilidad</span>
+            <span className="ml-auto text-[20px] font-[550] whitespace-nowrap" style={{ fontStretch: "106%" }}>
+              <Money value={cushionTotal} />
+            </span>
+          </div>
+          {cushion.map((c) => (
+            <div key={c.account.id} className="grid items-center gap-x-6 gap-y-1 border-t border-line px-5 py-3 text-[12.5px]" style={{ gridTemplateColumns: "minmax(160px,1.2fr) repeat(3, minmax(120px,1fr))" }}>
+              <div className="flex min-w-0 items-center gap-2.5">
+                <Dot color={seriesColor(c.account.color)} />
+                <span className="truncate font-[550]">{c.account.name}</span>
+                {c.account.institution && <span className="truncate text-mute">{c.account.institution}</span>}
+              </div>
+              <div>
+                <div className="text-mute">Saldo</div>
+                <div className="priv text-[14px] font-semibold">{money(c.balance, c.account.currency)}</div>
+              </div>
+              <div>
+                <div className="text-mute">Intereses del último año</div>
+                <div className="text-[14px] font-semibold">
+                  <span className="priv">{money(c.ret.interestNet, c.account.currency)}</span>{" "}
+                  <span className="text-[11.5px] font-normal text-mute">
+                    netos · <span className="priv">{money(c.ret.interest, c.account.currency)}</span> brutos
+                  </span>
+                </div>
+              </div>
+              <div>
+                <div className="text-mute">Lo que te está rentando</div>
+                <div className="text-[14px] font-semibold">
+                  {c.ret.rate == null ? <span className="font-normal text-mute">hace falta un mes de historia</span> : <span className={c.ret.rate > 0 ? "text-up" : ""}>{pct(c.ret.rate, 2)} anual</span>}
+                  {c.ret.rate != null && <span className="text-[11.5px] font-normal text-mute"> · bruto, sobre el saldo medio</span>}
+                </div>
+              </div>
+            </div>
+          ))}
+        </section>
+      )}
+
       {rows.length === 0 ? (
         <Empty title="No hay posiciones abiertas" action={<Btn variant="cta" onClick={() => openDialog({ kind: "tx" })}>Registrar una compra</Btn>}>
           Las posiciones aparecen al registrar compras en las cuentas seleccionadas.
@@ -186,7 +238,7 @@ export function Posiciones() {
       ) : (
         <>
           <section className="card overflow-hidden" onMouseLeave={() => setHot(null)}>
-            <Table cols={COLS} minWidth={1040}>
+            <Table cols={COLS} minWidth={990}>
               <THead>
                 <Th k="name" left>
                   Activo

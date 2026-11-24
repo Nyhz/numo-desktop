@@ -25,7 +25,7 @@
 Numo App lleva la cuenta de lo que tienes y de cómo te va, con los datos guardados en un archivo de tu ordenador. Tú registras lo que haces (compras, ventas, dividendos, ingresos, tu vivienda y su hipoteca) y la app calcula el resto: posiciones, rentabilidad, plusvalías, reparto, cuadro de amortización y los extractos que pide Hacienda.
 
 - **Todas tus cuentas juntas.** Brókers, bancos, fondos y exchanges, en varias divisas, con el efectivo de cada una.
-- **Patrimonio neto de verdad.** La cartera más lo que ya es tuyo de tus inmuebles, y cómo ha evolucionado.
+- **Patrimonio neto de verdad.** La cartera, tu fondo de emergencia y lo que ya es tuyo de tus inmuebles, y cómo ha evolucionado.
 - **Rentabilidad sin trampas.** Ponderada por tiempo y TIR anualizada, mes a mes, por posición y frente al MSCI World.
 - **Precios al día sin pagar por ellos.** Acciones, ETF, fondos y criptomonedas se actualizan solos desde sus bolsas y gestoras; los tipos de cambio, del BCE.
 - **Un plan de inversión.** Bloques con su peso objetivo, cuánto te alejas de él, dónde poner la próxima aportación y una proyección de a dónde llegarías.
@@ -70,7 +70,7 @@ A partir de ahí **la app se actualiza sola**: al abrirla comprueba si hay una v
 
 | Pantalla | Qué responde |
 |---|---|
-| Resumen | Tu patrimonio neto (la cartera más lo que ya es tuyo de los inmuebles), cuánto has puesto, cuánto ha ganado y cómo se reparte. |
+| Resumen | Tu patrimonio neto (la cartera, el fondo de emergencia y lo que ya es tuyo de los inmuebles), cuánto has puesto, cuánto ha ganado y cómo se reparte. |
 | Posiciones | Qué tienes, cuánto pesa cada cosa y cuánto gana o pierde. |
 | Operaciones | El libro de operaciones y el flujo de efectivo; importar y exportar. |
 | Plan | Cuánto te alejas de tu reparto objetivo, dónde poner la próxima aportación y a dónde llegarías con una aportación y una rentabilidad dadas. |
@@ -94,6 +94,7 @@ Una idea manda sobre todo lo demás: **solo se guarda lo que tú registras** (cu
 - **Rentabilidad**: TWR (ponderada por tiempo) para el porcentaje y TIR anualizada (ponderada por dinero).
 - **Precios**: cada activo tiene una fuente, todas gratuitas y sin cupo diario. Los cotizados se piden a su propia bolsa: Deutsche Börse (Xetra, por ISIN), BME (Madrid, por ISIN) y Nasdaq (EE. UU., por ticker); los fondos, a fundinfo (por ISIN); las criptomonedas, a Binance; el plan o la cartera de Indexa Capital, a su API con tu token de solo lectura. Si la fuente de un activo falla, se usa un respaldo (Yahoo Finance para cotizados, Financial Times para fondos) y queda anotado. También se puede elegir Yahoo, Financial Times o precio manual. Se actualizan al abrir la app (si han pasado más de 6 horas) para todos los activos dados de alta, con o sin posición. Al añadir un activo se comprueba que su fuente da precio; cada fallo queda anotado por activo y se ve en Activos. Cambiar un activo de fuente conserva su histórico.
 - **Token de Indexa**: se pone en Ajustes → Conexiones. Se guarda en la base de datos local. Va dentro de las copias de seguridad.
+- **Fondo de emergencia**: una cuenta de ese tipo cuenta para el patrimonio, pero queda fuera de la cartera y de su rentabilidad, porque es dinero que no se invierte. Posiciones enseña su saldo, los intereses del último año y lo que renta de verdad: intereses brutos entre saldo medio, anualizado, comparable con la TAE del banco. En Informes sí entra, porque sus intereses tributan.
 - **Plan**: la aportación va entera al bloque más retrasado (al que hoy le faltan más euros), en una sola operación para ahorrar comisiones, aunque lo deje por encima de su objetivo. Nunca propone vender.
 - **Hipoteca**: amortización francesa; el cuadro se deriva de las condiciones y de los eventos (revisión del tipo, cuota real).
 - Numo App **no calcula impuestos**. El informe anual entrega los datos, avisa de pérdidas con recompra cercana y lleva una cuenta orientativa de las pérdidas pendientes de compensar, sin decidir nada.

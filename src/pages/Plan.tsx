@@ -8,7 +8,7 @@ import type { Goal } from "../../shared/types.ts";
 import { contributionSpan, offAfter } from "../charts/plan-math.ts";
 import { NO_BLOCK, PlanBars, PlanCurve, PlanSplit, type PlanHot } from "../charts/plan.tsx";
 import { Projection } from "../charts/projection.tsx";
-import { assignAsset, derive, removeGoal, saveGoal, useApp } from "../data/store.ts";
+import { assignAsset, derive, removeGoal, reserveIds, saveGoal, useApp } from "../data/store.ts";
 import { eur, num, pct, seriesColor } from "../lib/format.ts";
 import { Btn, Card, Dot, Empty, IconBtn, Kpi, Kpis, Priv, toast } from "../ui/kit.tsx";
 import { L, THead, TRow, Table, Welcome } from "./common.tsx";
@@ -91,8 +91,14 @@ export function Plan() {
 
   // Para la proyección: lo que vale hoy la cartera, los inmuebles y lo que se viene aportando al mes.
   const homes = useMemo(() => viewProperties(state, d.today), [state, d.today]);
-  const tl = d.timeline;
+  // El fondo de emergencia no se invierte: ni crece con la cartera ni cuenta como aportación.
+  const invested = useMemo(() => {
+    const ids = reserveIds(state);
+    return ids.length ? derive(state, state.accounts.filter((a) => !ids.includes(a.id)).map((a) => a.id)) : null;
+  }, [state]);
+  const tl = (invested ?? d).timeline;
   const portfolioNow = tl.n ? tl.total[tl.n - 1]! : 0;
+  const reserveNow = invested && d.timeline.n ? Math.max(0, d.timeline.total[d.timeline.n - 1]! - portfolioNow) : 0;
   const suggestedMonthly = useMemo(() => {
     let net = 0;
     const from = Math.max(0, tl.n - 365);
@@ -373,7 +379,7 @@ export function Plan() {
         </Card>
       </div>
 
-      {portfolioNow > 0 && <Projection portfolio={portfolioNow} homes={homes} today={d.today} suggestedMonthly={suggestedMonthly} />}
+      {portfolioNow > 0 && <Projection portfolio={portfolioNow} reserve={reserveNow} homes={homes} today={d.today} suggestedMonthly={suggestedMonthly} />}
     </div>
   );
 }

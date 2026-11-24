@@ -19,7 +19,21 @@ const yearsText = (months: number) => {
   return [y ? `${y} ${y === 1 ? "año" : "años"}` : "", m ? `${m} ${m === 1 ? "mes" : "meses"}` : ""].filter(Boolean).join(" y ") || "ya";
 };
 
-export function Projection({ portfolio, homes, today, suggestedMonthly }: { portfolio: number; homes: PropertyView[]; today: string; /** Aportación media mensual del último año, como punto de partida. */ suggestedMonthly: number }) {
+export function Projection({
+  portfolio,
+  reserve,
+  homes,
+  today,
+  suggestedMonthly,
+}: {
+  portfolio: number;
+  /** Fondo de emergencia: cuenta para el patrimonio y se deja tal cual. */
+  reserve: number;
+  homes: PropertyView[];
+  today: string;
+  /** Aportación media mensual del último año, como punto de partida. */
+  suggestedMonthly: number;
+}) {
   const [inputs, setInputs] = useState<Inputs>(() => {
     const base: Inputs = { monthly: num(suggestedMonthly, 0), annual: "5", years: "20", goal: "" };
     try {
@@ -43,9 +57,9 @@ export function Projection({ portfolio, homes, today, suggestedMonthly }: { port
     const dates = projectionDates(today, months);
     const cartera = projectPortfolio(portfolio, monthly, annual, months);
     const inmuebles = equitySeries(homes, dates);
-    const total = cartera.map((v, i) => v + inmuebles[i]!);
+    const total = cartera.map((v, i) => v + inmuebles[i]! + reserve);
     return { dates, cartera, inmuebles, total };
-  }, [today, months, portfolio, monthly, annual, homes]);
+  }, [today, months, portfolio, reserve, monthly, annual, homes]);
 
   const model = useMemo(
     () =>
@@ -54,9 +68,13 @@ export function Projection({ portfolio, homes, today, suggestedMonthly }: { port
         axis: eurAxis,
         format: (v) => eur(v, 0),
         priv: true,
-        series: [...(homes.length ? [{ label: "Inmuebles · lo que ya será tuyo", color: "var(--s8)", values: view.inmuebles }] : []), { label: "Cartera", color: "var(--acc)", values: view.cartera }],
+        series: [
+          ...(homes.length ? [{ label: "Inmuebles · lo que ya será tuyo", color: "var(--s8)", values: view.inmuebles }] : []),
+          ...(reserve > 0 ? [{ label: "Fondo de emergencia", color: "var(--s2)", values: view.dates.map(() => reserve) }] : []),
+          { label: "Cartera", color: "var(--acc)", values: view.cartera },
+        ],
       }),
-    [view, homes.length],
+    [view, homes.length, reserve],
   );
 
   const end = months;
@@ -107,6 +125,11 @@ export function Projection({ portfolio, homes, today, suggestedMonthly }: { port
         <span>
           Cartera <Priv>{eur(view.cartera[end]!, 0)}</Priv>: hoy <Priv>{eur(portfolio, 0)}</Priv>, más <Priv>{eur(contributed, 0)}</Priv> aportados y <Priv>{eur(grown, 0)}</Priv> de rentabilidad
         </span>
+        {reserve > 0 && (
+          <span>
+            Fondo de emergencia <Priv>{eur(reserve, 0)}</Priv>, tal cual está
+          </span>
+        )}
         {homes.length > 0 && (
           <span>
             Inmuebles <Priv>{eur(view.inmuebles[end]!, 0)}</Priv>, por la hipoteca que se va pagando (sin revalorización)

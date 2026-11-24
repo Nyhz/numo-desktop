@@ -2,7 +2,11 @@
 // (cuentas, activos, operaciones) y los datos de mercado descargados.
 // Posiciones, lotes, plusvalías y series se calculan siempre al vuelo.
 
-export type AccountKind = "broker" | "bank" | "crypto" | "pension" | "other";
+/**
+ * `emergency` es el fondo de emergencia: efectivo que cuenta para el patrimonio
+ * pero no es cartera (no se invierte ni entra en su rentabilidad).
+ */
+export type AccountKind = "broker" | "bank" | "crypto" | "pension" | "emergency" | "other";
 export type AssetKind = "stock" | "etf" | "fund" | "crypto" | "bond" | "other";
 export type TxType =
   | "buy"
@@ -217,7 +221,7 @@ export const TX_TYPES: TxType[] = [
   "transfer",
 ];
 export const ASSET_KINDS: AssetKind[] = ["stock", "etf", "fund", "crypto", "bond", "other"];
-export const ACCOUNT_KINDS: AccountKind[] = ["broker", "bank", "crypto", "pension", "other"];
+export const ACCOUNT_KINDS: AccountKind[] = ["broker", "bank", "crypto", "pension", "emergency", "other"];
 
 export const TX_LABEL: Record<TxType, string> = {
   buy: "Compra",
@@ -243,6 +247,7 @@ export const ACCOUNT_KIND_LABEL: Record<AccountKind, string> = {
   bank: "Banco",
   crypto: "Exchange cripto",
   pension: "Plan de pensiones",
+  emergency: "Fondo de emergencia",
   other: "Otra",
 };
 

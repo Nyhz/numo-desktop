@@ -967,6 +967,26 @@ export function useHealth(): { byAsset: Map<string, PriceHealth>; attention: num
   }, [loaded]);
 }
 
+/** Cuentas que son fondo de emergencia: cuentan para el patrimonio, pero no son cartera. */
+export const reserveIds = (state: AppState): string[] => state.accounts.filter((a) => a.kind === "emergency").map((a) => a.id);
+
+/**
+ * Lo derivado para las pantallas de inversión (Resumen, Posiciones). Sin filtro
+ * de cuentas, la cartera es todo menos el fondo de emergencia, que va aparte en
+ * `reserve`; con cuentas elegidas a mano (`filtered`), justo esas y sin aparte.
+ */
+export function useInvested(): { d: Derived; reserve: Derived | null; filtered: boolean } {
+  const state = useApp((x) => (x.demo ?? x.loaded).state);
+  const scope = useApp((x) => x.scope);
+  return useMemo(() => {
+    const ids = reserveIds(state);
+    const invested = ids.length ? state.accounts.filter((a) => !ids.includes(a.id)).map((a) => a.id) : null;
+    // El orden importa: `derive` recuerda solo el último cálculo, y el de la cartera es el que más se repite.
+    const reserve = scope == null && ids.length ? derive(state, ids) : null;
+    return { d: derive(state, scope ?? invested), reserve, filtered: scope != null };
+  }, [state, scope]);
+}
+
 export function useDerived(): Derived {
   const state = useApp((x) => (x.demo ?? x.loaded).state);
   const scope = useApp((x) => x.scope);

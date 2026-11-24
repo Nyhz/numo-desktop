@@ -50,6 +50,7 @@ export function makeDemo(today: string): AppState {
   const funds = account(2, "Fondos Norte", "Banco Norte", "bank", "EUR", false);
   const usd = account(3, "Bróker Meridian", "Meridian Securities", "broker", "USD", true);
   const crypto = account(4, "Cripto", "Exchange Boreal", "crypto", "EUR", false);
+  const cushion = account(5, "Fondo de emergencia", "Banco Litoral", "emergency", "EUR", true);
 
   const assets: Asset[] = [];
   const prices: Record<string, Point[]> = {};
@@ -115,6 +116,13 @@ export function makeDemo(today: string): AppState {
     add({ date, type, accountId: acct.id, assetId: a.id, quantity, price: round(close(a, date), 4), currency: a.currency, fxRate: rate(a.currency, date), fee, feeCurrency });
   };
   const r = rng(7);
+
+  // Fondo de emergencia: un ingreso inicial que se queda quieto y cobra intereses cada mes.
+  add({ date: start, type: "deposit", accountId: cushion.id, amount: 9000, currency: "EUR" });
+  for (let m = 1; m < 41 && addMonths(start, m) <= today; m++) {
+    const gross = round((9000 * 0.0245) / 12 + m * 0.04);
+    add({ date: addMonths(start, m), type: "interest", accountId: cushion.id, amount: gross, currency: "EUR", taxHome: round(gross * 0.19) });
+  }
 
   // Bróker en EUR: aportación mensual, compras periódicas, dividendos e intereses.
   add({ date: start, type: "deposit", accountId: broker.id, amount: 12000, currency: "EUR" });
@@ -191,5 +199,5 @@ export function makeDemo(today: string): AppState {
   const mortgageEvents: MortgageEvent[] = [];
   const valuations = [{ id: "demo-val-1", propertyId: property.id, date: addMonths(bought, 20), value: 262000, note: "Tasación" }];
 
-  return { accounts: [broker, funds, usd, crypto], assets, txs, prices, fx, splits: {}, goals, properties: [property], mortgages: [mortgage], mortgageEvents, valuations, lastSync: null };
+  return { accounts: [broker, funds, usd, crypto, cushion], assets, txs, prices, fx, splits: {}, goals, properties: [property], mortgages: [mortgage], mortgageEvents, valuations, lastSync: null };
 }

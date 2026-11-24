@@ -6,7 +6,7 @@ import { monthlyReturns, netInvested, periodStats, returnIndex, sessionChange, t
 import { HeroChart, HeroLegend, bandModel, lineModel, stackModel, type HeroModel, type Row } from "../charts/hero.tsx";
 import { GroupRows, MonthColumns, ReturnBars, treeGroups, type TreeCell, type TreeItem } from "../charts/viz.tsx";
 import { BENCHMARK, benchmarkReturns } from "../data/benchmark.ts";
-import { ensureBenchmark, rangeBase, useApp, useBenchmark, useDerived, type Derived } from "../data/store.ts";
+import { ensureBenchmark, rangeBase, useApp, useBenchmark, useInvested, type Derived } from "../data/store.ts";
 import { dateShort, eur, eurAxis, eurSigned, num, pct, pctSigned, seriesColor, splitMoney } from "../lib/format.ts";
 import { openDialog } from "../ui/dialogs.ts";
 import { Btn, Card, Delta, Empty, HeaderSlot, Kpi, Kpis, Money, Pills, Priv, toneOf } from "../ui/kit.tsx";
@@ -73,7 +73,8 @@ function useBootCount(target: number): number | null {
 }
 
 export function Resumen() {
-  const d = useDerived();
+  // La cartera (sin el fondo de emergencia, que no se invierte) y, aparte, ese fondo.
+  const { d, reserve, filtered } = useInvested();
   const range = useApp((s) => s.range);
   const [, go] = useLocation();
   const [picked, setMode] = useState<Mode>("valor");
@@ -81,11 +82,13 @@ export function Resumen() {
   const [hover, setHover] = useState<{ src: number; k: number } | null>(null);
   const [cell, setCell] = useState<TreeCell | null>(null);
   const tl = d.timeline;
-  // Con todas las cuentas a la vista, el Resumen es el del patrimonio: la cartera más
-  // lo que ya es tuyo de los inmuebles. Con cuentas filtradas, solo esas cuentas.
-  const homes = useMemo(() => (d.scope ? [] : viewProperties(d.state, d.today)), [d.state, d.scope, d.today]);
+  // Con todas las cuentas a la vista, el Resumen es el del patrimonio: la cartera, el fondo
+  // de emergencia y lo que ya es tuyo de los inmuebles. Con cuentas filtradas, solo esas cuentas.
+  const homes = useMemo(() => (filtered ? [] : viewProperties(d.state, d.today)), [d.state, filtered, d.today]);
   const withHomes = homes.length > 0;
-  const mode: Mode = picked === "pat" && !withHomes ? "valor" : picked;
+  /** Hay patrimonio además de la cartera. */
+  const net = withHomes || !!reserve;
+  const mode: Mode = picked === "pat" && !net ? "valor" : picked;
   // El índice con el que se compara la rentabilidad se baja al abrir ese modo, sin esperar por él.
   const bench = useBenchmark(tl.n ? isoOf(tl.start) : null);
   useEffect(() => {
@@ -110,6 +113,12 @@ export function Resumen() {
       C,
       // Lo que ya es tuyo de los inmuebles en cada fecha (ceros si no hay ninguno).
       E: equitySeries(homes, dates),
+      // El fondo de emergencia en cada fecha. Su serie empieza cuando él, no cuando la cartera.
+      R: Float64Array.from(dates, (_, k) => {
+        const rt = reserve?.timeline;
+        const j = rt ? tl.start + i0 + k - rt.start : -1;
+        return rt && j >= 0 && rt.n ? rt.total[Math.min(j, rt.n - 1)]! : 0;
+      }),
       invested,
       stats: periodStats(tl, from, to),
       all: periodStats(tl, -1, to),
@@ -117,12 +126,12 @@ export function Resumen() {
       totals: totalsIn(d.ledger, d.scope, isoOf(tl.start), d.today),
       ret: returnIndex(d.returns, from, to),
     };
-  }, [tl, range, d, homes]);
+  }, [tl, range, d, homes, reserve]);
 
   // La geometría del gráfico solo depende del periodo y del modo: el hover no la recalcula.
   const model = useMemo<HeroModel | null>(() => {
     if (!view || view.dates.length < 2) return null;
-    const { dates, V, C, E, i0, ret } = view;
+    const { dates, V, C, E, R, i0, ret } = view;
     const lane = (a: number, b: number) => {
       const g = V[b]! - V[a]! - (C[b]! - C[a]!);
       return { up: Math.max(g, 0), down: Math.max(-g, 0) };
@@ -142,7 +151,8 @@ export function Resumen() {
         format: (v) => eur(v, 0),
         priv: true,
         series: [
-          { label: "Inmuebles · lo que ya es tuyo", color: "var(--s8)", values: E },
+          ...(withHomes ? [{ label: "Inmuebles · lo que ya es tuyo", color: "var(--s8)", values: E }] : []),
+          ...(reserve ? [{ label: "Fondo de emergencia", color: "var(--s2)", values: R }] : []),
           { label: "Cartera", color: "var(--acc)", values: V },
         ],
       });
@@ -175,19 +185,25 @@ export function Resumen() {
       priv: true,
       lane,
       rows: (i): Row[] => [
-        { color: "var(--acc)", label: withHomes ? "Valor de la cartera" : "Valor", value: eur(V[i]!) },
+        { color: "var(--acc)", label: net ? "Valor de la cartera" : "Valor", value: eur(V[i]!) },
         { color: "var(--mute)", label: "Aportado neto", value: eur(C[i]!, 0) },
         { color: "transparent", label: "Ganancia", value: eurSigned(V[i]! - C[i]!) },
       ],
     });
-  }, [view, mode, withHomes, d.state.accounts, tl, bench]);
+  }, [view, mode, withHomes, net, reserve, d.state.accounts, tl, bench]);
 
   const groups = useMemo(() => {
     // Con el patrimonio a la vista, lo que ya es tuyo de cada inmueble entra en el reparto.
     const items = treeItems(d, group);
     for (const h of homes) if (h.equity > 0) items.push({ key: `home|${h.property.id}`, name: h.property.name, value: h.equity, group: group === "Divisa" ? "EUR" : "Inmuebles", color: "var(--s8)" });
+    // Y el fondo de emergencia, cuenta a cuenta.
+    for (const [id, series] of reserve?.timeline.byAccount ?? []) {
+      const acct = reserve!.accounts.get(id);
+      const value = series[series.length - 1] ?? 0;
+      if (acct && value > 0) items.push({ key: `reserve|${id}`, name: acct.name, value, group: group === "Tipo" ? "Fondo de emergencia" : group === "Cuenta" ? acct.name : acct.currency, color: seriesColor(acct.color) });
+    }
     return treeGroups(items, group === "Cuenta");
-  }, [d, group, homes]);
+  }, [d, group, homes, reserve]);
   const session = useMemo(() => sessionChange(d.positions), [d.positions]);
   const months = useMemo(() => monthlyReturns(tl), [tl]);
 
@@ -208,7 +224,8 @@ export function Resumen() {
   const at = hover ? Math.min(V.length - 1, hover.src + off) : V.length - 1;
   const portfolioAt = !hover && counted != null ? counted : V[at]!;
   const homesAt = view.E[at]!;
-  const [heroI, heroD] = splitMoney(eur(portfolioAt + homesAt));
+  const reserveAt = view.R[at]!;
+  const [heroI, heroD] = splitMoney(eur(portfolioAt + homesAt + reserveAt));
   const unrealized = d.positions.reduce((s, p) => s + p.unrealizedEur, 0);
   const cost = d.positions.reduce((s, p) => s + p.costEur, 0);
   const legend = model ? model.rowsAt(hover ? Math.min(hover.k, model.n - 1) : model.n - 1) : [];
@@ -225,7 +242,7 @@ export function Resumen() {
           }}
           options={[
             ["valor", "Valor y aportado"],
-            ...(withHomes ? ([["pat", "Patrimonio"]] as const) : []),
+            ...(net ? ([["pat", "Patrimonio"]] as const) : []),
             ["cuenta", "Por cuenta"],
             ["tipo", "Por tipo"],
             ["rent", "Rentabilidad"],
@@ -237,15 +254,27 @@ export function Resumen() {
         <div className="flex flex-wrap items-end justify-between gap-5">
           <div>
             <div className="text-[12px] text-mute">
-              {withHomes ? "Patrimonio neto" : "Valor de la cartera"} · {dateShort(dates[at]!)}
+              {net ? "Patrimonio neto" : "Valor de la cartera"} · {dateShort(dates[at]!)}
             </div>
             <div className="priv mt-0.5 text-[56px] leading-[1.05] font-medium tracking-[-0.02em]" style={{ fontStretch: "108%" }}>
               {heroI}
               <span className="text-mute">{heroD}</span>
             </div>
-            {withHomes && (
+            {net && (
               <div className="mt-1.5 text-[13.5px] text-ink2">
-                cartera <Priv>{eur(portfolioAt)}</Priv> · inmuebles <Priv>{eur(homesAt)}</Priv> <span className="text-mute">que ya son tuyos</span>
+                cartera <Priv>{eur(portfolioAt)}</Priv>
+                {reserve && (
+                  <>
+                    {" "}
+                    · fondo de emergencia <Priv>{eur(reserveAt)}</Priv>
+                  </>
+                )}
+                {withHomes && (
+                  <>
+                    {" "}
+                    · inmuebles <Priv>{eur(homesAt)}</Priv> <span className="text-mute">que ya son tuyos</span>
+                  </>
+                )}
               </div>
             )}
             <div className="mt-1.5 flex min-h-5 items-baseline gap-2.5 text-[13.5px]">
@@ -254,7 +283,7 @@ export function Resumen() {
               </span>
               <span style={{ color: toneOf(stats.twr, 0.00005) }}>{pctSigned(stats.twr, 2)}</span>
               <span className="text-mute">
-                {RANGE_PHRASE[range]} · rentabilidad {withHomes ? "de la cartera, " : ""}sin contar lo aportado
+                {RANGE_PHRASE[range]} · rentabilidad {net ? "de la cartera, " : ""}sin contar lo aportado
                 {/* La TIR del periodo solo tiene sentido con tres meses o más. */}
                 {stats.xirr != null && ` · TIR ${pctSigned(stats.xirr)} anual`}
               </span>

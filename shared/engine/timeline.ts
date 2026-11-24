@@ -307,6 +307,44 @@ export function sessionChange(positions: Position[]): { gainEur: number; pct: nu
   return { gainEur: r2(gain), pct: before > 0 ? gain / before : 0 };
 }
 
+export type CashReturn = {
+  /** Intereses del periodo, brutos y ya sin retenciones, en la divisa de la cuenta. */
+  interest: number;
+  interestNet: number;
+  /** Saldo medio del periodo. */
+  avgBalance: number;
+  /** Intereses brutos entre saldo medio, anualizado. null con menos de un mes o sin saldo. */
+  rate: number | null;
+  days: number;
+};
+
+/**
+ * Lo que renta el efectivo de una cuenta: los intereses del último año entre el
+ * saldo medio que ha tenido en ese tiempo, anualizado. Es la cifra que se puede
+ * comparar con la TAE que anuncia el banco. La serie debe incluir esa cuenta.
+ */
+export function cashReturn(tl: Timeline, ledger: Ledger, accountId: string, days = 365): CashReturn {
+  const series = tl.cash.get(accountId);
+  const end = tl.n - 1;
+  if (!series || end < 0) return { interest: 0, interestNet: 0, avgBalance: 0, rate: null, days: 0 };
+  // Desde que la cuenta tiene saldo, como mucho un año atrás.
+  let first = 0;
+  while (first <= end && Math.abs(series[first]!) < 0.005) first++;
+  const from = Math.max(first, end - days + 1);
+  const span = end - from + 1;
+  let sum = 0;
+  for (let i = from; i <= end; i++) sum += series[i]!;
+  const avg = span > 0 ? sum / span : 0;
+  let interest = 0;
+  let net = 0;
+  for (const n of ledger.ntxs) {
+    if (n.tx.accountId !== accountId || n.tx.type !== "interest" || n.day < tl.start + from || n.day > tl.start + end) continue;
+    interest += n.tx.amount ?? 0;
+    net += n.cashAcct;
+  }
+  return { interest: r2(interest), interestNet: r2(net), avgBalance: r2(avg), rate: span >= 30 && avg > 0 ? (interest / avg) * (365 / span) : null, days: Math.max(0, span) };
+}
+
 /** Aportación neta acumulada día a día (entradas − salidas). */
 export function netInvested(tl: Timeline): Float64Array {
   const out = new Float64Array(tl.n);

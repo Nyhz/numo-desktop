@@ -6,6 +6,7 @@ import type { Account, AppState, Asset, Point, Tx } from "../types.ts";
 import { buildLedger } from "./ledger.ts";
 import { buildYearReport } from "./reports.ts";
 import {
+  cashReturn,
   buildPositions,
   buildTimeline,
   dailyReturns,
@@ -376,5 +377,34 @@ describe("validación de operaciones", () => {
   it("rechaza una compra sin precio", () => {
     const r = txInput.safeParse({ date: "2024-01-10", type: "buy", accountId: "A", assetId: "X", quantity: 1, currency: "EUR" });
     expect(r.success).toBe(false);
+  });
+});
+
+describe("fondo de emergencia", () => {
+  it("lo que renta el efectivo: intereses entre saldo medio, anualizado", () => {
+    const s = state({
+      accounts: [acct("E", { kind: "emergency", trackCash: true })],
+      assets: [],
+      txs: [
+        tx({ date: "2024-01-01", type: "deposit", accountId: "E", amount: 10000 }),
+        ...[2, 3, 4, 5, 6, 7].map((m) => tx({ date: `2024-0${m}-01`, type: "interest", accountId: "E", amount: 25, taxHome: 4.75 })),
+      ],
+    });
+    const led = buildLedger(s);
+    const tl = buildTimeline(led, s, new Set(["E"]), "2024-07-01");
+    const r = cashReturn(tl, led, "E");
+    expect(r.interest).toBe(150);
+    expect(r.interestNet).toBe(121.5);
+    expect(r.days).toBe(183);
+    // El saldo medio es algo más de 10.000 (los intereses netos se van sumando).
+    expect(r.avgBalance).toBeGreaterThan(10000);
+    expect(r.avgBalance).toBeLessThan(10121.5);
+    // 150 € en medio año sobre unos 10.000 €: alrededor del 3 % anual.
+    expect(r.rate!).toBeCloseTo((150 / r.avgBalance) * (365 / 183), 6);
+    expect(r.rate!).toBeGreaterThan(0.029);
+    expect(r.rate!).toBeLessThan(0.03);
+    // Con menos de un mes de historia, o para una cuenta que no lleva efectivo, no hay cifra.
+    expect(cashReturn(buildTimeline(led, s, new Set(["E"]), "2024-01-20"), led, "E").rate).toBeNull();
+    expect(cashReturn(tl, led, "otra").rate).toBeNull();
   });
 });
