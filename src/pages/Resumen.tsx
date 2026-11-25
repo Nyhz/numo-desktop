@@ -78,7 +78,7 @@ export function Resumen() {
   const range = useApp((s) => s.range);
   const hidden = usePrivate();
   const [, go] = useLocation();
-  const [picked, setMode] = useState<Mode>("valor");
+  const [picked, setMode] = useState<Mode>("rent");
   const [group, setGroup] = useState<Group>("Tipo");
   const [hover, setHover] = useState<{ src: number; k: number } | null>(null);
   const tl = d.timeline;
@@ -241,11 +241,11 @@ export function Resumen() {
             setMode(m);
           }}
           options={[
+            ["rent", "Rentabilidad"],
             ["valor", "Valor y aportado"],
             ...(net ? ([["pat", "Patrimonio"]] as const) : []),
             ["cuenta", "Por cuenta"],
             ["tipo", "Por tipo"],
-            ["rent", "Rentabilidad"],
           ]}
         />
       </HeaderSlot>
