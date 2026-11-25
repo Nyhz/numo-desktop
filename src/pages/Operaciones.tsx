@@ -7,9 +7,10 @@ import { TX_LABEL, type TxType } from "../../shared/types.ts";
 import { FlowColumns, type FlowDot } from "../charts/viz.tsx";
 import { rangeBase, useApp, useDerived } from "../data/store.ts";
 import { operationsSheet, saveText, saveXlsx } from "../lib/export.ts";
-import { dateShort, eur, eurSigned, money, num, price, seriesColor, units } from "../lib/format.ts";
+import { dateShort, eur, eurSigned, money, price, seriesColor, units } from "../lib/format.ts";
 import { openDialog } from "../ui/dialogs.ts";
 import { Btn, Card, Dot, Empty, HeaderSlot, Money, Pills, toast } from "../ui/kit.tsx";
+import { useFresh } from "../ui/motion.ts";
 import { L, PeriodPills, THead, TRow, Table, Welcome } from "./common.tsx";
 
 type Filter = "all" | "buy" | "sell" | "income" | "cash";
@@ -50,6 +51,7 @@ export function Operaciones() {
   const [filter, setFilter] = useState<Filter>("all");
   const [shown, setShown] = useState(PAGE);
   const [hot, setHot] = useState<string | null>(null);
+  const fresh = useFresh();
 
   const { from } = rangeBase(range, d.timeline, d.today);
   const since = from < 0 ? (d.timeline.n ? isoOf(d.timeline.start) : d.today) : isoOf(d.timeline.start + from + 1);
@@ -165,7 +167,7 @@ export function Operaciones() {
               const costs = n.feeEur + n.taxSourceEur + n.taxHomeEur;
               const to = tx.type === "transfer" ? [tx.toAccountId && d.accounts.get(tx.toAccountId)?.name, tx.toAssetId && d.assets.get(tx.toAssetId)?.name].filter(Boolean).join(" · ") : "";
               return (
-                <TRow key={tx.id} onClick={() => openDialog({ kind: "tx", tx })} onMouseEnter={() => setHot(tx.id)} linked={hot === tx.id}>
+                <TRow key={tx.id} fresh={fresh.has(tx.id)} onClick={() => openDialog({ kind: "tx", tx })} onMouseEnter={() => setHot(tx.id)} linked={hot === tx.id}>
                   <L className="text-ink2">{dateShort(tx.date)}</L>
                   <L className="font-medium" >
                     <span style={{ color: tx.type === "buy" || tx.type === "transfer" ? undefined : COLOR[tx.type] }}>{TX_LABEL[tx.type]}</span>

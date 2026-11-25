@@ -1,7 +1,7 @@
 import { useMemo, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import type { Allocation, Plan, PlanBucket } from "../../shared/engine/plan.ts";
 import type { Goal } from "../../shared/types.ts";
-import { eur, num, pctOf } from "../lib/format.ts";
+import { eur, pctOf } from "../lib/format.ts";
 import { usePrivate } from "../ui/privacy.ts";
 import { barScale, deviationCurve, offAfter, scaleTicks } from "./plan-math.ts";
 

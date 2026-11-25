@@ -5,9 +5,9 @@ import { RATE_TYPE_LABEL, type MortgageEvent } from "../../shared/types.ts";
 import { HOME_COLOR, HomeChart, PaidMiniBar, PaidSplit } from "../charts/inmuebles.tsx";
 import { homeModel, type HomeYear } from "../charts/inmuebles-model.ts";
 import { derive, removeMortgageEvent, removeValuation, useApp, type Result } from "../data/store.ts";
-import { dateShort, eur, num, pct, splitMoney } from "../lib/format.ts";
+import { dateShort, eur, num, pct } from "../lib/format.ts";
 import { openDialog } from "../ui/dialogs.ts";
-import { Btn, Card, Empty, HeaderSlot, IconBtn, Kpi, Kpis, Pills, Priv, Swatch, toast } from "../ui/kit.tsx";
+import { BigMoney, Btn, Card, Empty, HeaderSlot, IconBtn, Kpi, Kpis, Pills, Priv, Swatch, toast } from "../ui/kit.tsx";
 
 const EVENT_LABEL: Record<MortgageEvent["type"], string> = {
   early_repayment: "Amortización anticipada",
@@ -164,7 +164,6 @@ function PropertyPanel({ v, today, portfolio }: { v: PropertyView; today: string
 
   const model = useMemo(() => homeModel(v, today), [v, today]);
 
-  const [heroI, heroD] = splitMoney(eur(v.equity));
   const thisYear = +today.slice(0, 4);
   const tableYears = model.years.filter((y) => y.paid > 0);
   const shownYears = allYears ? tableYears : tableYears.filter((y) => y.year >= thisYear - 1).slice(0, 7);
@@ -207,10 +206,7 @@ function PropertyPanel({ v, today, portfolio }: { v: PropertyView; today: string
         <div className="mt-1.5 flex flex-wrap items-end justify-between gap-5">
           <div className="min-w-[300px] flex-[1_1_0]">
             <div className="text-[12px] text-mute">{loan ? "Lo que ya es tuyo · valor menos hipoteca pendiente" : "Lo que ya es tuyo · sin hipoteca, el valor entero"}</div>
-            <div className="priv mt-0.5 text-[56px] leading-[1.05] font-medium tracking-[-0.02em]" style={{ fontStretch: "108%" }}>
-              {heroI}
-              <span className="text-mute">{heroD}</span>
-            </div>
+            <BigMoney value={v.equity} />
             <div className="mt-1.5 flex flex-wrap items-baseline gap-2.5 text-[13.5px]">
               <span className="font-[550] text-acc">{pct(v.ownedShare)} del inmueble</span>
               <span className="text-mute">

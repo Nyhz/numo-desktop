@@ -7,6 +7,7 @@ import { ecbRate, removeTx, restoreTx, saveTx, useDerived } from "../data/store.
 import { dateShort, eur, fxRate, money, num, units } from "../lib/format.ts";
 import { closeDialog } from "../ui/dialogs.ts";
 import { Btn, Dialog, Field, Pills, toast } from "../ui/kit.tsx";
+import { markFresh } from "../ui/motion.ts";
 import { AssetPicker } from "./AssetPicker.tsx";
 
 type Form = {
@@ -220,6 +221,8 @@ export function TxDialog({ tx, preset }: { tx?: Tx; preset?: { type?: TxType; as
     if (!res.ok) return setError(res.error);
     localStorage.setItem(LAST_ACCOUNT, f.accountId);
     toast(SAVED[f.type]);
+    // La fila de la operación, y la de su activo en Posiciones, se resaltan un momento.
+    markFresh(res.value.id, res.value.assetId, res.value.toAssetId);
     if (again) {
       // Se conservan tipo, fecha y cuenta: lo habitual es meter varias seguidas.
       set({ assetId: "", quantity: "", price: "", amount: "", fee: "", taxSource: "", taxHome: "", toQuantity: "", note: "" });

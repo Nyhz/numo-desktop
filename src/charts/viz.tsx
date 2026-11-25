@@ -1,6 +1,7 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useId, useMemo, useState, type ReactNode } from "react";
 import { dayNum } from "../../shared/dates.ts";
 import { eur, eurSigned, monthName, pct, pctSigned } from "../lib/format.ts";
+import { growX, growY } from "../ui/motion.ts";
 import { usePrivate } from "../ui/privacy.ts";
 
 const toneOf = (v: number): string => (Math.abs(v) < 0.005 ? "var(--ink2)" : v > 0 ? "var(--up)" : "var(--down)");
@@ -48,6 +49,7 @@ const RING_ROWS = 6;
  */
 export function RepartoRing({ groups }: { groups: TreeGroup[] }) {
   const [picked, setPicked] = useState<string | null>(null);
+  const maskId = useId();
   // La geometría del anillo solo depende de los grupos, no de cuál está activo.
   const arcs = useMemo(() => {
     let angle = -Math.PI / 2;
@@ -82,6 +84,11 @@ export function RepartoRing({ groups }: { groups: TreeGroup[] }) {
       <div className="flex flex-wrap items-center gap-x-7 gap-y-5">
         <div className="relative mx-auto size-[184px] flex-none">
           <svg viewBox="0 0 200 200" className="block size-full overflow-visible" role="img" aria-label="Reparto de la cartera por grupos">
+            {/* El anillo se dibuja de una pasada, desde arriba, al aparecer y al cambiar de reparto: una máscara que se va descubriendo. */}
+            <mask id={maskId} maskUnits="userSpaceOnUse" x="-20" y="-20" width="240" height="240">
+              <circle key={groups.map((g) => g.name).join("|")} className="ring-sweep" cx="100" cy="100" r="80" fill="none" stroke="white" strokeWidth="46" pathLength={1} strokeDasharray="1" transform="rotate(-90 100 100)" />
+            </mask>
+            <g mask={`url(#${maskId})`}>
             {groups.map((g, i) => (
               <path
                 key={g.name}
@@ -95,6 +102,7 @@ export function RepartoRing({ groups }: { groups: TreeGroup[] }) {
                 style={{ transition: "opacity .25s, stroke-width .25s cubic-bezier(.2,.8,.2,1)" }}
               />
             ))}
+            </g>
           </svg>
           {/* El centro de cada grupo, apilados: al cambiar se funden uno en otro. */}
           <div className="pointer-events-none absolute inset-0 grid">
@@ -133,7 +141,7 @@ export function RepartoRing({ groups }: { groups: TreeGroup[] }) {
                       <span className="priv min-w-[58px] text-right text-[12px] whitespace-nowrap text-mute">{eur(c.value, 0)}</span>
                     </div>
                     <div className="mt-1 h-[3px] rounded-[2px] bg-raised">
-                      <div className="h-[3px] rounded-[2px]" style={{ width: `${((c.value / g.cells[0]!.value) * 100).toFixed(1)}%`, background: ringColor(i) }} />
+                      <div ref={growX} className="origin-left h-[3px] rounded-[2px] transition-[width] duration-500" style={{ width: `${((c.value / g.cells[0]!.value) * 100).toFixed(1)}%`, background: ringColor(i) }} />
                     </div>
                   </div>
                 ))}
@@ -194,11 +202,11 @@ export function MonthColumns({ months }: { months: Array<{ month: string; ret: n
               return (
                 <div key={m} className="grid grid-rows-2 rounded-[5px] py-[5px] transition-[background] duration-100 hover:bg-wash" title={r == null ? undefined : `${label(`${y}-${String(m + 1).padStart(2, "0")}`)}: ${heatText(r)} %`}>
                   <div className="relative">
-                    {up && <div className="absolute inset-x-px bottom-0 rounded-t-[3px] bg-up" style={{ height: height(r) }} />}
+                    {up && <div ref={growY} className="origin-bottom absolute inset-x-px bottom-0 rounded-t-[3px] bg-up" style={{ height: height(r) }} />}
                     {down && <span className={`${text} bottom-[3px] text-down`}>{heatText(r)}</span>}
                   </div>
                   <div className="relative border-t border-line2">
-                    {down && <div className="absolute inset-x-px top-0 rounded-b-[3px] bg-down" style={{ height: height(r) }} />}
+                    {down && <div ref={growY} className="origin-top absolute inset-x-px top-0 rounded-b-[3px] bg-down" style={{ height: height(r) }} />}
                     {up && <span className={`${text} top-[3px] text-up`}>{heatText(r)}</span>}
                   </div>
                 </div>
@@ -302,7 +310,8 @@ export function ReturnBars({ rows }: { rows: ReturnRow[] }) {
               <div className="relative h-[26px]">
                 <div className="absolute inset-y-0 border-l border-line2" style={{ left: `${x(0)}%` }} />
                 <div
-                  className="absolute top-1/2 min-w-[2px] rounded-[2px]"
+                  ref={growX}
+                  className={`absolute top-1/2 min-w-[2px] rounded-[2px] transition-[left,width] duration-500 ${r.ret < 0 ? "origin-right" : "origin-left"}`}
                   style={{ left: `${Math.min(x(0), x(r.ret * 100))}%`, width: `${Math.abs(x(r.ret * 100) - x(0))}%`, height: h, marginTop: -h / 2, background: tone }}
                 />
               </div>

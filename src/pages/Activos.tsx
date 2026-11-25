@@ -4,7 +4,7 @@ import { useLocation } from "wouter";
 import { fxHealth, needsAttention, parseFailure, type Failure, type HealthStatus, type PriceHealth } from "../../shared/engine/health.ts";
 import { ASSET_KIND_LABEL, PRICE_SOURCE_SHORT, SOURCE_BY_ISIN, type Asset } from "../../shared/types.ts";
 import { derive, isExample, sync, useApp, useHealth } from "../data/store.ts";
-import { ago, dateBrief, eur, money, num, price, units } from "../lib/format.ts";
+import { ago, dateBrief, eur, price, units } from "../lib/format.ts";
 import { openDialog } from "../ui/dialogs.ts";
 import { Btn, Dot, Empty, HeaderSlot, IconBtn, Kpi, Kpis, Pills } from "../ui/kit.tsx";
 import { L, THead, TRow, Table } from "./common.tsx";

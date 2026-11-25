@@ -4,6 +4,7 @@ import { RANGES, backend, chooseSyncFolder, setDemo, setRange, syncDevices, sync
 import { seriesColor } from "../lib/format.ts";
 import { openDialog } from "../ui/dialogs.ts";
 import { Btn, Empty, Pills, toast } from "../ui/kit.tsx";
+import { useFlip } from "../ui/motion.ts";
 
 // Color fijo por tipo de activo y por divisa: el color sigue a la categoría.
 export type Kind = AssetKind | "cash";
@@ -77,10 +78,12 @@ export function Welcome() {
 // Cada tabla define su plantilla de columnas una vez y la comparten cabecera,
 // filas y pie. Los numéricos van a la derecha: se alinean con `l` los que no.
 
-export function Table({ cols, minWidth, children }: { cols: string; minWidth: number; children: ReactNode }) {
+/** `order`: las claves de las filas en su orden; al cambiar, las filas con `flip` se desplazan a su sitio nuevo. */
+export function Table({ cols, minWidth, order = "", children }: { cols: string; minWidth: number; order?: string; children: ReactNode }) {
+  const box = useFlip<HTMLDivElement>(order);
   return (
     <div className="overflow-x-auto">
-      <div className="text-right" style={{ minWidth, "--cols": cols } as CSSProperties}>
+      <div ref={box} className="relative text-right" style={{ minWidth, "--cols": cols } as CSSProperties}>
         {children}
       </div>
     </div>
@@ -93,8 +96,33 @@ export const THead = ({ children }: { children: ReactNode }) => (
     {children}
   </div>
 );
-export const TRow = ({ children, onClick, onMouseEnter, linked, className = "" }: { children: ReactNode; onClick?: () => void; onMouseEnter?: () => void; linked?: boolean; className?: string }) => (
-  <div className={`trow hover:bg-wash ${onClick ? "cursor-pointer" : ""} ${linked ? "linked" : ""} ${className}`} style={grid} role="row" onClick={onClick} onMouseEnter={onMouseEnter}>
+export const TRow = ({
+  children,
+  onClick,
+  onMouseEnter,
+  linked,
+  flip,
+  fresh,
+  className = "",
+}: {
+  children: ReactNode;
+  onClick?: () => void;
+  onMouseEnter?: () => void;
+  linked?: boolean;
+  /** Clave de la fila para desplazarla al reordenar (ver `order` en Table). */
+  flip?: string;
+  /** Recién guardada: se resalta un momento. */
+  fresh?: boolean;
+  className?: string;
+}) => (
+  <div
+    className={`trow hover:bg-wash ${onClick ? "cursor-pointer" : ""} ${linked ? "linked" : ""} ${fresh ? "fresh" : ""} ${className}`}
+    style={grid}
+    role="row"
+    data-flip={flip}
+    onClick={onClick}
+    onMouseEnter={onMouseEnter}
+  >
     {children}
   </div>
 );

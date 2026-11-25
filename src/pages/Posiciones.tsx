@@ -5,10 +5,11 @@ import { cashReturn, sessionChange, type Position } from "../../shared/engine/ti
 import { ASSET_KIND_LABEL } from "../../shared/types.ts";
 import { Spark, Strip } from "../charts/viz.tsx";
 import { useInvested } from "../data/store.ts";
-import { dateShort, eur, eurSigned, money, num, pct, pctSigned, price, seriesColor, splitMoney, units } from "../lib/format.ts";
+import { dateShort, eur, eurSigned, money, pct, pctSigned, price, seriesColor, units } from "../lib/format.ts";
 import { cashNowSheet, positionsSheet, saveBytes, saveCsv, saveXlsx } from "../lib/export.ts";
 import { openDialog } from "../ui/dialogs.ts";
-import { Btn, Dot, Empty, Money, toast, toneOf } from "../ui/kit.tsx";
+import { BigMoney, Btn, Dot, Empty, Flash, Money, toast, toneOf } from "../ui/kit.tsx";
+import { growX, useFresh, usePresence } from "../ui/motion.ts";
 import { L, TFoot, THead, TRow, Table, Welcome } from "./common.tsx";
 
 type SortKey = "name" | "day" | "value" | "gain" | "weight";
@@ -39,6 +40,7 @@ function DownloadMenu({ onPick, busy }: { onPick: (format: "pdf" | "xlsx" | "csv
       window.removeEventListener("keydown", esc);
     };
   }, [open]);
+  const menu = usePresence(open);
   const options = [
     ["pdf", "PDF", "informe con gráficos y tablas"],
     ["xlsx", "Excel", "posiciones y efectivo, en dos hojas"],
@@ -47,10 +49,10 @@ function DownloadMenu({ onPick, busy }: { onPick: (format: "pdf" | "xlsx" | "csv
   return (
     <div ref={box} className="relative">
       <Btn onClick={() => setOpen((o) => !o)} disabled={busy} aria-haspopup="menu" aria-expanded={open}>
-        <Download size={13} /> {busy ? "Preparando…" : "Descargar"} <ChevronDown size={11} className="text-mute" />
+        <Download size={13} /> {busy ? "Preparando…" : "Descargar"} <ChevronDown size={11} className={`text-mute transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
       </Btn>
-      {open && (
-        <div role="menu" className="absolute right-0 z-30 mt-1.5 w-72 rounded-xl border border-line2 bg-raised p-1 text-left" style={{ boxShadow: "var(--shadow-pop)" }}>
+      {menu.mounted && (
+        <div role="menu" className={`pop absolute right-0 z-30 mt-1.5 w-72 rounded-xl border border-line2 bg-raised p-1 text-left ${menu.leaving ? "leaving" : ""}`} style={{ boxShadow: "var(--shadow-pop)" }}>
           {options.map(([format, label, note]) => (
             <button
               key={format}
@@ -79,6 +81,7 @@ export function Posiciones() {
   const [exporting, setExporting] = useState(false);
   const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({ key: "value", desc: true });
   const [hot, setHot] = useState<string | null>(null);
+  const fresh = useFresh();
 
   const rows = useMemo(() => {
     const f = SORT[sort.key];
@@ -115,7 +118,6 @@ export function Posiciones() {
   const hotPos = hot ? d.positions.find((p) => p.asset.id === hot) : null;
   const noPrice = rows.filter((p) => p.priceDate == null).length;
   const total = value + cashTotal;
-  const [totalI, totalD] = splitMoney(eur(total));
   const session = sessionChange(d.positions);
   // Fondo de emergencia: saldo de cada cuenta y lo que ha rentado en el último año.
   const cushion = reserve
@@ -199,10 +201,7 @@ export function Posiciones() {
       <div className="flex flex-wrap items-stretch gap-5">
         <section className="min-w-0 flex-[1_1_520px] px-1 pt-2">
           <div className="text-[12px] text-mute">Valor de la cartera · {dateShort(d.today)}</div>
-          <div className="priv mt-0.5 text-[56px] leading-[1.05] font-medium tracking-[-0.02em]" style={{ fontStretch: "108%" }}>
-            {totalI}
-            <span className="text-mute">{totalD}</span>
-          </div>
+          <BigMoney value={total} />
           {rows.length > 0 && (
             <div className="mt-1.5 flex items-baseline gap-2.5 text-[13.5px]">
               <span className="priv font-[550]" style={{ color: toneOf(session.gainEur) }}>
@@ -215,7 +214,7 @@ export function Posiciones() {
           {total > 0 && (
             <>
               <div className="mt-4 flex h-2.5 gap-[3px]">
-                <div className="rounded-[3px] bg-acc" style={{ width: `${(value / total) * 100}%` }} />
+                <div ref={growX} className="origin-left rounded-[3px] bg-acc transition-[width] duration-500" style={{ width: `${(value / total) * 100}%` }} />
                 {cashTotal > 0.005 && <div className="flex-1 rounded-[3px] bg-ink2" />}
               </div>
               <div className="mt-2.5 flex flex-wrap gap-x-7 gap-y-2 text-[12.5px]">
@@ -275,7 +274,7 @@ export function Posiciones() {
                   <span>{cashTotal > 0 ? `${pct(Math.max(0, c.eur) / cashTotal)} del efectivo` : ""}</span>
                 </div>
                 <div className="mt-2 ml-4 h-1 rounded-[2px] bg-line">
-                  <div className="h-full rounded-[2px]" style={{ width: `${cashTotal > 0 ? Math.min(100, (Math.max(0, c.eur) / cashTotal) * 100) : 0}%`, background: seriesColor(c.account.color) }} />
+                  <div ref={growX} className="origin-left h-full rounded-[2px] transition-[width] duration-500" style={{ width: `${cashTotal > 0 ? Math.min(100, (Math.max(0, c.eur) / cashTotal) * 100) : 0}%`, background: seriesColor(c.account.color) }} />
                 </div>
               </div>
             ))}
@@ -342,7 +341,7 @@ export function Posiciones() {
             <DownloadMenu onPick={(f) => void download(f)} busy={exporting} />
           </div>
           <section className="card overflow-hidden" onMouseLeave={() => setHot(null)}>
-            <Table cols={COLS} minWidth={990}>
+            <Table cols={COLS} minWidth={990} order={rows.map((p) => p.asset.id).join()}>
               <THead>
                 <Th k="name" left>
                   Activo
@@ -359,7 +358,7 @@ export function Posiciones() {
                 const series = sparks.get(p.asset.id) ?? [];
                 const trend = series.length > 1 ? series[series.length - 1]! - series[0]! : 0;
                 return (
-                  <TRow key={p.asset.id} onClick={() => go(`/activo/${p.asset.id}`)} onMouseEnter={() => setHot(p.asset.id)} linked={hot === p.asset.id}>
+                  <TRow key={p.asset.id} flip={p.asset.id} fresh={fresh.has(p.asset.id)} onClick={() => go(`/activo/${p.asset.id}`)} onMouseEnter={() => setHot(p.asset.id)} linked={hot === p.asset.id}>
                     <L>
                       <div className="truncate font-[550]">{p.asset.name}</div>
                       <div className="flex items-center gap-1.5 truncate text-[11.5px] text-mute">
@@ -376,12 +375,16 @@ export function Posiciones() {
                       </div>
                     </L>
                     <span className="priv">{units(p.qty)}</span>
-                    <span className="text-ink2">{p.price == null ? "—" : price(p.price, p.asset.currency)}</span>
+                    <span className="text-ink2">
+                      <Flash value={p.price}>{p.price == null ? "—" : price(p.price, p.asset.currency)}</Flash>
+                    </span>
                     <span style={{ color: toneOf(p.dayChangePct, 0.0005) }}>{p.dayChangePct == null ? "—" : pctSigned(p.dayChangePct)}</span>
                     {series.length > 1 ? <Spark values={series} color={toneOf(trend, 1e-9)} /> : <span className="text-mute">—</span>}
                     <div>
                       <div className="font-semibold">
-                        <Money value={p.valueEur} />
+                        <Flash value={p.valueEur}>
+                          <Money value={p.valueEur} />
+                        </Flash>
                       </div>
                       <div className="text-[11.5px] text-mute">
                         coste <span className="priv">{eur(p.costEur)}</span>
@@ -394,7 +397,7 @@ export function Posiciones() {
                     <div className="flex items-center justify-end gap-2">
                       <span>{pct(p.weight)}</span>
                       <div className="h-1 w-14 rounded-[2px] bg-line">
-                        <div className="h-full rounded-[2px] bg-acc" style={{ width: `${Math.min(100, Math.max(2, (p.weight / Math.max(0.0001, d.positions[0]?.weight ?? 1)) * 100))}%` }} />
+                        <div ref={growX} className="origin-left h-full rounded-[2px] bg-acc transition-[width] duration-500" style={{ width: `${Math.min(100, Math.max(2, (p.weight / Math.max(0.0001, d.positions[0]?.weight ?? 1)) * 100))}%` }} />
                       </div>
                     </div>
                   </TRow>
@@ -409,10 +412,11 @@ export function Posiciones() {
                 <span />
                 <span />
                 <span className="priv">{eur(value)}</span>
-                <span className="priv" style={{ color: toneOf(value - cost) }}>
-                  {eurSigned(value - cost)}
-                </span>
-                <span style={{ color: toneOf(value - cost) }}>{cost > 0 ? pctSigned((value - cost) / cost) : "—"}</span>
+                <div style={{ color: toneOf(value - cost) }}>
+                  <div className="priv">{eurSigned(value - cost)}</div>
+                  <div className="text-[11.5px] opacity-80">{cost > 0 ? pctSigned((value - cost) / cost) : "—"}</div>
+                </div>
+                <span />
               </TFoot>
             </Table>
           </section>

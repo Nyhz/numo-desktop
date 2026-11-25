@@ -1,6 +1,7 @@
-import { useState, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { dateShort, monthName } from "../lib/format.ts";
 import { Swatch } from "../ui/kit.tsx";
+import { reducedMotion, useChanges } from "../ui/motion.ts";
 import { usePrivate } from "../ui/privacy.ts";
 
 // Gráfico principal del diseño: capas SVG en un lienzo 1000×300 que se estira
@@ -280,6 +281,21 @@ export function HeroChart({
 }) {
   const [k, setK] = useState<number | null>(null);
   const hidden = usePrivate();
+  // Cuando cambia lo que se dibuja (otro modo, otro periodo, precios nuevos) el gráfico
+  // se vuelve a trazar de izquierda a derecha. Al aparecer no: de eso ya se ocupan la
+  // entrada de la pantalla y, al abrir la app, la animación de arranque.
+  const plot = useRef<HTMLDivElement>(null);
+  const drawn = useChanges(model && model.n >= 2 ? (model.layers[model.layers.length - 1]?.d ?? "") : "");
+  useLayoutEffect(() => {
+    if (!drawn || !plot.current || reducedMotion() || document.documentElement.dataset.splash) return;
+    for (const layer of plot.current.querySelectorAll<HTMLElement>("[data-hero]")) {
+      layer.classList.remove("hero-redraw");
+      // Leer el ancho obliga a recalcular estilos: así la animación vuelve a empezar.
+      void layer.offsetWidth;
+      layer.classList.add("hero-redraw");
+      layer.addEventListener("animationend", () => layer.classList.remove("hero-redraw"), { once: true });
+    }
+  }, [drawn]);
   if (!model || model.n < 2) {
     return (
       <div className="mt-6 grid place-items-center rounded-2xl border border-dashed border-line2 text-mute" style={{ height }}>
@@ -308,9 +324,9 @@ export function HeroChart({
   return (
     <>
       <div className="relative mt-6 mr-14 cursor-crosshair" onMouseMove={move} onMouseLeave={leave}>
-        <div className="relative" style={{ height }}>
+        <div ref={plot} className="relative" style={{ height }}>
           {model.ticks.map((t, i) => (
-            <div key={i} className="absolute inset-x-0 border-t border-line" style={{ top: `${t.top}%` }}>
+            <div key={i} className="absolute inset-x-0 border-t border-line transition-[top] duration-500 ease-[cubic-bezier(.2,.8,.2,1)]" style={{ top: `${t.top}%` }}>
               <span className={`absolute -top-2 left-full pl-2 text-[11px] whitespace-nowrap text-mute ${model.priv ? "priv" : ""}`}>{t.label}</span>
             </div>
           ))}
@@ -366,10 +382,10 @@ export function HeroChart({
               {model.lane.map((b, i) => (
                 <div key={i} className="flex flex-1 flex-col transition-opacity duration-150" style={{ opacity: bucket < 0 || bucket === i ? 1 : 0.3 }}>
                   <div className="flex flex-1 items-end">
-                    <div className="w-full rounded-t-[2px]" style={{ height: `${b.up * 100}%`, background: laneColors[0] }} />
+                    <div className="w-full rounded-t-[2px] transition-[height] duration-300 ease-[cubic-bezier(.2,.8,.2,1)]" style={{ height: `${b.up * 100}%`, background: laneColors[0] }} />
                   </div>
                   <div className="flex-1">
-                    <div className="w-full rounded-b-[2px]" style={{ height: `${b.down * 100}%`, background: laneColors[1] }} />
+                    <div className="w-full rounded-b-[2px] transition-[height] duration-300 ease-[cubic-bezier(.2,.8,.2,1)]" style={{ height: `${b.down * 100}%`, background: laneColors[1] }} />
                   </div>
                 </div>
               ))}
@@ -391,7 +407,7 @@ export function HeroChart({
               </div>
             </div>
             <div
-              className="pointer-events-none absolute top-2.5 z-10 min-w-[200px] rounded-xl border border-line2 bg-raised px-3 py-2.5 text-[12px]"
+              className="pointer-events-none absolute top-2.5 z-10 min-w-[200px] animate-[fade-in_.14s_ease-out] rounded-xl border border-line2 bg-raised px-3 py-2.5 text-[12px]"
               style={{ left, transform: frac < 0.5 ? "translateX(14px)" : "translateX(calc(-100% - 14px))", boxShadow: "var(--shadow-pop)" }}
             >
               <div className="mb-1.5 text-mute">{dateShort(model.dateAt(hover))}</div>

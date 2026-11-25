@@ -5,13 +5,15 @@ import { dayNum, isoOf } from "../../shared/dates.ts";
 import { ASSET_KIND_LABEL, TX_LABEL } from "../../shared/types.ts";
 import { HeroChart, lineModel } from "../charts/hero.tsx";
 import { useDerived, useHeld } from "../data/store.ts";
-import { dateShort, eur, eurSigned, money, num, pct, price, seriesColor, splitMoney, units } from "../lib/format.ts";
+import { dateShort, eur, eurSigned, num, pct, price, seriesColor, units } from "../lib/format.ts";
 import { openDialog } from "../ui/dialogs.ts";
-import { Btn, Card, Dot, Empty, Kpi, Kpis, Money, Priv, Tag, toneOf } from "../ui/kit.tsx";
+import { BigMoney, Btn, Card, Dot, Empty, Kpi, Kpis, Money, Priv, Tag, toneOf } from "../ui/kit.tsx";
+import { useFresh } from "../ui/motion.ts";
 import { L, THead, TRow, Table } from "./common.tsx";
 
 export function Activo({ id }: { id: string }) {
   const d = useDerived();
+  const fresh = useFresh();
   const held = useHeld();
   const asset = d.assets.get(id);
 
@@ -52,7 +54,6 @@ export function Activo({ id }: { id: string }) {
 
   const pos = d.positions.find((p) => p.asset.id === id);
   const avg = pos && pos.qty > 0 ? pos.costEur / pos.qty : null;
-  const [heroI, heroD] = splitMoney(eur(pos?.valueEur ?? 0));
   const goal = d.state.goals.find((g) => g.id === asset.goalId);
 
   return (
@@ -78,10 +79,7 @@ export function Activo({ id }: { id: string }) {
               <span>· {asset.priceSource === "yahoo" ? "precio de Yahoo Finance" : asset.priceSource === "ft" ? "precio de Financial Times" : "precio manual"}</span>
               {goal && <span>· plan: {goal.name}</span>}
             </div>
-            <div className="priv mt-1 text-[56px] leading-[1.05] font-medium tracking-[-0.02em]" style={{ fontStretch: "108%" }}>
-              {heroI}
-              <span className="text-mute">{heroD}</span>
-            </div>
+            <BigMoney value={pos?.valueEur ?? 0} className="mt-1" />
             <div className="mt-1.5 flex items-baseline gap-2.5 text-[13.5px]">
               {pos ? (
                 <>
@@ -188,7 +186,7 @@ export function Activo({ id }: { id: string }) {
               <span>Efecto en EUR</span>
             </THead>
             {data.txs.map((n) => (
-              <TRow key={n.tx.id} onClick={() => openDialog({ kind: "tx", tx: n.tx })}>
+              <TRow key={n.tx.id} fresh={fresh.has(n.tx.id)} onClick={() => openDialog({ kind: "tx", tx: n.tx })}>
                 <L className="text-ink2">{dateShort(n.tx.date)}</L>
                 <L className="font-medium">{TX_LABEL[n.tx.type]}</L>
                 <L className="flex items-center gap-[7px]">

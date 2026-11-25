@@ -190,7 +190,7 @@ export function AssetPicker({
         }}
       />
       {open && (items.length > 0 || searching) && (
-        <ul id="asset-options" role="listbox" className="absolute z-20 mt-1.5 max-h-72 w-full overflow-y-auto rounded-xl border border-line2 bg-raised p-1" style={{ boxShadow: "var(--shadow-pop)" }}>
+        <ul id="asset-options" role="listbox" className="pop pop-left absolute z-20 mt-1.5 max-h-72 w-full overflow-y-auto rounded-xl border border-line2 bg-raised p-1" style={{ boxShadow: "var(--shadow-pop)" }}>
           {items.map((it, i) => {
             const first = i === 0 || items[i - 1]!.kind !== it.kind;
             return (

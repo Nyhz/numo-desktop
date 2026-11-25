@@ -8,10 +8,10 @@ import { DrawdownCard } from "../charts/drawdown.tsx";
 import { MonthColumns, RepartoRing, ReturnBars, treeGroups, type TreeItem } from "../charts/viz.tsx";
 import { BENCHMARK, benchmarkReturns } from "../data/benchmark.ts";
 import { ensureBenchmark, rangeBase, useApp, useBenchmark, useInvested, type Derived } from "../data/store.ts";
-import { dateShort, eur, eurAxis, eurSigned, num, pct, pctSigned, seriesColor, splitMoney } from "../lib/format.ts";
+import { dateShort, eur, eurAxis, eurSigned, num, pctSigned, seriesColor } from "../lib/format.ts";
 import { openDialog } from "../ui/dialogs.ts";
 import { usePrivate } from "../ui/privacy.ts";
-import { Btn, Card, Delta, Empty, HeaderSlot, Kpi, Kpis, Money, Pills, Priv, toneOf } from "../ui/kit.tsx";
+import { BigMoney, Btn, Card, Empty, HeaderSlot, Kpi, Kpis, Money, Num, Pills, Priv, toneOf } from "../ui/kit.tsx";
 import { KIND_ORDER, PeriodPills, RANGE_PHRASE, Welcome, kindColor, kindLabel } from "./common.tsx";
 
 type Mode = "valor" | "pat" | "cuenta" | "tipo" | "rent";
@@ -226,7 +226,6 @@ export function Resumen() {
   const portfolioAt = !hover && counted != null ? counted : V[at]!;
   const homesAt = view.E[at]!;
   const reserveAt = view.R[at]!;
-  const [heroI, heroD] = splitMoney(eur(portfolioAt + homesAt + reserveAt));
   const unrealized = d.positions.reduce((s, p) => s + p.unrealizedEur, 0);
   const cost = d.positions.reduce((s, p) => s + p.costEur, 0);
   const legend = model ? model.rowsAt(hover ? Math.min(hover.k, model.n - 1) : model.n - 1) : [];
@@ -257,10 +256,7 @@ export function Resumen() {
             <div className="text-[12px] text-mute">
               {net ? "Patrimonio neto" : "Valor de la cartera"} · {dateShort(dates[at]!)}
             </div>
-            <div className="priv mt-0.5 text-[56px] leading-[1.05] font-medium tracking-[-0.02em]" style={{ fontStretch: "108%" }}>
-              {heroI}
-              <span className="text-mute">{heroD}</span>
-            </div>
+            <BigMoney value={portfolioAt + homesAt + reserveAt} snap={hover != null || counted != null} />
             {net && (
               <div className="mt-1.5 text-[13.5px] text-ink2">
                 cartera <Priv>{eur(portfolioAt)}</Priv>
@@ -280,9 +276,11 @@ export function Resumen() {
             )}
             <div className="mt-1.5 flex min-h-5 items-baseline gap-2.5 text-[13.5px]">
               <span className="priv font-[550]" style={{ color: toneOf(stats.gain) }}>
-                {eurSigned(stats.gain)}
+                <Num value={stats.gain} format={eurSigned} />
               </span>
-              <span style={{ color: toneOf(stats.twr, 0.00005) }}>{pctSigned(stats.twr, 2)}</span>
+              <span style={{ color: toneOf(stats.twr, 0.00005) }}>
+                <Num value={stats.twr} format={pctSigned} />
+              </span>
               {/* Lo justo a la vista; qué mide cada cifra, al pasar el cursor. */}
               <span
                 className="text-mute"
@@ -309,7 +307,7 @@ export function Resumen() {
           <Money value={session.gainEur} signed dim="soft" />
         </Kpi>
         <Kpi priv label="Aportado neto" note="desde el inicio">
-          {eur(invested[to]!, 0)}
+          <Num value={invested[to]!} format={(v) => eur(v, 0)} />
         </Kpi>
         <Kpi label="Ganancia total" note="valor menos aportado" tone={all.gain}>
           <Money value={all.gain} signed dim="soft" />
@@ -327,7 +325,7 @@ export function Resumen() {
           <Money value={totals.realizedEur + totals.dividendsEur + totals.interestEur} signed dim="soft" />
         </Kpi>
         <Kpi label="TIR anualizada" note={all.xirr == null ? "hace falta más historia" : "desde el inicio"} tone={all.xirr}>
-          {all.xirr == null ? "—" : pctSigned(all.xirr)}
+          {all.xirr == null ? "—" : <Num value={all.xirr} format={pctSigned} />}
         </Kpi>
       </Kpis>
 

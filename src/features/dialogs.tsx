@@ -5,7 +5,7 @@ import { todayIso } from "../../shared/dates.ts";
 import { ACCOUNT_KINDS, ACCOUNT_KIND_LABEL, ASSET_KINDS, ASSET_KIND_LABEL, PRICE_SOURCES, PRICE_SOURCE_LABEL, PRICE_SOURCE_SHORT, SOURCE_BY_ISIN, SOURCE_CODE, type Account, type Asset, type PriceSource } from "../../shared/types.ts";
 import { probeSource, searchMarket, type Probe, type ProbeInput, type SearchHit } from "../data/market.ts";
 import { backend, importPlan, isExample, sync, syncSoon, removeAccount, removeAsset, saveAccount, saveAsset, setPrice, useApp, useDerived } from "../data/store.ts";
-import { dateBrief, dateShort, money, num, price } from "../lib/format.ts";
+import { dateBrief, dateShort, num, price } from "../lib/format.ts";
 import { closeDialog, useDialog } from "../ui/dialogs.ts";
 import { Btn, Dialog, ErrorLine, Field, toast } from "../ui/kit.tsx";
 import { MortgageEventDialog, PropertyDialog, ValuationDialog } from "./property-dialogs.tsx";

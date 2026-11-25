@@ -1,7 +1,8 @@
 import { X } from "lucide-react";
-import { useEffect, useRef, useState, useSyncExternalStore, type ButtonHTMLAttributes, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ButtonHTMLAttributes, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { eur, eurSigned, pctSigned } from "../lib/format.ts";
+import { eur, eurSigned, pctSigned, splitMoney } from "../lib/format.ts";
+import { EASE, reducedMotion, useFlash, useTween } from "./motion.ts";
 
 // ── Botones ────────────────────────────────────────────────────────────────
 
@@ -62,8 +63,41 @@ export function Pills<T extends string>({
   /** Sin fondo de grupo (selector de periodo bajo el gráfico). */
   bare?: boolean;
 }) {
+  // La opción elegida la marca una pastilla que se desliza de una a otra. Se coloca
+  // midiendo el botón activo, y se vuelve a medir si cambian las opciones o el ancho.
+  const box = useRef<HTMLDivElement>(null);
+  const [thumb, setThumb] = useState<{ left: number; width: number } | null>(null);
+  // La primera colocación no se anima: la pastilla aparece ya en su sitio.
+  const placed = useRef(false);
+  const key = options.map(([v, text]) => `${v}:${text}`).join("|");
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const measure = () => {
+      const on = el.querySelector<HTMLElement>('[aria-checked="true"]');
+      setThumb((cur) => {
+        // Sin ancho todavía (un diálogo que aún no se ha abierto): no hay pastilla que colocar.
+        const next = on && on.offsetWidth > 0 ? { left: on.offsetLeft, width: on.offsetWidth } : null;
+        return cur && next && cur.left === next.left && cur.width === next.width ? cur : next;
+      });
+    };
+    measure();
+    const watch = new ResizeObserver(measure);
+    watch.observe(el);
+    return () => watch.disconnect();
+  }, [value, key]);
+  useEffect(() => {
+    placed.current = thumb != null;
+  }, [thumb]);
   return (
-    <div role="radiogroup" aria-label={label} className={`inline-flex gap-0.5 rounded-full ${bare ? "" : "bg-wash p-[3px]"}`}>
+    <div ref={box} role="radiogroup" aria-label={label} className={`relative inline-flex gap-0.5 rounded-full ${bare ? "" : "bg-wash p-[3px]"}`}>
+      {thumb && (
+        <span
+          aria-hidden
+          className={`pointer-events-none absolute left-0 rounded-full bg-raised shadow-[var(--shadow-active)] ${bare ? "inset-y-0" : "inset-y-[3px]"}`}
+          style={{ width: thumb.width, transform: `translateX(${thumb.left}px)`, transition: placed.current ? `transform .28s ${EASE}, width .28s ${EASE}` : "none" }}
+        />
+      )}
       {options.map(([v, text]) => (
         <button
           key={v}
@@ -71,9 +105,9 @@ export function Pills<T extends string>({
           role="radio"
           aria-checked={v === value}
           onClick={() => onChange(v)}
-          className={`rounded-full font-medium whitespace-nowrap transition-[background,color] duration-200 active:scale-[.96] ${
+          className={`relative rounded-full font-medium whitespace-nowrap transition-[color,transform] duration-200 active:scale-[.96] ${
             size === "sm" ? "px-[11px] py-[3px] text-[12px]" : bare ? "px-3.5 py-1.5 text-[12.5px]" : "px-[13px] py-[5px] text-[12.5px]"
-          } ${v === value ? "bg-raised text-ink shadow-[var(--shadow-active)]" : "text-mute hover:text-ink"}`}
+          } ${v === value ? "text-ink" : "text-mute hover:text-ink"}`}
         >
           {text}
         </button>
@@ -168,7 +202,9 @@ export const Priv = ({ children }: { children: ReactNode }) => <span className="
 
 /** Importe con los decimales y el «€» atenuados: manda la parte entera. */
 export function Money({ value, signed = false, digits = 2, dim = "mute" }: { value: number; signed?: boolean; digits?: number; dim?: "mute" | "soft" }) {
-  const text = signed ? eurSigned(value, digits) : eur(value, digits);
+  // Si el importe cambia (otro periodo, otras cuentas, precios nuevos), pasa del anterior al nuevo.
+  const shown = useTween(value);
+  const text = signed ? eurSigned(shown, digits) : eur(shown, digits);
   const cut = digits > 0 ? text.lastIndexOf(",") : -1;
   if (cut < 0) return <Priv>{text}</Priv>;
   return (
@@ -176,6 +212,35 @@ export function Money({ value, signed = false, digits = 2, dim = "mute" }: { val
       {text.slice(0, cut)}
       <span className={dim === "mute" ? "font-normal text-mute" : "font-normal opacity-60"}>{text.slice(cut)}</span>
     </Priv>
+  );
+}
+
+/**
+ * Cifra que pasa de su valor anterior al nuevo cuando cambia. `snap`: sigue al
+ * dato sin retraso (mientras el cursor recorre un gráfico).
+ */
+export function Num({ value, format, snap }: { value: number; format: (v: number) => string; snap?: boolean }) {
+  return <>{format(useTween(value, { snap }))}</>;
+}
+
+/** Envuelve un dato de mercado: al cambiar de valor destella un instante, en verde si sube y en rojo si baja. */
+export function Flash({ value, children, className = "" }: { value: number | null | undefined; children: ReactNode; className?: string }) {
+  const ref = useFlash<HTMLSpanElement>(value);
+  return (
+    <span ref={ref} className={`flash ${className}`}>
+      {children}
+    </span>
+  );
+}
+
+/** La cifra grande que encabeza una pantalla, con los céntimos atenuados. */
+export function BigMoney({ value, snap, className = "mt-0.5" }: { value: number; snap?: boolean; className?: string }) {
+  const [whole, cents] = splitMoney(eur(useTween(value, { snap })));
+  return (
+    <div className={`priv text-[56px] leading-[1.05] font-medium tracking-[-0.02em] ${className}`} style={{ fontStretch: "108%" }}>
+      {whole}
+      <span className="text-mute">{cents}</span>
+    </div>
   );
 }
 
@@ -299,7 +364,7 @@ export function Dialog({
 
 // ── Avisos ─────────────────────────────────────────────────────────────────
 
-type Toast = { id: number; text: string; tone: "ok" | "error"; action?: { label: string; run: () => void } };
+type Toast = { id: number; text: string; tone: "ok" | "error"; action?: { label: string; run: () => void }; /** Se está yendo: sigue un instante en pantalla, desvaneciéndose. */ leaving?: boolean };
 let toasts: Toast[] = [];
 let nextId = 1;
 const subs = new Set<() => void>();
@@ -311,9 +376,15 @@ export function toast(text: string, opts: { tone?: "ok" | "error"; action?: Toas
   emit();
   setTimeout(() => dismiss(t.id), opts.action ? 8000 : t.tone === "error" ? 7000 : 3200);
 }
-const dismiss = (id: number) => {
+const drop = (id: number) => {
   toasts = toasts.filter((t) => t.id !== id);
   emit();
+};
+const dismiss = (id: number) => {
+  if (reducedMotion() || !toasts.some((t) => t.id === id && !t.leaving)) return drop(id);
+  toasts = toasts.map((t) => (t.id === id ? { ...t, leaving: true } : t));
+  emit();
+  setTimeout(() => drop(id), 180);
 };
 
 export function Toaster() {
@@ -329,7 +400,7 @@ export function Toaster() {
       {list.map((t) => (
         <div
           key={t.id}
-          className="screen pointer-events-auto flex items-center gap-3 rounded-full border border-line2 bg-raised py-2 pr-2 pl-4 text-[13px]"
+          className={`toast flex items-center gap-3 rounded-full border border-line2 bg-raised py-2 pr-2 pl-4 text-[13px] ${t.leaving ? "leaving" : "pointer-events-auto"}`}
           style={{ boxShadow: "var(--shadow-pop)" }}
         >
           {t.tone === "error" && <span className="size-1.5 rounded-full bg-down" />}

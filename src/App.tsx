@@ -1,5 +1,5 @@
 import { Activity, ArrowLeftRight, Check, ChevronDown, CircleArrowUp, CloudOff, Eye, EyeOff, FileText, House, Landmark, Layers, LineChart, Moon, PanelLeft, Plus, RefreshCw, Settings, Sun, Target, X } from "lucide-react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Link, Route, Router, Switch, useLocation } from "wouter";
 import { useHashLocation } from "wouter/use-hash-location";
 import { backend, hideUpdate, installUpdate, isExample, setDemo, setScope, sync, syncOnFocus, updateOnFocus, useApp, useHealth } from "./data/store.ts";
@@ -18,6 +18,7 @@ import { Resumen } from "./pages/Resumen.tsx";
 import { openDialog, useDialog } from "./ui/dialogs.ts";
 import { Btn, Dot, Toaster } from "./ui/kit.tsx";
 import { Logo } from "./ui/Logo.tsx";
+import { usePresence } from "./ui/motion.ts";
 import { togglePrivate, usePrivate } from "./ui/privacy.ts";
 import { Splash } from "./ui/Splash.tsx";
 
@@ -43,6 +44,8 @@ const matches = (n: Nav, loc: string) => (n.href === "/" ? loc === "/" : loc.sta
 // ocupa siempre la misma casilla de 40 px, en el mismo sitio; lo único que cambia
 // es el ancho del menú, que al abrirse deja ver los rótulos. Así nada salta: la
 // fila activa pasa sola de cuadrado a píldora y los rótulos aparecen deslizándose.
+// El fondo de la fila activa no es suyo: es una sola pastilla del menú que se
+// desliza de una sección a otra (se coloca midiendo el enlace activo).
 const MENU_KEY = "numo.menu";
 const MENU_EASE = "cubic-bezier(.2,.8,.2,1)";
 
@@ -58,7 +61,7 @@ function useMenu(): [boolean, () => void] {
 /** Clases de una fila del menú. `quiet`: las acciones del pie, más discretas que las secciones. */
 const railItem = (active: boolean, quiet = false) =>
   `group relative flex h-10 w-full flex-none items-center overflow-hidden rounded-[11px] text-left transition-[background,color,transform] duration-150 active:scale-[.97] ${
-    active ? "bg-raised text-ink shadow-[var(--shadow-active)]" : quiet ? "text-mute hover:text-ink" : "text-ink2 hover:text-ink"
+    active ? "text-ink" : quiet ? "text-mute hover:text-ink" : "text-ink2 hover:text-ink"
   }`;
 
 /** Icono (siempre visible) y rótulo (solo con el menú abierto) de una fila. */
@@ -154,6 +157,7 @@ function AccountFilter() {
       window.removeEventListener("keydown", esc);
     };
   }, [open]);
+  const list = usePresence(open);
   if (accounts.length < 2) return null;
 
   const picked = scope ? accounts.filter((a) => scope.includes(a.id)) : [];
@@ -194,7 +198,7 @@ function AccountFilter() {
         >
           {picked.length === 1 && <Dot color={seriesColor(picked[0]!.color)} />}
           {label}
-          <ChevronDown size={11} className="text-mute" />
+          <ChevronDown size={11} className={`text-mute transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
         </button>
         {scope && (
           <button
@@ -211,8 +215,8 @@ function AccountFilter() {
           </button>
         )}
       </div>
-      {open && (
-        <div role="listbox" aria-multiselectable className="absolute right-0 z-30 mt-1.5 w-64 rounded-xl border border-line2 bg-raised p-1" style={{ boxShadow: "var(--shadow-pop)" }}>
+      {list.mounted && (
+        <div role="listbox" aria-multiselectable className={`pop absolute right-0 z-30 mt-1.5 w-64 rounded-xl border border-line2 bg-raised p-1 ${list.leaving ? "leaving" : ""}`} style={{ boxShadow: "var(--shadow-pop)" }}>
           <button type="button" role="option" aria-selected={!scope} className={row} onClick={() => setScope(null)}>
             <span className="w-3.5 text-acc">{!scope && <Check size={14} strokeWidth={2.6} />}</span>
             Todas las cuentas
@@ -314,6 +318,20 @@ function Shell({ children }: { children: ReactNode }) {
   const { attention, fxLate } = useHealth();
   const here = [...NAV_MAIN, ...NAV_SUB].find((n) => matches(n, loc));
 
+  // Pastilla de la sección activa: su altura en el menú, o null si ninguna lo está.
+  const rail = useRef<HTMLElement>(null);
+  const [mark, setMark] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const el = rail.current;
+    if (!el) return;
+    const measure = () => setMark(el.querySelector<HTMLElement>('a[aria-current="page"]')?.offsetTop ?? null);
+    measure();
+    // Al cambiar el alto de la ventana, las secciones del pie se mueven.
+    const watch = new ResizeObserver(measure);
+    watch.observe(el);
+    return () => watch.disconnect();
+  }, [loc]);
+
   // Al volver a la ventana se mira si otro equipo ha dejado cambios y si hay una versión nueva.
   useEffect(() => {
     const onFocus = () => {
@@ -343,12 +361,21 @@ function Shell({ children }: { children: ReactNode }) {
     <div className="flex h-full bg-bg transition-colors duration-300">
       {/* Menú lateral: desplegado enseña los rótulos; contraído, solo los iconos. */}
       <nav
+        ref={rail}
         data-tauri-drag-region
         aria-label="Secciones"
         // En macOS deja hueco arriba y a los lados: los botones de la ventana ocupan unos 70 px de ancho.
-        className={`flex flex-none flex-col gap-1.5 overflow-hidden pb-3.5 transition-[width] duration-[320ms] ${wideRail ? "px-[19px] pt-[46px]" : "px-3 pt-3.5"}`}
+        className={`relative flex flex-none flex-col gap-1.5 overflow-hidden pb-3.5 transition-[width] duration-[320ms] ${wideRail ? "px-[19px] pt-[46px]" : "px-3 pt-3.5"}`}
         style={{ width: menu ? (wideRail ? 226 : 212) : wideRail ? 78 : 64, transitionTimingFunction: MENU_EASE }}
       >
+        {/* Se mueve con `top` y no con `transform`: la entrada del arranque anima el transform de los hijos del menú. */}
+        {mark != null && (
+          <span
+            aria-hidden
+            className={`pointer-events-none absolute h-10 rounded-[11px] bg-raised shadow-[var(--shadow-active)] ${wideRail ? "inset-x-[19px]" : "inset-x-3"}`}
+            style={{ top: mark, transition: `top .3s ${MENU_EASE}` }}
+          />
+        )}
         <div data-tauri-drag-region className="-mt-1 mb-2.5 -ml-0.5 flex h-11 flex-none items-center gap-1.5" title="Numo">
           <div data-splash-logo className="size-11 flex-none">
             <Logo size={44} className="pointer-events-none" />
