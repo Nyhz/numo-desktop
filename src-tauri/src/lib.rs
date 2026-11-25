@@ -389,9 +389,27 @@ async fn export_backup(app: AppHandle, name: String) -> CmdResult<Option<String>
     }
     let db = app.state::<Db>();
     let conn = db.conn.lock().map_err(err)?;
+    write_shareable_copy(&conn, &path)?;
+    Ok(Some(path.display().to_string()))
+}
+
+/// Copia completa de la base de datos para sacarla del equipo: sin las claves
+/// (`secret:`), que se quedan en este equipo. Se borran con `secure_delete` y se
+/// reescribe el archivo, para que no queden en páginas libres. Si algo falla,
+/// no se deja una copia a medias.
+fn write_shareable_copy(conn: &Connection, path: &Path) -> Result<(), String> {
     conn.execute("VACUUM INTO ?1", [path.to_string_lossy().as_ref()])
         .map_err(err)?;
-    Ok(Some(path.display().to_string()))
+    let strip = || -> rusqlite::Result<()> {
+        let copy = Connection::open(path)?;
+        copy.execute_batch("PRAGMA journal_mode = DELETE; PRAGMA secure_delete = ON;")?;
+        copy.execute("DELETE FROM meta WHERE key LIKE ?1", [format!("{SECRET_PREFIX}%")])?;
+        copy.execute_batch("VACUUM;")
+    };
+    strip().map_err(|e| {
+        let _ = fs::remove_file(path);
+        err(e)
+    })
 }
 
 // ── Sincronización entre equipos ────────────────────────────────────────────
@@ -882,6 +900,31 @@ mod tests {
         let (u, h) = authorize(&conn, url("https://data-api.binance.vision/api/v3/klines?symbol=ETHEUR")).unwrap();
         assert_eq!(u.query(), Some("symbol=ETHEUR"));
         assert!(h.is_none());
+    }
+
+    #[test]
+    fn an_exported_copy_leaves_the_keys_behind() {
+        let conn = memory_db();
+        conn.execute_batch(
+            "INSERT INTO meta (key, value) VALUES ('secret:indexa', 'token-de-indexa-123'), ('secret:sync', 'contraseña-larga-456'), ('lastSync', '2026-01-01');",
+        )
+        .unwrap();
+        let file = std::env::temp_dir().join(format!("numo-export-test-{}.db", std::process::id()));
+        let _ = fs::remove_file(&file);
+        write_shareable_copy(&conn, &file).unwrap();
+
+        let copy = Connection::open(&file).unwrap();
+        let keys: Vec<String> = copy.prepare("SELECT key FROM meta ORDER BY key").unwrap().query_map([], |r| r.get(0)).unwrap().map(Result::unwrap).collect();
+        assert_eq!(keys, vec!["lastSync"]);
+        drop(copy);
+        // Ni rastro en el archivo.
+        let bytes = fs::read(&file).unwrap();
+        let has = |needle: &[u8]| bytes.windows(needle.len()).any(|w| w == needle);
+        assert!(!has(b"token-de-indexa-123") && !has("contraseña-larga-456".as_bytes()));
+        // Y lo que hay en el equipo sigue igual.
+        let left: i64 = conn.query_row("SELECT COUNT(*) FROM meta WHERE key LIKE 'secret:%'", [], |r| r.get(0)).unwrap();
+        assert_eq!(left, 2);
+        let _ = fs::remove_file(&file);
     }
 
     #[test]

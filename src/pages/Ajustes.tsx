@@ -300,7 +300,7 @@ export function Ajustes() {
             </Btn>
           }
         >
-          Tus datos viven en un único archivo en este ordenador (no es una copia: es la base de datos de la app). Numo guarda además una copia diaria, las 14 últimas, en la carpeta «copias» que hay a su lado.
+          Tus datos viven en un único archivo en este ordenador (no es una copia: es la base de datos de la app). Numo guarda además una copia diaria, las 14 últimas, en la carpeta «copias» que hay a su lado. La copia que guardas tú no lleva tus claves (la de Indexa Capital ni la contraseña de sincronización): si la restauras, se vuelven a poner en Ajustes.
           <div className="selectable mt-1 text-[12px] break-all text-mute">Base de datos: {info?.dbPath}</div>
         </Row>
         <Row
