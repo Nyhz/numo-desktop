@@ -10,6 +10,24 @@ export const countryOfIsin = (isin: string | null | undefined): string => {
   return /^[A-Z]{2}$/.test(cc) && cc !== "XS" ? cc : "";
 };
 
+/** Retención a cuenta del IRPF sobre dividendos e intereses pagados en España. */
+export const RETENCION_ES = 0.19;
+
+/**
+ * Bruto y retención a partir de lo que llega a la cuenta. El banco calcula la
+ * retención sobre el bruto y la redondea al céntimo; aquí se busca el bruto
+ * que, retenido así, deja exactamente ese neto.
+ */
+export const grossFromNet = (net: number, rate = RETENCION_ES): { gross: number; tax: number } => {
+  if (!(net > 0) || !(rate > 0)) return { gross: r2(net), tax: 0 };
+  const guess = r2(net / (1 - rate));
+  for (const g of [guess, r2(guess - 0.01), r2(guess + 0.01)]) {
+    const tax = r2(g * rate);
+    if (r2(g - tax) === r2(net)) return { gross: g, tax };
+  }
+  return { gross: guess, tax: r2(guess - net) };
+};
+
 /** Una venta emparejada con el lote de compra que consume. */
 export type GainRow = {
   sellTxId: string;

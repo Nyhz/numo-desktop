@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { parseNumber } from "../../shared/csv.ts";
 import { dayNum, isIsoDate, todayIso } from "../../shared/dates.ts";
-import { holdingsAt } from "../../shared/engine/ledger.ts";
+import { holdingsAt, r2 } from "../../shared/engine/ledger.ts";
+import { grossFromNet } from "../../shared/engine/reports.ts";
 import { TX_LABEL, TX_TYPES, cashOnly, needsAsset, type Tx, type TxType } from "../../shared/types.ts";
 import { ecbRate, removeTx, restoreTx, saveTx, useDerived } from "../data/store.ts";
 import { dateShort, eur, fxRate, money, num, units } from "../lib/format.ts";
@@ -32,6 +33,9 @@ type Form = {
 
 const str = (n: number | null | undefined) => (n == null || n === 0 ? "" : String(n).replace(".", ","));
 const LAST_ACCOUNT = "numo.lastAccount";
+// Si la cuenta retiene el 19 % de los intereses (las de IBAN español lo hacen). Se recuerda por cuenta.
+const WITHHOLDS = (accountId: string) => `numo.retiene.${accountId}`;
+const withholds = (accountId: string) => localStorage.getItem(WITHHOLDS(accountId)) !== "0";
 const SAVED: Record<TxType, string> = {
   buy: "Compra guardada",
   sell: "Venta guardada",
@@ -56,7 +60,8 @@ export function TxDialog({ tx, preset }: { tx?: Tx; preset?: { type?: TxType; as
         assetId: tx.assetId ?? "",
         quantity: str(tx.quantity),
         price: str(tx.price),
-        amount: str(tx.amount),
+        // Del interés se escribe lo que llega a la cuenta; el bruto se deduce.
+        amount: str(tx.type === "interest" ? r2((tx.amount ?? 0) - tx.taxSource - tx.taxHome) : tx.amount),
         currency: tx.currency,
         fxRate: tx.currency === "EUR" ? "" : str(tx.fxRate),
         fee: str(tx.fee),
@@ -93,6 +98,7 @@ export function TxDialog({ tx, preset }: { tx?: Tx; preset?: { type?: TxType; as
   };
 
   const [f, setF] = useState<Form>(initial);
+  const [withheld, setWithheld] = useState(() => (tx?.type === "interest" && tx.taxHome > 0) || withholds(tx?.accountId ?? initial().accountId));
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   // El cambio de la operación es, por este orden: el que sale del importe en EUR que
@@ -107,7 +113,14 @@ export function TxDialog({ tx, preset }: { tx?: Tx; preset?: { type?: TxType; as
   const asset = d.assets.get(f.assetId);
   const isTrade = f.type === "buy" || f.type === "sell";
   const isIncome = f.type === "dividend" || f.type === "interest";
+  const isInterest = f.type === "interest";
   const isTransfer = f.type === "transfer";
+
+  // Cada cuenta recuerda si retiene los intereses.
+  useEffect(() => {
+    if (!tx) setWithheld(withholds(f.accountId));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [f.accountId]);
 
   // La divisa la marca el activo en compraventas; en el resto se propone y se puede cambiar.
   useEffect(() => {
@@ -137,6 +150,16 @@ export function TxDialog({ tx, preset }: { tx?: Tx; preset?: { type?: TxType; as
   }, [currency, f.date, foreign]);
 
   const n = (s: string) => parseNumber(s);
+  // Interés: se escribe el neto recibido; la retención, si no se escribe, es el 19 % del bruto.
+  const interest = useMemo(() => {
+    if (!isInterest) return null;
+    const net = n(f.amount);
+    if (net == null || Number.isNaN(net)) return null;
+    const typed = f.taxHome.trim() ? n(f.taxHome) : null;
+    if (typed != null) return { net, tax: typed, gross: r2(net + typed) };
+    return withheld ? { net, ...grossFromNet(net) } : { net, tax: 0, gross: net };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isInterest, f.amount, f.taxHome, withheld]);
   const qty = n(f.quantity) ?? 0;
   const price = n(f.price) ?? 0;
   const fee = n(f.fee) ?? 0;
@@ -178,12 +201,12 @@ export function TxDialog({ tx, preset }: { tx?: Tx; preset?: { type?: TxType; as
       const feeNative = f.feeCurrency === "EUR" ? fee * fx : fee;
       native = f.type === "buy" ? qty * price + feeNative : qty * price - feeNative;
     } else {
-      native = (n(f.amount) ?? 0) - (isIncome ? (n(f.taxSource) ?? 0) + (n(f.taxHome) ?? 0) : 0);
+      native = isInterest ? (interest?.net ?? 0) : (n(f.amount) ?? 0) - (isIncome ? (n(f.taxSource) ?? 0) + (n(f.taxHome) ?? 0) : 0);
     }
     if (!(native > 0) || !(fx > 0)) return null;
     return { native, eur: native / fx };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [f, qty, price, fee, fx]);
+  }, [f, qty, price, fee, fx, interest]);
 
   const submit = async (again: boolean) => {
     if (saving) return;
@@ -191,11 +214,11 @@ export function TxDialog({ tx, preset }: { tx?: Tx; preset?: { type?: TxType; as
     const numbers = {
       quantity: n(f.quantity),
       price: n(f.price),
-      amount: n(f.amount),
+      amount: isInterest ? (interest?.gross ?? n(f.amount)) : n(f.amount),
       fxRate: !foreign ? 1 : Number.isNaN(fx) ? Number.NaN : fx > 0 ? fx : null,
       fee: n(f.fee) ?? 0,
-      taxSource: n(f.taxSource) ?? 0,
-      taxHome: n(f.taxHome) ?? 0,
+      taxSource: isInterest ? 0 : (n(f.taxSource) ?? 0),
+      taxHome: isInterest ? (interest?.tax ?? 0) : (n(f.taxHome) ?? 0),
       toQuantity: n(f.toQuantity),
     };
     if (Object.values(numbers).some((v) => v != null && Number.isNaN(v))) return setError("Hay un número que no se entiende. Usa coma o punto para los decimales.");
@@ -220,6 +243,7 @@ export function TxDialog({ tx, preset }: { tx?: Tx; preset?: { type?: TxType; as
     setSaving(false);
     if (!res.ok) return setError(res.error);
     localStorage.setItem(LAST_ACCOUNT, f.accountId);
+    if (isInterest) localStorage.setItem(WITHHOLDS(f.accountId), withheld || numbers.taxHome > 0 ? "1" : "0");
     toast(SAVED[f.type]);
     // La fila de la operación, y la de su activo en Posiciones, se resaltan un momento.
     markFresh(res.value.id, res.value.assetId, res.value.toAssetId);
@@ -256,7 +280,12 @@ export function TxDialog({ tx, preset }: { tx?: Tx; preset?: { type?: TxType; as
           )}
           {!tx && (
             <div className="mr-auto min-w-0 truncate text-[12.5px] text-ink2">
-              {total && (
+              {total && isInterest && interest ? (
+                <>
+                  Bruto <span className="num font-semibold text-ink">{foreign ? money(interest.gross, currency) : eur(interest.gross / fx)}</span>
+                  {" · "}retención <span className="num font-semibold text-ink">{foreign ? money(interest.tax, currency) : eur(interest.tax / fx)}</span>
+                </>
+              ) : total && (
                 <>
                   {f.type === "buy" ? "Coste total" : "Neto"}{" "}
                   <span className="num font-semibold text-ink">{foreign ? `${money(total.native, currency)} · ${eur(total.eur)}` : eur(total.eur)}</span>
@@ -344,7 +373,42 @@ export function TxDialog({ tx, preset }: { tx?: Tx; preset?: { type?: TxType; as
           </div>
         )}
 
-        {isIncome && (
+        {isInterest && (
+          <div className="grid grid-cols-[1fr_76px_1fr] gap-3">
+            <Field label="Recibido en la cuenta">
+              <input className="field" inputMode="decimal" value={f.amount} onChange={(e) => set({ amount: e.target.value })} />
+            </Field>
+            <Field label="Divisa">
+              <input className="field uppercase" maxLength={3} value={f.currency} onChange={(e) => set({ currency: e.target.value.toUpperCase() })} />
+            </Field>
+            <Field
+              label="Retención en España"
+              hint={
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  className="underline decoration-dotted underline-offset-2 hover:text-ink"
+                  onClick={() => {
+                    setWithheld(!withheld);
+                    set({ taxHome: "" });
+                  }}
+                >
+                  {withheld ? "19 %" : "sin retención"}
+                </button>
+              }
+            >
+              <input
+                className="field"
+                inputMode="decimal"
+                value={f.taxHome}
+                placeholder={withheld && interest ? num(interest.tax, 2, 2) : "0"}
+                onChange={(e) => set({ taxHome: e.target.value })}
+              />
+            </Field>
+          </div>
+        )}
+
+        {isIncome && !isInterest && (
           <div className="grid grid-cols-[1fr_76px_1fr_1fr] gap-3">
             <Field label="Importe bruto">
               <input className="field" inputMode="decimal" value={f.amount} onChange={(e) => set({ amount: e.target.value })} />

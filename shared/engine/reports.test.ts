@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { lossCarryover } from "./reports.ts";
+import { grossFromNet, lossCarryover } from "./reports.ts";
 
 describe("compensación de pérdidas entre ejercicios", () => {
   const of = (rows: Array<[year: number, netGainEur: number, incomeEur?: number]>) => lossCarryover(rows.map(([year, netGainEur, incomeEur = 0]) => ({ year, netGainEur, incomeEur })));
@@ -28,5 +28,19 @@ describe("compensación de pérdidas entre ejercicios", () => {
     // 2022 es el último año para la de 2018: lo que quede caduca.
     expect(years[4]).toMatchObject({ expiredEur: 400, pendingOut: [{ year: 2019, lossEur: 200, until: 2023 }] });
     expect(years[5]).toMatchObject({ usedEur: 50, expiredEur: 150, pendingOut: [] });
+  });
+});
+
+describe("bruto a partir del neto ingresado", () => {
+  it("encuentra el bruto que, retenido al 19 %, deja ese neto", () => {
+    for (const net of [0.81, 1, 12.34, 74.86, 81, 123.45, 999.99]) {
+      const { gross, tax } = grossFromNet(net);
+      expect(tax).toBeCloseTo(Math.round(gross * 19) / 100, 10);
+      expect(Math.round((gross - tax) * 100) / 100).toBe(net);
+    }
+  });
+
+  it("sin retención el bruto es el neto", () => {
+    expect(grossFromNet(50, 0)).toEqual({ gross: 50, tax: 0 });
   });
 });
