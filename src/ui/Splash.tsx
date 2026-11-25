@@ -36,9 +36,10 @@ const lerp = (a: number, b: number, k: number) => a + (b - a) * k;
 const TIDE = "M-60 0q15-4 30 0t30 0t30 0t30 0t30 0t30 0t30 0t30 0";
 
 /** La curva de valor del gráfico principal, en coordenadas de la ventana. */
-type Target = { xs: number[]; ys: number[] };
+type Target = { xs: number[]; ys: number[]; d: string };
+const heroLine = () => document.querySelector<SVGPathElement>('[data-hero="line"] path');
 function measureTarget(): Target | null {
-  const path = document.querySelector<SVGPathElement>('[data-hero="line"] path');
+  const path = heroLine();
   const ctm = path?.getScreenCTM();
   if (!path || !ctm) return null;
   const length = path.getTotalLength();
@@ -52,7 +53,7 @@ function measureTarget(): Target | null {
       ys.push(p.y);
     }
   }
-  return xs.length > 2 ? { xs, ys } : null;
+  return xs.length > 2 ? { xs, ys, d: path.getAttribute("d") ?? "" } : null;
 }
 function yAt(t: Target, x: number): number {
   const { xs, ys } = t;
@@ -128,7 +129,9 @@ export function Splash() {
   const cues = status !== "ready" ? null : mode === "short" ? SHORT : ready.current == null ? null : fullCues(ready.current);
 
   // En cuanto la onda empieza a crecer hace falta saber hasta dónde llega el gráfico.
-  if (cues && T >= cues.flow && !target.current) target.current = measureTarget();
+  // La curva puede cambiar mientras tanto (en Rentabilidad llega después el índice, que
+  // cambia la escala): si cambia, se vuelve a medir y la onda va hacia la nueva.
+  if (cues && T >= cues.flow && T < cues.data && (!target.current || target.current.d !== (heroLine()?.getAttribute("d") ?? ""))) target.current = measureTarget();
   // Al empezar el tramo «Gráfico» se mide dónde está la curva y dónde el logo del menú.
   if (cues && T >= cues.chart && phase === "load") {
     target.current = measureTarget();

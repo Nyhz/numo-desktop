@@ -192,7 +192,7 @@ export function stackModel(o: Common & { series: Array<{ label: string; color: s
   const layers: Layer[] = [];
   for (let k = 0; k < m; k++) layers.push({ d: `${f.path(cum[k + 1]!)}${f.back(cum[k]!)}Z`, fill: o.series[k]!.color, opacity: 0.72 });
   for (let k = 1; k < m; k++) layers.push({ d: f.path(cum[k]!), stroke: "var(--panel)", width: 1.5 });
-  layers.push({ d: f.path(cum[m]!), stroke: "var(--ink)", width: 1.5 });
+  layers.push({ d: f.path(cum[m]!), stroke: "var(--ink)", width: 1.5, main: true });
   return {
     n: f.n,
     layers,
@@ -236,7 +236,7 @@ export function lineModel(
   const layers: Layer[] = [{ d: `${f.path(t)}L${W} ${z}L0 ${z}Z`, fill: "var(--acc)", opacity: o.zero ? 0.16 : 0.1 }];
   if (o.zero) layers.push({ d: `M0 ${z}H${W}`, stroke: "var(--line2)", width: 1 });
   if (c) layers.push({ d: f.path(c), stroke: "var(--mute)", width: 1.1, dash: "4 4" });
-  layers.push({ d: f.path(t), stroke: "var(--acc)", width: 1.8 });
+  layers.push({ d: f.path(t), stroke: "var(--acc)", width: 1.8, main: true });
   // Cada marca se lleva al punto dibujado más cercano.
   const near = (i: number) => {
     let best = 0;
