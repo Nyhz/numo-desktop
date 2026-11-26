@@ -67,7 +67,11 @@ export type Account = {
   currency: string;
   /** Hueco de color fijo (1-8); 0 = gris «otras». El color sigue a la cuenta, no a su posición. */
   color: number;
-  /** Si es false la cuenta solo sigue inversiones: compras y ventas no mueven efectivo. */
+  /**
+   * Si la cuenta lleva efectivo. Solo el fondo de emergencia lo lleva: el resto de
+   * cuentas siguen inversiones y sus compras y ventas no mueven saldo. Se guarda por
+   * compatibilidad, pero siempre vale `holdsCash(kind)`; lo que cuenta es el tipo.
+   */
   trackCash: boolean;
   archived: boolean;
   createdAt: string;
@@ -254,5 +258,21 @@ export const ACCOUNT_KIND_LABEL: Record<AccountKind, string> = {
 /** Tipos que necesitan un activo. */
 export const needsAsset = (t: TxType) =>
   t === "buy" || t === "sell" || t === "dividend" || t === "transfer";
+/**
+ * Operaciones que se registran en cada tipo de cuenta. Las comisiones van dentro
+ * de cada compra o venta, así que no hay comisiones sueltas. El único efectivo
+ * que se lleva es el del fondo de emergencia: ingresos, retiradas e intereses
+ * solo se registran ahí, y en él no se compra nada.
+ */
+export const ACCOUNT_TX_TYPES: Record<AccountKind, TxType[]> = {
+  broker: ["buy", "sell", "dividend", "transfer"],
+  crypto: ["buy", "sell", "transfer"],
+  pension: ["buy", "sell", "transfer"],
+  emergency: ["deposit", "withdrawal", "interest"],
+  other: ["buy", "sell", "dividend", "transfer"],
+};
+export const allowsTx = (kind: AccountKind, t: TxType) => ACCOUNT_TX_TYPES[kind].includes(t);
+/** Solo el fondo de emergencia lleva efectivo. Bróker, cripto, pensiones y «otra», nunca. */
+export const holdsCash = (kind: AccountKind) => kind === "emergency";
 /** Tipos que solo existen en cuentas que llevan efectivo. */
 export const cashOnly = (t: TxType) => t === "deposit" || t === "withdrawal";

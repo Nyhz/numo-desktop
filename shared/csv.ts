@@ -4,6 +4,7 @@ import {
   PRICE_SOURCES,
   SOURCE_BY_ISIN,
   ACCOUNT_KINDS,
+  holdsCash,
   ASSET_KINDS,
   TX_LABEL,
   TX_TYPES,
@@ -314,11 +315,6 @@ export function planImport(rows: ImportRow[], state: AppState): ImportPlan {
   }
   const newAccounts = new Map<string, AccountInput>();
   const newAssets = new Map<string, AssetInput & { key: string }>();
-  // Una cuenta nueva lleva efectivo si el archivo trae ingresos o retiradas para ella.
-  const withCash = new Set(
-    rows.filter((r) => r.type === "deposit" || r.type === "withdrawal").map((r) => accountKey(r.account)),
-  );
-
   const needAccount = (name: string, kind: AccountKind | null = null) => {
     const k = accountKey(name);
     if (!name || haveAccounts.has(k) || newAccounts.has(k)) return;
@@ -327,7 +323,7 @@ export function planImport(rows: ImportRow[], state: AppState): ImportPlan {
       institution: "",
       kind: kind ?? "broker",
       currency: "EUR",
-      trackCash: withCash.has(k),
+      trackCash: holdsCash(kind ?? "broker"),
       archived: false,
     });
   };

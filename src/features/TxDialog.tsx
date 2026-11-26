@@ -3,7 +3,7 @@ import { parseNumber } from "../../shared/csv.ts";
 import { dayNum, isIsoDate, todayIso } from "../../shared/dates.ts";
 import { holdingsAt, r2 } from "../../shared/engine/ledger.ts";
 import { grossFromNet } from "../../shared/engine/reports.ts";
-import { TX_LABEL, TX_TYPES, cashOnly, needsAsset, type Tx, type TxType } from "../../shared/types.ts";
+import { ACCOUNT_TX_TYPES, TX_LABEL, TX_TYPES, allowsTx, cashOnly, needsAsset, type Tx, type TxType } from "../../shared/types.ts";
 import { ecbRate, removeTx, restoreTx, saveTx, useDerived } from "../data/store.ts";
 import { dateShort, eur, fxRate, money, num, units } from "../lib/format.ts";
 import { closeDialog } from "../ui/dialogs.ts";
@@ -74,12 +74,17 @@ export function TxDialog({ tx, preset }: { tx?: Tx; preset?: { type?: TxType; as
         note: tx.note,
       };
     }
+    // Se abre en una cuenta donde quepa la operación pedida (desde un activo, una compra).
+    const wanted = preset?.type ?? (preset?.assetId ? "buy" : undefined);
+    const fits = accounts.filter((a) => !wanted || allowsTx(a.kind, wanted));
     const remembered = localStorage.getItem(LAST_ACCOUNT);
-    const accountId = preset?.accountId ?? (accounts.some((a) => a.id === remembered) ? remembered! : (accounts[0]?.id ?? ""));
+    const account =
+      accounts.find((a) => a.id === preset?.accountId) ?? fits.find((a) => a.id === remembered) ?? fits[0] ?? accounts[0];
+    const allowed = account ? ACCOUNT_TX_TYPES[account.kind] : TX_TYPES;
     return {
-      type: preset?.type ?? "buy",
+      type: wanted && allowed.includes(wanted) ? wanted : allowed[0]!,
       date: todayIso(),
-      accountId,
+      accountId: account?.id ?? "",
       assetId: preset?.assetId ?? "",
       quantity: "",
       price: "",
@@ -263,7 +268,8 @@ export function TxDialog({ tx, preset }: { tx?: Tx; preset?: { type?: TxType; as
     toast("Operación eliminada", removed ? { action: { label: "Deshacer", run: () => void restoreTx(removed) } } : {});
   };
 
-  const types = TX_TYPES.filter((t) => !cashOnly(t) || account?.trackCash || t === f.type);
+  // Al editar se conserva el tipo de la operación aunque su cuenta ya no lo admita.
+  const types = TX_TYPES.filter((t) => (account ? allowsTx(account.kind, t) : true) || (t === tx?.type && f.accountId === tx.accountId));
 
   return (
     <Dialog
@@ -325,7 +331,15 @@ export function TxDialog({ tx, preset }: { tx?: Tx; preset?: { type?: TxType; as
             <input ref={firstField} type="date" className="field" value={f.date} max={todayIso()} onChange={(e) => set({ date: e.target.value })} />
           </Field>
           <Field label="Cuenta">
-            <select className="field" value={f.accountId} onChange={(e) => set({ accountId: e.target.value })}>
+            <select
+              className="field"
+              value={f.accountId}
+              onChange={(e) => {
+                const kind = d.accounts.get(e.target.value)?.kind;
+                // Si la operación no cabe en la cuenta nueva, se pasa a la primera que sí.
+                set({ accountId: e.target.value, ...(kind && !allowsTx(kind, f.type) ? { type: ACCOUNT_TX_TYPES[kind][0]! } : {}) });
+              }}
+            >
               {accounts.map((a) => (
                 <option key={a.id} value={a.id}>
                   {a.name}
@@ -446,7 +460,7 @@ export function TxDialog({ tx, preset }: { tx?: Tx; preset?: { type?: TxType; as
                 <select className="field" value={f.toAccountId} onChange={(e) => set({ toAccountId: e.target.value })}>
                   <option value="">La misma cuenta</option>
                   {accounts
-                    .filter((a) => a.id !== f.accountId)
+                    .filter((a) => a.id !== f.accountId && (allowsTx(a.kind, "transfer") || a.id === tx?.toAccountId))
                     .map((a) => (
                       <option key={a.id} value={a.id}>
                         {a.name}

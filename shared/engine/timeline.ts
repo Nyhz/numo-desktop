@@ -1,5 +1,5 @@
 import { dayNum, isoOf } from "../dates.ts";
-import type { AppState, Asset } from "../types.ts";
+import { holdsCash, type AppState, type Asset } from "../types.ts";
 import { holdingsAt, r2, type Ledger } from "./ledger.ts";
 
 /** Cuentas incluidas; null = todas. */
@@ -101,7 +101,7 @@ export function buildTimeline(
       const { tx } = t;
       const A = tx.accountId;
       const inA = inScope(A);
-      const tracks = t.account.trackCash;
+      const tracks = holdsCash(t.account.kind);
       // En cuentas sin efectivo el dinero entra y sale de la cartera con cada operación.
       const settle = () => {
         if (tracks) addCash(A, t.cashAcct);

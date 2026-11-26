@@ -37,6 +37,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/002_plan_inmuebles.sql"),
     include_str!("../migrations/003_sync.sql"),
     include_str!("../migrations/004_sin_cuenta_banco.sql"),
+    include_str!("../migrations/005_efectivo_solo_fondo.sql"),
 ];
 
 /// Únicos servidores a los que la app puede conectarse.
@@ -813,6 +814,26 @@ mod tests {
         assert_eq!(kind("ahorro"), ("emergency".to_owned(), 1), "sin inversiones: fondo de emergencia, con su saldo");
         assert_eq!(kind("fondos"), ("broker".to_owned(), 0), "con inversiones: bróker");
         assert_eq!(kind("broker"), ("broker".to_owned(), 0));
+    }
+
+    #[test]
+    fn only_emergency_funds_hold_cash() {
+        let conn = memory_db();
+        conn.execute_batch(
+            "INSERT INTO accounts (id, name, kind, currency, color, track_cash, created_at) VALUES
+               ('fondo', 'Fondo', 'emergency', 'EUR', 1, 0, 'x'),
+               ('broker', 'Bróker', 'broker', 'EUR', 2, 1, 'x'),
+               ('cripto', 'Cripto', 'crypto', 'EUR', 3, 1, 'x'),
+               ('plan', 'Plan', 'pension', 'EUR', 4, 1, 'x'),
+               ('otra', 'Otra', 'other', 'EUR', 5, 1, 'x');",
+        )
+        .unwrap();
+        conn.execute_batch(MIGRATIONS[4]).unwrap();
+        let cash = |id: &str| -> i64 { conn.query_row("SELECT track_cash FROM accounts WHERE id = ?1", [id], |r| r.get(0)).unwrap() };
+        assert_eq!(cash("fondo"), 1);
+        for id in ["broker", "cripto", "plan", "otra"] {
+            assert_eq!(cash(id), 0, "{id} no lleva efectivo");
+        }
     }
 
     #[test]

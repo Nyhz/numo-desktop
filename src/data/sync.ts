@@ -1,4 +1,4 @@
-import type { AppState, Point } from "../../shared/types.ts";
+import { holdsCash, type AccountKind, type AppState, type Point } from "../../shared/types.ts";
 import { ENTITIES, reduce, type Entity, type Op, type Stamp } from "./backend.ts";
 
 // Sincronización entre equipos. Cada equipo deja en una carpeta compartida (la de
@@ -101,8 +101,9 @@ export function parseSnapshot(text: string): Snapshot | null {
     if (account.kind !== "bank") continue;
     const invests = records.txs.some((t) => (t.accountId === account.id || t.toAccountId === account.id) && (t.assetId != null || t.toAssetId != null));
     account.kind = invests ? "broker" : "emergency";
-    if (!invests) account.trackCash = true;
   }
+  // Lo publique quien lo publique, solo el fondo de emergencia lleva efectivo.
+  for (const account of records.accounts) account.trackCash = holdsCash(account.kind as AccountKind);
   const tombstones = (Array.isArray(raw.tombstones) ? raw.tombstones : []).filter((t) => t && (ENTITIES as readonly string[]).includes(t.entity) && typeof t.id === "string" && typeof t.at === "string");
   return { format: raw.format, device: { id: String(raw.device.id), name: String(raw.device.name ?? "") }, writtenAt: String(raw.writtenAt ?? ""), records, tombstones, prices: series(raw.prices), splits: series(raw.splits) };
 }

@@ -20,7 +20,8 @@ function AccountDialog({ account }: { account?: Account }) {
     institution: account?.institution ?? "",
     kind: account?.kind ?? "broker",
     currency: account?.currency ?? "EUR",
-    trackCash: account?.trackCash ?? false,
+    // Solo el fondo de emergencia lleva efectivo: el resto de cuentas siguen inversiones.
+    trackCash: (account?.kind ?? "broker") === "emergency",
     archived: account?.archived ?? false,
   });
   const [error, setError] = useState<string | null>(null);
@@ -88,7 +89,7 @@ function AccountDialog({ account }: { account?: Account }) {
         </Field>
         <div className="grid grid-cols-[1fr_96px] gap-3">
           <Field label="Tipo">
-            <select className="field" value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value as Account["kind"], trackCash: e.target.value === "emergency" ? true : f.trackCash })}>
+            <select className="field" value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value as Account["kind"], trackCash: e.target.value === "emergency" })}>
               {ACCOUNT_KINDS.map((k) => (
                 <option key={k} value={k}>
                   {ACCOUNT_KIND_LABEL[k]}
@@ -100,22 +101,12 @@ function AccountDialog({ account }: { account?: Account }) {
             <input className="field uppercase" maxLength={3} value={f.currency} onChange={(e) => setF({ ...f, currency: e.target.value.toUpperCase() })} />
           </Field>
         </div>
-        {f.kind === "emergency" ? (
+        {f.kind === "emergency" && (
           // Un fondo de emergencia es solo su saldo: no hay nada que elegir sobre el efectivo.
           <p className="-mt-1 text-[12px] text-pretty text-mute">
             Cuenta para tu patrimonio, pero queda fuera de la cartera y de su rentabilidad: es dinero que no se invierte. Su saldo solo se mueve con lo que registres en ella: ingresos, retiradas y los
             intereses que te pague. Las compras de tus otras cuentas no lo tocan, y aquí no se pueden registrar compras.
           </p>
-        ) : (
-          <label className="flex items-start gap-2.5">
-            <input type="checkbox" className="mt-[3px] accent-[var(--acc)]" checked={f.trackCash} onChange={(e) => setF({ ...f, trackCash: e.target.checked })} />
-            <span>
-              Llevar el efectivo de esta cuenta
-              <span className="block text-[12px] text-mute">
-                Actívalo si vas a registrar ingresos y retiradas: las compras restarán del saldo y los dividendos sumarán. Si no, la cuenta solo sigue tus inversiones.
-              </span>
-            </span>
-          </label>
         )}
         {account && (
           <label className="flex items-center gap-2.5">

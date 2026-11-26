@@ -1,6 +1,6 @@
 import { addDays, addMonths, dayNum, isoOf } from "../../shared/dates.ts";
 import { txInput } from "../../shared/schema.ts";
-import type { Account, AppState, Asset, AssetKind, Goal, MortgageEvent, Point, Tx } from "../../shared/types.ts";
+import { holdsCash, type Account, type AppState, type Asset, type AssetKind, type Goal, type MortgageEvent, type Point, type Tx } from "../../shared/types.ts";
 
 // Cartera de ejemplo: entidades, empresas y precios inventados. Sirve para
 // enseñar la app sin datos reales; nada de esto se guarda en la base de datos.
@@ -35,22 +35,22 @@ export function makeDemo(today: string): AppState {
   const from = addDays(start, -12);
   const at = "2020-01-01T00:00:00.000Z";
 
-  const account = (i: number, name: string, institution: string, kind: Account["kind"], currency: string, trackCash: boolean): Account => ({
+  const account = (i: number, name: string, institution: string, kind: Account["kind"], currency: string): Account => ({
     id: `demo-acct-${i}`,
     name,
     institution,
     kind,
     currency,
     color: i,
-    trackCash,
+    trackCash: holdsCash(kind),
     archived: false,
     createdAt: at,
   });
-  const broker = account(1, "Bróker Atlas", "Atlas Valores", "broker", "EUR", true);
-  const funds = account(2, "Fondos Norte", "Banco Norte", "broker", "EUR", false);
-  const usd = account(3, "Bróker Meridian", "Meridian Securities", "broker", "USD", true);
-  const crypto = account(4, "Cripto", "Exchange Boreal", "crypto", "EUR", false);
-  const cushion = account(5, "Fondo de emergencia", "Banco Litoral", "emergency", "EUR", true);
+  const broker = account(1, "Bróker Atlas", "Atlas Valores", "broker", "EUR");
+  const funds = account(2, "Fondos Norte", "Banco Norte", "broker", "EUR");
+  const usd = account(3, "Bróker Meridian", "Meridian Securities", "broker", "USD");
+  const crypto = account(4, "Cripto", "Exchange Boreal", "crypto", "EUR");
+  const cushion = account(5, "Fondo de emergencia", "Banco Litoral", "emergency", "EUR");
 
   const assets: Asset[] = [];
   const prices: Record<string, Point[]> = {};
@@ -124,12 +124,10 @@ export function makeDemo(today: string): AppState {
     add({ date: addMonths(start, m), type: "interest", accountId: cushion.id, amount: gross, currency: "EUR", taxHome: round(gross * 0.19) });
   }
 
-  // Bróker en EUR: aportación mensual, compras periódicas, dividendos e intereses.
-  add({ date: start, type: "deposit", accountId: broker.id, amount: 12000, currency: "EUR" });
+  // Bróker en EUR: compras periódicas y dividendos. Las comisiones van en cada compra.
   for (let m = 0; m < 41; m++) {
     const date = addDays(addMonths(start, m), 2 + Math.floor(r() * 5));
     if (date > today) break;
-    if (m > 0) add({ date: addMonths(start, m), type: "deposit", accountId: broker.id, amount: 900, currency: "EUR" });
     trade("buy", broker, world, date, 5 + Math.floor(r() * 4), 1);
     if (m % 6 === 1) trade("buy", broker, textil, date, 20, 3);
     if (m % 7 === 2) trade("buy", broker, banco, date, 300, 3);
@@ -140,14 +138,11 @@ export function makeDemo(today: string): AppState {
       add({ date, type: "dividend", accountId: broker.id, assetId: textil.id, amount: d1, currency: "EUR", taxHome: round(d1 * 0.19) });
       if (addDays(date, 9) <= today) add({ date: addDays(date, 9), type: "dividend", accountId: broker.id, assetId: banco.id, amount: d2, currency: "EUR", taxHome: round(d2 * 0.19) });
     }
-    if (m % 12 === 11) add({ date, type: "fee", accountId: broker.id, amount: 12, currency: "EUR", note: "Custodia anual" });
-    if (m % 4 === 0 && addDays(date, 12) <= today) add({ date: addDays(date, 12), type: "interest", accountId: broker.id, amount: round(3 + r() * 6), currency: "EUR", taxHome: 0.9 });
   }
   trade("sell", broker, banco, addMonths(start, 22), 400, 3);
   trade("sell", broker, north, addMonths(start, 30), 40, 4);
 
   // Bróker en USD.
-  add({ date: addMonths(start, 2), type: "deposit", accountId: usd.id, amount: 15000, currency: "USD", fxRate: rate("USD", addMonths(start, 2)) });
   trade("buy", usd, helios, addMonths(start, 2), 25, 1, "USD");
   trade("buy", usd, meridian, addMonths(start, 3), 12, 1, "USD");
   trade("buy", usd, vertice, addMonths(start, 4), 60, 1, "USD");

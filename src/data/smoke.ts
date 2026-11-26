@@ -23,12 +23,16 @@ export async function runSmoke(): Promise<void> {
     check("base de datos nueva y vacía", fresh.state.accounts.length === 0 && fresh.state.txs.length === 0);
 
     const acct = await saveAccount({ name: "Prueba", institution: "", kind: "broker", currency: "EUR", trackCash: true, archived: false });
-    check("crear cuenta", acct.ok);
+    const fund = await saveAccount({ name: "Colchón", institution: "", kind: "emergency", currency: "EUR", trackCash: false, archived: false });
+    check("crear cuentas", acct.ok && fund.ok);
+    check("solo el fondo de emergencia lleva efectivo", acct.ok && !acct.value.trackCash && fund.ok && fund.value.trackCash);
     const asset = await saveAsset({ name: "Activo de prueba", kind: "stock", symbol: null, isin: null, currency: "USD", priceSource: "manual" });
     check("crear activo", asset.ok);
-    if (!acct.ok || !asset.ok) return;
+    if (!acct.ok || !fund.ok || !asset.ok) return;
 
-    const dep = await saveTx({ date: "2024-01-02", type: "deposit", accountId: acct.value.id, amount: 5000, currency: "EUR" });
+    const dep = await saveTx({ date: "2024-01-02", type: "deposit", accountId: fund.value.id, amount: 5000, currency: "EUR" });
+    const brokerDep = await saveTx({ date: "2024-01-02", type: "deposit", accountId: acct.value.id, amount: 5000, currency: "EUR" });
+    check("rechazar un ingreso en un bróker", !brokerDep.ok);
     const buy = await saveTx({ date: "2024-01-03", type: "buy", accountId: acct.value.id, assetId: asset.value.id, quantity: 10, price: 110, currency: "USD", fxRate: 1.1, fee: 1.5, feeCurrency: "EUR" });
     const bad = await saveTx({ date: "2024-01-03", type: "buy", accountId: acct.value.id, assetId: asset.value.id, quantity: 1, currency: "USD" });
     check("guardar ingreso y compra", dep.ok && buy.ok);
@@ -37,15 +41,15 @@ export async function runSmoke(): Promise<void> {
 
     // Lo importante: releer del disco, no de la memoria.
     const disk = await backend.load();
-    check("releer del disco", disk.state.accounts.length === 1 && disk.state.assets.length === 1 && disk.state.txs.length === 2, `${disk.state.txs.length} operaciones`);
+    check("releer del disco", disk.state.accounts.length === 2 && disk.state.assets.length === 1 && disk.state.txs.length === 2, `${disk.state.txs.length} operaciones`);
     const saved = disk.state.txs.find((t) => t.type === "buy");
     check("los campos sobreviven al viaje", saved?.quantity === 10 && saved.price === 110 && saved.fxRate === 1.1 && saved.fee === 1.5 && saved.feeCurrency === "EUR" && saved.assetId === asset.value.id);
-    check("los booleanos vuelven como booleanos", disk.state.accounts[0]!.trackCash === true && disk.state.accounts[0]!.archived === false);
+    check("los booleanos vuelven como booleanos", disk.state.accounts.find((a) => a.kind === "emergency")?.trackCash === true && disk.state.accounts[0]!.archived === false);
     check("el precio manual está guardado", disk.state.prices[asset.value.id]?.[0]?.[1] === 121);
 
     const d = derive(disk.state, null);
     check("coste FIFO en EUR", d.positions[0]?.costEur === 1001.5, String(d.positions[0]?.costEur));
-    check("efectivo tras la compra", Math.abs((d.timeline.cash.get(acct.value.id)?.at(-1) ?? 0) - 3998.5) < 1e-6);
+    check("la compra del bróker no toca el fondo", d.timeline.cash.get(fund.value.id)?.at(-1) === 5000 && !d.timeline.cash.has(acct.value.id));
 
     // Lote todo-o-nada: una operación que apunta a una cuenta inexistente no deja nada a medias.
     let rejected = false;
@@ -67,7 +71,7 @@ export async function runSmoke(): Promise<void> {
     const imported = await importPlan(planImport(parsed.rows, getApp().loaded.state));
     check("importar el CSV", imported.ok, imported.ok ? `${imported.value} operaciones` : imported.error);
     const big = await backend.load();
-    check("todo lo importado está en disco", big.state.txs.length === 2 + demo.txs.length && big.state.accounts.length === 1 + demo.accounts.length);
+    check("todo lo importado está en disco", big.state.txs.length === 2 + demo.txs.length && big.state.accounts.length === 2 + demo.accounts.length);
 
     const removed = await removeTx(buy.ok ? buy.value.id : "");
     check("borrar una operación", removed.ok && (await backend.load()).state.txs.length === 1 + demo.txs.length);

@@ -23,7 +23,7 @@ import {
   txInput,
   valuationInput,
 } from "../../shared/schema.ts";
-import { SOURCE_BY_ISIN } from "../../shared/types.ts";
+import { SOURCE_BY_ISIN, holdsCash } from "../../shared/types.ts";
 import type { Account, AppState, Asset, Goal, Mortgage, MortgageEvent, Point, Property, PropertyValuation, Tx } from "../../shared/types.ts";
 import { EMPTY_STATE, reduce, type AppInfo, type Backend, type Loaded, type Op } from "./backend.ts";
 import { BENCH_KEY, exampleBenchmark, parseBenchmark, syncBenchmark } from "./benchmark.ts";
@@ -520,8 +520,8 @@ export function saveAccount(input: unknown, id?: string): Promise<Result<Account
   const color = before?.color ?? [1, 2, 3, 4, 5, 6, 7, 8].find((c) => !used.has(c)) ?? 0;
   const row: Account = {
     ...parsed.data,
-    // Un fondo de emergencia es su saldo: siempre lleva efectivo.
-    trackCash: parsed.data.kind === "emergency" ? true : parsed.data.trackCash,
+    // Solo el fondo de emergencia lleva efectivo: es su saldo. Las demás siguen inversiones.
+    trackCash: holdsCash(parsed.data.kind),
     id: id ?? newId(),
     color,
     createdAt: before?.createdAt ?? new Date().toISOString(),
@@ -607,9 +607,10 @@ function checkTx(t: ReturnType<typeof txInput.parse>, state: AppState): string |
   if (t.toAssetId && !state.assets.some((a) => a.id === t.toAssetId)) return "El activo de destino no existe";
   // El fondo de emergencia no se invierte: nada de lo que se compre puede salir de él.
   if (account.kind === "emergency" && (t.type === "buy" || t.type === "sell" || t.type === "dividend"))
-    return `«${account.name}» es un fondo de emergencia: solo admite ingresos, retiradas, intereses y comisiones. Registra la operación en la cuenta donde la hiciste.`;
-  if ((t.type === "deposit" || t.type === "withdrawal") && !account.trackCash)
-    return `«${account.name}» no lleva efectivo. Actívalo en la cuenta para registrar ingresos y retiradas.`;
+    return `«${account.name}» es un fondo de emergencia: solo admite ingresos, retiradas e intereses. Registra la operación en la cuenta donde la hiciste.`;
+  // El único efectivo que se lleva es el del fondo de emergencia.
+  if ((t.type === "deposit" || t.type === "withdrawal" || t.type === "interest") && !holdsCash(account.kind))
+    return `«${account.name}» no lleva efectivo: los ingresos, retiradas e intereses solo se registran en el fondo de emergencia.`;
   if (t.type === "transfer" && (t.toAccountId ?? t.accountId) === t.accountId && (t.toAssetId ?? t.assetId) === t.assetId)
     return "El traspaso tiene el mismo origen y destino";
   return null;
@@ -657,7 +658,7 @@ export async function importPlan(plan: ImportPlan): Promise<Result<number>> {
   for (const a of plan.newAccounts) {
     const color = [1, 2, 3, 4, 5, 6, 7, 8].find((c) => !used.has(c)) ?? 0;
     used.add(color);
-    const row: Account = { ...a, id: newId(), color, createdAt: new Date(now).toISOString() };
+    const row: Account = { ...a, trackCash: holdsCash(a.kind), id: newId(), color, createdAt: new Date(now).toISOString() };
     accounts.set(accountKey(a.name), row);
     ops.push({ op: "putAccount", row });
   }

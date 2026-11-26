@@ -211,7 +211,7 @@ describe("serie diaria y rentabilidad", () => {
     expect(st.netFlow).toBe(-260);
   });
 
-  it("cuenta con efectivo: los dividendos son rentabilidad, los ingresos no", () => {
+  it("un bróker nunca lleva efectivo, aunque un dato antiguo diga lo contrario", () => {
     const s = state({
       accounts: [acct("A", { trackCash: true })],
       txs: [
@@ -224,11 +224,12 @@ describe("serie diaria y rentabilidad", () => {
     });
     const led = buildLedger(s);
     const tl = buildTimeline(led, s, null, "2024-01-04");
-    expect([...tl.total]).toEqual([2000, 2100, 2240.5, 3240.5]);
-    expect(tl.byKind.get("cash")![3]).toBe(2040.5);
+    // Solo cuenta lo invertido: los ingresos no suman y el dividendo sale de la cartera.
+    expect([...tl.total]).toEqual([1000, 1100, 1200, 1200]);
+    expect(tl.byKind.has("cash")).toBe(false);
+    expect(tl.cash.has("A")).toBe(false);
     const st = periodStats(tl, -1, 3);
     expect(st.gain).toBe(240.5);
-    expect(st.twr).toBeCloseTo(240.5 / 2000, 10);
     expect(totalsIn(led, null, "2024-01-01", "2024-12-31").dividendsEur).toBe(40.5);
   });
 
@@ -284,10 +285,11 @@ describe("serie diaria y rentabilidad", () => {
 describe("informe anual", () => {
   it("separa plusvalías, rendimientos y posiciones a cierre", () => {
     const s = state({
-      accounts: [acct("A", { trackCash: true })],
+      accounts: [acct("A"), acct("E", { kind: "emergency", trackCash: true })],
       assets: [asset("X", { isin: "US0378331005", currency: "USD" })],
       txs: [
-        tx({ date: "2023-10-01", type: "deposit", accountId: "A", amount: 5000 }),
+        tx({ date: "2023-10-01", type: "deposit", accountId: "E", amount: 5000 }),
+        tx({ date: "2023-11-15", type: "withdrawal", accountId: "E", amount: 2000 }),
         tx({ date: "2023-11-01", type: "buy", accountId: "A", assetId: "X", quantity: 20, price: 110, currency: "USD", fxRate: 1.1 }),
         tx({ date: "2023-12-01", type: "dividend", accountId: "A", assetId: "X", amount: 22, currency: "USD", fxRate: 1.1, taxSource: 3.3, taxHome: 3.55 }),
         tx({ date: "2023-12-15", type: "sell", accountId: "A", assetId: "X", quantity: 5, price: 99, currency: "USD", fxRate: 1.1 }),
@@ -304,7 +306,9 @@ describe("informe anual", () => {
     expect(rep.gains[0]).toMatchObject({ qty: 5, acqValueEur: 500, saleValueEur: 450, gainEur: -50, review: true });
     expect(rep.income[0]).toMatchObject({ country: "US", grossEur: 20, taxSourceEur: 3, taxHomeEur: 3.23, netEur: 13.77 });
     expect(rep.holdings[0]).toMatchObject({ qty: 15, valueEur: 1650 });
-    expect(rep.cash[0]!.balanceEur).toBe(5000 - 2000 + 13.77 + 450);
+    // El único saldo es el del fondo: las compras y ventas del bróker no lo tocan.
+    expect(rep.cash).toHaveLength(1);
+    expect(rep.cash[0]!.balanceEur).toBe(3000);
     expect(rep.totals.netGainEur).toBe(-50);
     expect(rep.totals.lossesEur).toBe(-50);
     // Saldo medio del 4T: 5000 durante 31 días, 3000 durante 30, etc.
@@ -411,7 +415,7 @@ describe("fondo de emergencia", () => {
 });
 
 describe("el fondo de emergencia y las compras", () => {
-  it("una compra en otra cuenta no le resta nada, lleve o no efectivo esa cuenta", () => {
+  it("una compra en otra cuenta no le resta nada, diga lo que diga la cuenta", () => {
     const s = state({
       accounts: [acct("E", { kind: "emergency", trackCash: true }), acct("SinEfectivo"), acct("ConEfectivo", { trackCash: true })],
       assets: [asset("X")],
@@ -426,9 +430,9 @@ describe("el fondo de emergencia y las compras", () => {
     const led = buildLedger(s);
     const all = buildTimeline(led, s, null, "2024-03-01");
     const last = all.n - 1;
-    // El fondo sigue entero; la única cuenta que baja es la que compró con su propio efectivo.
+    // El fondo sigue entero, y un bróker marcado con efectivo en datos antiguos no lo lleva.
     expect(all.cash.get("E")![last]).toBe(10000);
-    expect(all.cash.get("ConEfectivo")![last]).toBe(3000 - 502);
+    expect(all.cash.has("ConEfectivo")).toBe(false);
     expect(all.cash.has("SinEfectivo")).toBe(false);
     // Visto solo, el fondo vale lo mismo antes y después de las compras.
     const fund = buildTimeline(led, s, new Set(["E"]), "2024-03-01");
