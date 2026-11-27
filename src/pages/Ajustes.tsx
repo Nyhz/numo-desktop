@@ -38,15 +38,15 @@ function RegionsRow() {
   };
   return (
     <Row
-      title="Exposición geográfica"
+      title="Lo que hay dentro de cada fondo"
       action={
         <Btn onClick={() => void run()} disabled={busy || example}>
           {busy ? "Actualizando…" : "Actualizar ahora"}
         </Btn>
       }
     >
-      Lo que lleva dentro cada ETF y fondo (cuánto en Norteamérica, Europa, emergentes…), de Morningstar, para el Reparto por región del Resumen. A Morningstar solo viaja el ISIN. Se actualiza
-      solo la primera vez que abres la app cada mes.
+      Cuánto lleva cada ETF y fondo en cada región (Norteamérica, Europa, emergentes…) y en cada sector (tecnología, finanzas, salud…), y el sector de cada acción, de Morningstar. Sirve para
+      «Dónde está tu dinero» y «Por sectores» en el Resumen. A Morningstar solo viaja el ISIN. Se actualiza solo la primera vez que abres la app cada mes.
       {!example && (
         <span className="mt-1 block text-mute">
           {month ? `Última actualización: ${MONTHS_LONG[+month.slice(5, 7) - 1]} de ${month.slice(0, 4)}. ` : "Todavía no se ha actualizado. "}
@@ -388,7 +388,7 @@ export function Ajustes() {
         )}
       </Group>
 
-      <Group title="Reparto por regiones">
+      <Group title="Reparto por regiones y sectores">
         <RegionsRow />
       </Group>
 

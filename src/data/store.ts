@@ -31,7 +31,7 @@ import { EMPTY_STATE, reduce, type AppInfo, type Backend, type Loaded, type Op }
 import { BENCH_KEY, exampleBenchmark, parseBenchmark, syncBenchmark } from "./benchmark.ts";
 import { browserBackend } from "./browser.ts";
 import { makeDemo } from "./demo.ts";
-import { EXAMPLE_REGIONS, parseRegions, regionsKey, syncRegions, type StoredRegions } from "./regions.ts";
+import { EXAMPLE_REGIONS, EXAMPLE_SECTORS, parseRegions, regionsKey, syncRegions, type StoredRegions } from "./regions.ts";
 import { dueAssets, fxOn, indexaStatus, syncMarket, type SyncIssue, type SyncProgress } from "./market.ts";
 import { buildSnapshot, mergeSnapshots, parseSnapshot, restampRestored, sealedDevice, snapshotBody, stampOf, type Snapshot } from "./sync.ts";
 import { tauriBackend } from "./tauri.ts";
@@ -263,7 +263,7 @@ export function refreshRegions(force: boolean): Promise<Result<number>> {
   return regioning;
 }
 
-/** El reparto guardado de cada activo. En la cartera de ejemplo, uno inventado para sus fondos. */
+/** El reparto guardado de cada activo (regiones y sectores). En la cartera de ejemplo, uno inventado. */
 export function useRegions(): Map<string, StoredRegions> {
   const example = useApp((x) => isExample(x));
   const meta = useApp((x) => x.loaded.meta);
@@ -271,7 +271,11 @@ export function useRegions(): Map<string, StoredRegions> {
   return useMemo(() => {
     const out = new Map<string, StoredRegions>();
     for (const a of assets) {
-      const stored = example ? (EXAMPLE_REGIONS[a.id] ? { secId: null, date: null, fetchedAt: "", weights: EXAMPLE_REGIONS[a.id]! } : null) : parseRegions(meta[regionsKey(a.id)]);
+      const stored = example
+        ? EXAMPLE_REGIONS[a.id] || EXAMPLE_SECTORS[a.id]
+          ? { secId: null, date: null, fetchedAt: "", weights: EXAMPLE_REGIONS[a.id] ?? null, sectors: EXAMPLE_SECTORS[a.id] ?? null }
+          : null
+        : parseRegions(meta[regionsKey(a.id)]);
       if (stored) out.set(a.id, stored);
     }
     return out;

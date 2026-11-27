@@ -39,16 +39,21 @@ export function treeGroups(items: TreeItem[]): TreeGroup[] {
 
 /** Color de cada grupo, por orden de tamaño: el acento, cada vez más fundido con la tarjeta. */
 const ringColor = (rank: number) => (rank ? `color-mix(in oklab, var(--acc) ${[100, 84, 70, 58, 48, 40][rank] ?? 40}%, var(--card))` : "var(--acc)");
-/** Filas del desglose de un grupo: con más, las mayores y una última que suma el resto. */
-const RING_ROWS = 6;
+/** Posiciones que se ven al desplegar un grupo; con más, una última fila con el resto. */
+const RING_ROWS = 8;
 
 /**
- * Reparto en anillo: un arco por grupo y, al lado, lo que compone el grupo
- * activo. Se activa al pasar por un arco o por su píldora y se queda así al
- * retirar el cursor; al cambiar los grupos vuelve al mayor.
+ * Reparto en anillo: un arco por grupo y, al lado, una fila por grupo. Pasar por
+ * una fila (o por su arco) la destaca en el anillo y en el centro; pulsarla
+ * despliega lo que la compone. `muted`: grupos que van en gris (lo que no se
+ * puede clasificar, como «Sin desglose»).
  */
-export function RepartoRing({ groups }: { groups: TreeGroup[] }) {
+export function RepartoRing({ groups: all, muted = [], empty = "Sin posiciones que repartir." }: { groups: TreeGroup[]; muted?: string[]; empty?: string }) {
+  // Los grupos en gris no son una categoría más (lo que no se puede clasificar, las cripto entre sectores): van al final.
+  const mutedKey = muted.join("|");
+  const groups = useMemo(() => [...all.filter((g) => !muted.includes(g.name)), ...all.filter((g) => muted.includes(g.name))], [all, mutedKey]);
   const [picked, setPicked] = useState<string | null>(null);
+  const [open, setOpen] = useState<string | null>(null);
   const maskId = useId();
   // La geometría del anillo solo depende de los grupos, no de cuál está activo.
   const arcs = useMemo(() => {
@@ -63,96 +68,90 @@ export function RepartoRing({ groups }: { groups: TreeGroup[] }) {
       return span > Math.PI * 2 - 0.001 ? "M100 20A80 80 0 1 1 99.99 20" : `M${at(a0)}A80 80 0 ${a1 - a0 > Math.PI ? 1 : 0} 1 ${at(a1)}`;
     });
   }, [groups]);
-  if (!groups.length) return <div className="py-10 text-center text-mute">Sin posiciones que repartir.</div>;
-  const active = groups.some((g) => g.name === picked) ? picked : groups[0]!.name;
+  if (!groups.length) return <div className="py-10 text-center text-mute">{empty}</div>;
+  const has = (name: string | null) => !!name && groups.some((g) => g.name === name);
+  // El destacado: el que tiene el cursor, si no el desplegado, si no el mayor.
+  const active = has(picked) ? picked! : has(open) ? open! : groups[0]!.name;
+  const color = (g: TreeGroup, i: number) => (muted.includes(g.name) ? "color-mix(in oklab, var(--mute) 50%, var(--card))" : ringColor(i));
 
   return (
-    <>
-      <div className="-mx-1 mb-3.5 flex flex-wrap gap-1">
-        {groups.map((g, i) => (
-          <div
-            key={g.name}
-            onMouseEnter={() => setPicked(g.name)}
-            className={`flex cursor-default items-center gap-[7px] rounded-full px-2.5 py-1 text-[12.5px] transition-[background] duration-200 ${g.name === active ? "bg-wash2" : ""}`}
-          >
-            <span className="size-2 flex-none rounded-[3px]" style={{ background: ringColor(i) }} />
-            <span className="text-ink2">{g.name}</span>
-            <span className="font-semibold whitespace-nowrap">{pct(g.share)}</span>
-          </div>
-        ))}
-      </div>
-      <div className="flex flex-wrap items-center gap-x-7 gap-y-5">
-        <div className="relative mx-auto size-[184px] flex-none">
-          <svg viewBox="0 0 200 200" className="block size-full overflow-visible" role="img" aria-label="Reparto de la cartera por grupos">
-            {/* El anillo se dibuja de una pasada, desde arriba, al aparecer y al cambiar de reparto: una máscara que se va descubriendo. */}
-            <mask id={maskId} maskUnits="userSpaceOnUse" x="-20" y="-20" width="240" height="240">
-              <circle key={groups.map((g) => g.name).join("|")} className="ring-sweep" cx="100" cy="100" r="80" fill="none" stroke="white" strokeWidth="46" pathLength={1} strokeDasharray="1" transform="rotate(-90 100 100)" />
-            </mask>
-            <g mask={`url(#${maskId})`}>
+    <div className="flex flex-wrap items-start gap-x-6 gap-y-5" onMouseLeave={() => setPicked(null)}>
+      <div className="relative mx-auto size-[160px] flex-none">
+        <svg viewBox="0 0 200 200" className="block size-full overflow-visible" role="img" aria-label={`Reparto: ${groups.map((g) => `${g.name} ${pct(g.share)}`).join(", ")}`}>
+          {/* El anillo se dibuja de una pasada, desde arriba, al aparecer y al cambiar de reparto: una máscara que se va descubriendo. */}
+          <mask id={maskId} maskUnits="userSpaceOnUse" x="-20" y="-20" width="240" height="240">
+            <circle key={groups.map((g) => g.name).join("|")} className="ring-sweep" cx="100" cy="100" r="80" fill="none" stroke="white" strokeWidth="46" pathLength={1} strokeDasharray="1" transform="rotate(-90 100 100)" />
+          </mask>
+          <g mask={`url(#${maskId})`}>
             {groups.map((g, i) => (
               <path
                 key={g.name}
                 d={arcs[i]}
                 fill="none"
-                stroke={ringColor(i)}
+                stroke={color(g, i)}
                 strokeWidth={g.name === active ? 30 : 22}
                 opacity={g.name === active ? 1 : 0.5}
                 onMouseEnter={() => setPicked(g.name)}
+                onClick={() => setOpen(open === g.name ? null : g.name)}
                 className="cursor-pointer"
                 style={{ transition: "opacity .25s, stroke-width .25s cubic-bezier(.2,.8,.2,1)" }}
               />
             ))}
-            </g>
-          </svg>
-          {/* El centro de cada grupo, apilados: al cambiar se funden uno en otro. */}
-          <div className="pointer-events-none absolute inset-0 grid">
-            {groups.map((g) => (
-              <div key={g.name} className="col-start-1 row-start-1 flex flex-col items-center justify-center px-[42px] text-center transition-opacity duration-300" style={{ opacity: g.name === active ? 1 : 0 }}>
-                <span className="text-[12px] text-balance text-mute">{g.name}</span>
-                <span className="text-[24px] leading-[1.15] font-medium tracking-[-0.01em]" style={{ fontStretch: "106%" }}>
-                  {pct(g.share)}
-                </span>
-                <span className="priv text-[12px] text-ink2">{eur(g.total, 0)}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-        {/* Los desgloses también se apilan en la misma celda: la tarjeta toma el alto del más largo y no salta. */}
-        <div className="grid min-w-0 flex-[1_1_240px]">
-          {groups.map((g, i) => {
-            const on = g.name === active;
-            const rest = g.cells.length > RING_ROWS ? g.cells.slice(RING_ROWS - 1) : [];
-            const rows: Array<{ key: string; name: string; value: number; share: number; more?: boolean }> = rest.length
-              ? [...g.cells.slice(0, RING_ROWS - 1), { key: "resto", name: `${rest.length} más`, value: rest.reduce((s, c) => s + c.value, 0), share: rest.reduce((s, c) => s + c.share, 0), more: true }]
-              : g.cells;
-            // Las barras van a escala de la fila mayor de las que se ven: «N más» puede sumar más que la primera.
-            const top = Math.max(...rows.map((r) => r.value), 1e-9);
-            return (
-              <div
-                key={g.name}
-                aria-hidden={!on}
-                className="col-start-1 row-start-1 flex flex-col gap-2 self-center"
-                style={{ opacity: on ? 1 : 0, transform: on ? "none" : "translateY(6px)", pointerEvents: on ? "auto" : "none", transition: "opacity .3s, transform .3s cubic-bezier(.2,.8,.2,1)" }}
-              >
-                <span className="text-[12px] text-mute">{g.cells.length === 1 ? "1 posición" : `${g.cells.length} posiciones`}</span>
-                {rows.map((c) => (
-                  <div key={c.key}>
-                    <div className="flex items-baseline gap-2.5 text-[12.5px]">
-                      <span className={`min-w-0 flex-1 text-pretty ${c.more ? "text-mute" : ""}`}>{c.name}</span>
-                      <span className="font-[550] whitespace-nowrap">{pct(c.share)}</span>
-                      <span className="priv min-w-[58px] text-right text-[12px] whitespace-nowrap text-mute">{eur(c.value, 0)}</span>
-                    </div>
-                    <div className="mt-1 h-[3px] rounded-[2px] bg-raised">
-                      <div ref={growX} className="origin-left h-[3px] rounded-[2px] transition-[width] duration-500" style={{ width: `${((c.value / top) * 100).toFixed(1)}%`, background: ringColor(i) }} />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            );
-          })}
+          </g>
+        </svg>
+        {/* El centro de cada grupo, apilados: al cambiar se funden uno en otro. */}
+        <div className="pointer-events-none absolute inset-0 grid">
+          {groups.map((g) => (
+            <div key={g.name} className="col-start-1 row-start-1 flex flex-col items-center justify-center px-[34px] text-center transition-opacity duration-300" style={{ opacity: g.name === active ? 1 : 0 }}>
+              <span className="text-[11.5px] leading-tight text-balance text-mute">{g.name}</span>
+              <span className="text-[22px] leading-[1.15] font-medium tracking-[-0.01em]" style={{ fontStretch: "106%" }}>
+                {pct(g.share)}
+              </span>
+              <span className="priv text-[12px] text-ink2">{eur(g.total, 0)}</span>
+            </div>
+          ))}
         </div>
       </div>
-    </>
+      <div className="flex min-w-0 flex-[1_1_240px] flex-col gap-px">
+        {groups.map((g, i) => {
+          const on = g.name === active;
+          const isOpen = g.name === open;
+          const dim = muted.includes(g.name);
+          const rest = g.cells.length > RING_ROWS ? g.cells.slice(RING_ROWS - 1) : [];
+          const cells = rest.length ? [...g.cells.slice(0, RING_ROWS - 1), { key: "resto", name: `${rest.length} más`, value: rest.reduce((s, c) => s + c.value, 0), share: rest.reduce((s, c) => s + c.share, 0) }] : g.cells;
+          return (
+            <div key={g.name}>
+              <button
+                type="button"
+                aria-expanded={isOpen}
+                onMouseEnter={() => setPicked(g.name)}
+                onFocus={() => setPicked(g.name)}
+                onClick={() => setOpen(isOpen ? null : g.name)}
+                // La fila entera es el botón: resaltada al pasar por ella, y desplegada debajo al pulsarla.
+                className={`grid w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-left text-[13px] transition-[background] duration-150 ${on ? "bg-wash" : ""}`}
+                style={{ gridTemplateColumns: "9px minmax(0,1fr) auto 68px" }}
+              >
+                <span className="size-[9px] rounded-[3px]" style={{ background: color(g, i) }} />
+                <span className={`truncate ${dim ? "text-ink2" : ""}`}>{g.name}</span>
+                <span className={`text-right font-semibold whitespace-nowrap ${dim ? "text-ink2" : ""}`}>{pct(g.share)}</span>
+                <span className="priv text-right text-[12px] whitespace-nowrap text-mute">{eur(g.total, 0)}</span>
+              </button>
+              {isOpen && (
+                <div className="flex flex-col gap-1.5 pt-1 pr-2.5 pb-2.5 pl-[29px]">
+                  {cells.map((c) => (
+                    <div key={c.key} className="grid gap-2.5 text-[12.5px] text-ink2" style={{ gridTemplateColumns: "minmax(0,1fr) auto 68px" }}>
+                      <span className={`truncate ${c.key === "resto" ? "text-mute" : ""}`}>{c.name}</span>
+                      <span className="text-right whitespace-nowrap">{pct(c.share)}</span>
+                      <span className="priv text-right whitespace-nowrap text-mute">{eur(c.value, 0)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 

@@ -19,7 +19,8 @@ export const REGION_LABEL: Record<RegionKey, string> = {
   na: "Norteamérica",
   eu: "Europa",
   jp: "Japón",
-  apac: "Asia-Pacífico desarrollada",
+  // Australia, Nueva Zelanda, Hong Kong y Singapur: Japón y la Asia emergente van aparte.
+  apac: "Asia-Pacífico",
   em: "Emergentes",
 };
 export type Weights = Partial<Record<RegionKey, number>>;
@@ -62,11 +63,89 @@ put("jp", "JP");
 put("apac", "AU NZ HK SG");
 put("em", "CN TW KR IN BR MX ZA SA AE QA KW ID TH MY PH CL CO PE AR EG CZ GR HU PL TR VN PK VE RU");
 
+// ── Sectores ──
+// Los once de Morningstar (los de GICS, con otro nombre). En un ETF o fondo, el
+// reparto de su parte de renta variable; en una acción, el sector de la empresa.
+
+export const SECTORS = ["tech", "fin", "health", "ind", "cyc", "comm", "def", "energy", "mat", "re", "util"] as const;
+export type SectorKey = (typeof SECTORS)[number];
+export const SECTOR_LABEL: Record<SectorKey, string> = {
+  tech: "Tecnología",
+  fin: "Finanzas",
+  health: "Salud",
+  ind: "Industria",
+  cyc: "Consumo cíclico",
+  comm: "Comunicaciones",
+  def: "Consumo defensivo",
+  energy: "Energía",
+  mat: "Materiales",
+  re: "Inmobiliario",
+  util: "Servicios públicos",
+};
+export type SectorWeights = Partial<Record<SectorKey, number>>;
+
+/** Claves del reparto de un fondo en Morningstar → las de la app. */
+const MS_SECTOR: Record<string, SectorKey> = {
+  technology: "tech",
+  financialServices: "fin",
+  healthcare: "health",
+  industrials: "ind",
+  consumerCyclical: "cyc",
+  communicationServices: "comm",
+  consumerDefensive: "def",
+  energy: "energy",
+  basicMaterials: "mat",
+  realEstate: "re",
+  utilities: "util",
+};
+/** Nombre del sector de una acción en el buscador de Morningstar → el de la app. */
+const STOCK_SECTOR: Record<string, SectorKey> = {
+  Technology: "tech",
+  "Financial Services": "fin",
+  Healthcare: "health",
+  Industrials: "ind",
+  "Consumer Cyclical": "cyc",
+  "Communication Services": "comm",
+  "Consumer Defensive": "def",
+  Energy: "energy",
+  "Basic Materials": "mat",
+  "Real Estate": "re",
+  Utilities: "util",
+};
+
+/** El reparto por sectores de la renta variable de un fondo, normalizado a 1; null si no tiene (renta fija, monetarios…). */
+export function sectorsFromMorningstar(text: string): SectorWeights | null {
+  let fp: Record<string, unknown> | undefined;
+  try {
+    fp = (JSON.parse(text) as { EQUITY?: { fundPortfolio?: Record<string, unknown> } }).EQUITY?.fundPortfolio;
+  } catch {
+    return null;
+  }
+  if (!fp) return null;
+  const sums: SectorWeights = {};
+  let total = 0;
+  for (const [k, sector] of Object.entries(MS_SECTOR)) {
+    const v = fp[k];
+    if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) continue;
+    sums[sector] = (sums[sector] ?? 0) + v;
+    total += v;
+  }
+  if (total < 1) return null;
+  const out: SectorWeights = {};
+  for (const k of SECTORS) if (sums[k]) out[k] = sums[k]! / total;
+  return out;
+}
+
 export const REGIONS_MONTH = "regions:month";
 export const regionsKey = (assetId: string) => `regions:asset:${assetId}`;
 
-/** Lo guardado de cada activo. `weights` null: Morningstar no tiene su desglose (renta fija, materias primas…). */
-export type StoredRegions = { secId: string | null; date: string | null; fetchedAt: string; weights: Weights | null };
+/**
+ * Lo guardado de cada activo (en `meta`, con la clave de siempre aunque ya lleve
+ * también sectores). `weights` null: Morningstar no tiene su reparto por regiones
+ * (renta fija, materias primas, una acción: va por su país). `sectors` null: no
+ * tiene sector; sin la clave, se guardó antes de que hubiera sectores y se vuelve a pedir.
+ */
+export type StoredRegions = { secId: string | null; date: string | null; fetchedAt: string; weights: Weights | null; sectors?: SectorWeights | null };
 
 export function parseRegions(raw: string | undefined): StoredRegions | null {
   if (!raw) return null;
@@ -125,6 +204,10 @@ const normalize = (sums: Weights): Weights => {
 
 const SEARCH = (isin: string) =>
   `https://lt.morningstar.com/api/rest.svc/dr6pz9spfi/security/screener?page=1&pageSize=20&outputType=json&version=1&languageId=en-GB&currencyId=EUR&universeIds=FOEUR%24%24ALL%7CETEUR%24%24ALL&securityDataPoints=SecId%7CIsin&term=${encodeURIComponent(isin)}`;
+const STOCK_SEARCH = (isin: string) =>
+  `https://lt.morningstar.com/api/rest.svc/dr6pz9spfi/security/screener?page=1&pageSize=10&outputType=json&version=1&languageId=en-GB&currencyId=EUR&universeIds=E0WWE%24%24ALL&securityDataPoints=SecId%7CIsin%7CSectorName&term=${encodeURIComponent(isin)}`;
+const SECTOR_BREAKDOWN = (secId: string) =>
+  `https://api-global.morningstar.com/sal-service/v1/fund/portfolio/v2/sector/${encodeURIComponent(secId)}/data?languageId=en&locale=en&clientId=MDC&benchmarkId=category&version=4.65.0`;
 const BREAKDOWN = (secId: string) =>
   `https://api-global.morningstar.com/sal-service/v1/fund/portfolio/regionalSectorIncludeCountries/${encodeURIComponent(secId)}/data?languageId=en&locale=en&clientId=MDC&benchmarkId=category&version=4.65.0`;
 
@@ -144,27 +227,48 @@ export async function morningstarRegions(get: Get, isin: string, known: string |
       return null;
     }
   };
+  // Con el identificador que responde, también su reparto por sectores.
+  const withSectors = async (secId: string, got: { date: string | null; weights: Weights }) => {
+    let sectors: SectorWeights | null = null;
+    try {
+      sectors = sectorsFromMorningstar(await get(SECTOR_BREAKDOWN(secId)));
+    } catch (e) {
+      if (offline(e)) throw e;
+    }
+    return { secId, ...got, sectors };
+  };
   if (known) {
     const got = await tryId(known);
-    if (got) return { secId: known, ...got };
+    if (got) return withSectors(known, got);
   }
   const found = JSON.parse(await get(SEARCH(isin))) as { rows?: Array<{ SecId?: string; Isin?: string }> };
   const ids = (found.rows ?? []).filter((r) => r.SecId && (!r.Isin || r.Isin.toUpperCase() === isin.toUpperCase())).map((r) => r.SecId!);
   for (const secId of ids.filter((id) => id !== known).slice(0, 6)) {
     const got = await tryId(secId);
-    if (got) return { secId, ...got };
+    if (got) return withSectors(secId, got);
   }
-  return { secId: null, date: null, weights: null };
+  return { secId: null, date: null, weights: null, sectors: null };
 }
 
-/** Activos que tienen (o pueden tener) un reparto interno: ETF, fondos y demás con ISIN. */
-const lookThrough = (a: Asset) => !!a.isin && a.kind !== "stock" && a.kind !== "crypto";
+/** El sector de una acción, del buscador de Morningstar por su ISIN. Su región va por el país del ISIN. */
+export async function morningstarStock(get: Get, isin: string): Promise<Omit<StoredRegions, "fetchedAt">> {
+  const found = JSON.parse(await get(STOCK_SEARCH(isin))) as { rows?: Array<{ SecId?: string; Isin?: string; SectorName?: string }> };
+  const row = (found.rows ?? []).find((r) => r.Isin?.toUpperCase() === isin.toUpperCase() && r.SectorName && STOCK_SECTOR[r.SectorName]);
+  return { secId: row?.SecId ?? null, date: null, weights: null, sectors: row ? { [STOCK_SECTOR[row.SectorName!]!]: 1 } : null };
+}
 
-/** Qué hay que pedir: todo una vez al mes; entre medias, solo lo que aún no tiene nada guardado. */
+/** Activos que se le piden a Morningstar: ETF, fondos y demás con ISIN (su reparto) y acciones con ISIN (su sector). */
+const lookThrough = (a: Asset) => !!a.isin && a.kind !== "crypto";
+
+/** Qué hay que pedir: todo una vez al mes; entre medias, solo lo que aún no tiene nada guardado (o se guardó sin sectores). */
 export function regionsDue(state: AppState, meta: Meta, held: ReadonlySet<string>, today: string, force = false): Asset[] {
   const month = today.slice(0, 7);
   const all = force || meta[REGIONS_MONTH] !== month;
-  return state.assets.filter((a) => held.has(a.id) && lookThrough(a) && (all || !parseRegions(meta[regionsKey(a.id)])));
+  return state.assets.filter((a) => {
+    if (!held.has(a.id) || !lookThrough(a)) return false;
+    const stored = parseRegions(meta[regionsKey(a.id)]);
+    return all || !stored || stored.sectors === undefined;
+  });
 }
 
 /**
@@ -176,7 +280,7 @@ export async function syncRegions(state: AppState, meta: Meta, get: Get, held: R
   for (const a of regionsDue(state, meta, held, today, force)) {
     const before = parseRegions(meta[regionsKey(a.id)]);
     try {
-      const got = await morningstarRegions(get, a.isin!, before?.secId ?? null);
+      const got = a.kind === "stock" ? await morningstarStock(get, a.isin!) : await morningstarRegions(get, a.isin!, before?.secId ?? null);
       ops.push({ op: "meta", key: regionsKey(a.id), value: JSON.stringify({ ...got, fetchedAt: new Date().toISOString() } satisfies StoredRegions) });
     } catch (e) {
       if (offline(e)) return ops;
@@ -201,6 +305,27 @@ export function exposureOf(a: Asset, stored: StoredRegions | null): Exposure {
   }
   return { kind: "none" };
 }
+
+/** A qué sectores va el dinero de un activo: por sectores, en cripto o sin desglose. */
+export type SectorExposure = { kind: "sectors"; weights: SectorWeights } | { kind: "crypto" } | { kind: "none" };
+
+export function sectorExposureOf(a: Asset, stored: StoredRegions | null): SectorExposure {
+  if (a.kind === "crypto") return { kind: "crypto" };
+  if (stored?.sectors) return { kind: "sectors", weights: stored.sectors };
+  return { kind: "none" };
+}
+
+/** Sectores inventados para la cartera de ejemplo (sus ISIN no existen). */
+export const EXAMPLE_SECTORS: Record<string, SectorWeights> = {
+  "demo-world": { tech: 0.27, fin: 0.16, health: 0.11, ind: 0.11, cyc: 0.1, comm: 0.08, def: 0.06, energy: 0.04, mat: 0.03, re: 0.02, util: 0.02 },
+  "demo-fund-b": { tech: 0.24, fin: 0.18, health: 0.1, ind: 0.1, cyc: 0.11, comm: 0.08, def: 0.07, energy: 0.05, mat: 0.04, re: 0.02, util: 0.01 },
+  "demo-helios": { health: 1 },
+  "demo-meridian": { tech: 1 },
+  "demo-vertice": { tech: 1 },
+  "demo-textil": { cyc: 1 },
+  "demo-banco": { fin: 1 },
+  "demo-north": { energy: 1 },
+};
 
 /** Repartos inventados para los fondos de la cartera de ejemplo (sus ISIN no existen). */
 export const EXAMPLE_REGIONS: Record<string, Weights> = {

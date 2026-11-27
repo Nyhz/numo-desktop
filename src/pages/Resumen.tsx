@@ -7,16 +7,17 @@ import { HeroChart, HeroLegend, bandModel, lineModel, stackModel, type HeroModel
 import { DrawdownCard } from "../charts/drawdown.tsx";
 import { MonthColumns, RepartoRing, ReturnBars, treeGroups, type TreeItem } from "../charts/viz.tsx";
 import { BENCHMARK, benchmarkReturns } from "../data/benchmark.ts";
-import { exposureOf, REGION_LABEL, type RegionKey, type StoredRegions } from "../data/regions.ts";
+import { exposureOf, REGION_LABEL, SECTOR_LABEL, sectorExposureOf, type RegionKey, type SectorKey, type StoredRegions } from "../data/regions.ts";
 import { ensureBenchmark, rangeBase, useApp, useBenchmark, useInvested, useRegions, type Derived } from "../data/store.ts";
-import { dateShort, eur, eurAxis, eurSigned, num, pct, pctSigned, seriesColor } from "../lib/format.ts";
+import { dateShort, eur, eurAxis, eurSigned, num, pctSigned, seriesColor } from "../lib/format.ts";
 import { openDialog } from "../ui/dialogs.ts";
 import { usePrivate } from "../ui/privacy.ts";
 import { BigMoney, Btn, Card, Empty, HeaderSlot, Kpi, Kpis, Money, Num, Pills, Priv, toneOf } from "../ui/kit.tsx";
 import { KIND_ORDER, PeriodPills, RANGE_PHRASE, Welcome, kindColor, kindLabel } from "./common.tsx";
 
 type Mode = "valor" | "pat" | "cuenta" | "tipo" | "rent";
-type Group = "Tipo" | "Cuenta" | "Divisa" | "Región";
+/** Cómo se reparte «Dónde está tu dinero». */
+type Where = "Región" | "Divisa";
 
 const NO_BREAKDOWN = "Sin desglose";
 
@@ -39,36 +40,34 @@ function regionItems(d: Derived, regions: Map<string, StoredRegions>): TreeItem[
   return items;
 }
 
-function treeItems(d: Derived, g: Group): TreeItem[] {
-  const tl = d.timeline;
-  const last = tl.n - 1;
+/** «Por sectores»: solo la cartera; cada ETF y fondo según su reparto, cada acción en el suyo. */
+function sectorItems(d: Derived, regions: Map<string, StoredRegions>): TreeItem[] {
   const items: TreeItem[] = [];
   for (const p of d.positions) {
-    // Una posición repartida entre cuentas se parte en proporción a sus unidades.
-    const parts = g === "Cuenta" ? p.accounts.map((a) => ({ id: a.accountId, share: p.qty ? a.qty / p.qty : 0 })) : [{ id: "", share: 1 }];
-    for (const part of parts) {
-      const acct = d.accounts.get(part.id);
-      items.push({
-        key: `${p.asset.id}|${part.id}`,
-        name: p.asset.name,
-        value: p.valueEur * part.share,
-        group: g === "Tipo" ? kindLabel(p.asset.kind) : g === "Cuenta" ? (acct?.name ?? "—") : p.asset.currency,
-      });
-    }
-  }
-  for (const [id, series] of tl.cash) {
-    const acct = d.accounts.get(id);
-    if (!acct || last < 0) continue;
-    const value = series[last]! / d.ledger.market.fx(acct.currency, tl.start + last);
-    items.push({
-      key: `cash|${id}`,
-      name: `Efectivo · ${acct.name}`,
-      value,
-      group: g === "Tipo" ? "Efectivo" : g === "Cuenta" ? acct.name : acct.currency,
-    });
+    const ex = sectorExposureOf(p.asset, regions.get(p.asset.id) ?? null);
+    if (ex.kind === "sectors") {
+      for (const [k, w] of Object.entries(ex.weights)) items.push({ key: `${p.asset.id}|${k}`, name: p.asset.name, value: p.valueEur * w, group: SECTOR_LABEL[k as SectorKey] });
+    } else items.push({ key: p.asset.id, name: p.asset.name, value: p.valueEur, group: ex.kind === "crypto" ? "Cripto" : NO_BREAKDOWN });
   }
   return items;
 }
+
+/** «Qué tienes»: cada posición en su tipo de activo, y el fondo de emergencia aparte. */
+function kindItems(d: Derived): TreeItem[] {
+  const tl = d.timeline;
+  const last = tl.n - 1;
+  const items: TreeItem[] = d.positions.map((p) => ({ key: p.asset.id, name: p.asset.name, value: p.valueEur, group: kindLabel(p.asset.kind) }));
+  // Solo el fondo de emergencia lleva efectivo: aparece aquí cuando el filtro de cuentas lo incluye.
+  for (const [id, series] of tl.cash) {
+    const acct = d.accounts.get(id);
+    if (!acct || last < 0) continue;
+    items.push({ key: `cash|${id}`, name: acct.name, value: series[last]! / d.ledger.market.fx(acct.currency, tl.start + last), group: "Fondo de emergencia" });
+  }
+  return items;
+}
+
+/** «Dónde está tu dinero» por divisa: solo la cartera, cada posición en la divisa en que cotiza. */
+const currencyItems = (d: Derived): TreeItem[] => d.positions.map((p) => ({ key: p.asset.id, name: p.asset.name, value: p.valueEur, group: p.asset.currency }));
 
 /**
  * Al abrir la app, la cifra principal cuenta desde el valor que había antes de
@@ -101,7 +100,7 @@ export function Resumen() {
   const hidden = usePrivate();
   const [, go] = useLocation();
   const [picked, setMode] = useState<Mode>("rent");
-  const [group, setGroup] = useState<Group>("Tipo");
+  const [where, setWhere] = useState<Where>("Región");
   const [hover, setHover] = useState<{ src: number; k: number } | null>(null);
   const tl = d.timeline;
   // Con todas las cuentas a la vista, el Resumen es el del patrimonio: la cartera, el fondo
@@ -214,23 +213,21 @@ export function Resumen() {
     });
   }, [view, mode, withHomes, net, reserve, d.state.accounts, tl, bench]);
 
-  const regions = useRegions();
-  const groups = useMemo(() => {
-    // Por regiones, solo la cartera: el piso y el fondo de emergencia no dicen nada de dónde inviertes.
-    if (group === "Región") return treeGroups(regionItems(d, regions));
-    // Con el patrimonio a la vista, lo que ya es tuyo de cada inmueble entra en el reparto.
-    const items = treeItems(d, group);
-    for (const h of homes) if (h.equity > 0) items.push({ key: `home|${h.property.id}`, name: h.property.name, value: h.equity, group: group === "Divisa" ? "EUR" : "Inmuebles" });
-    // Y el fondo de emergencia, cuenta a cuenta.
+  // «Qué tienes»: todo el patrimonio, con lo que ya es tuyo de cada inmueble y el fondo de emergencia.
+  const kinds = useMemo(() => {
+    const items = kindItems(d);
+    for (const h of homes) if (h.equity > 0) items.push({ key: `home|${h.property.id}`, name: h.property.name, value: h.equity, group: "Inmuebles" });
     for (const [id, series] of reserve?.timeline.byAccount ?? []) {
       const acct = reserve!.accounts.get(id);
       const value = series[series.length - 1] ?? 0;
-      if (acct && value > 0) items.push({ key: `reserve|${id}`, name: acct.name, value, group: group === "Tipo" ? "Fondo de emergencia" : group === "Cuenta" ? acct.name : acct.currency });
+      if (acct && value > 0) items.push({ key: `reserve|${id}`, name: acct.name, value, group: "Fondo de emergencia" });
     }
     return treeGroups(items);
-  }, [d, group, homes, reserve, regions]);
-  const unknown = group === "Región" ? (groups.find((g) => g.name === NO_BREAKDOWN)?.share ?? 0) : 0;
-  const parts = groups.reduce((n, g) => n + g.cells.length, 0);
+  }, [d, homes, reserve]);
+  // «Dónde está tu dinero»: solo la cartera. El piso y el fondo de emergencia no dicen nada de dónde inviertes.
+  const regions = useRegions();
+  const places = useMemo(() => treeGroups(where === "Región" ? regionItems(d, regions) : currencyItems(d)), [d, where, regions]);
+  const sectors = useMemo(() => treeGroups(sectorItems(d, regions)), [d, regions]);
   const session = useMemo(() => sessionChange(d.positions), [d.positions]);
   const months = useMemo(() => monthlyReturns(tl), [tl]);
 
@@ -356,16 +353,25 @@ export function Resumen() {
       </Kpis>
 
       <div className="grid gap-5" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))" }}>
+        <Card title="Qué tienes" aside={<span className="text-mute">todo tu patrimonio</span>}>
+          <RepartoRing groups={kinds} />
+        </Card>
+
         <Card
-          title="Reparto"
-          note={<Pills size="sm" label="Repartir por" value={group} onChange={setGroup} options={[["Tipo", "Tipo"], ["Cuenta", "Cuenta"], ["Divisa", "Divisa"], ["Región", "Región"]]} />}
+          title="Dónde está tu dinero"
+          note={<Pills size="sm" label="Repartir por" value={where} onChange={setWhere} options={[["Región", "Región"], ["Divisa", "Divisa"]]} />}
           aside={
-            <span className="text-mute" title={group === "Región" ? "Lo que hay dentro de cada ETF y fondo, según Morningstar; se actualiza una vez al mes" : undefined}>
-              {group === "Región" ? `solo la cartera${unknown > 0.0005 ? ` · ${pct(unknown)} sin desglose` : ""}` : parts === 1 ? "1 posición o saldo" : `${parts} posiciones y saldos`}
+            <span className="text-mute" title={where === "Región" ? "Lo que hay dentro de cada ETF y fondo, según Morningstar; se actualiza una vez al mes" : undefined}>
+              solo la cartera
             </span>
           }
         >
-          <RepartoRing groups={groups} />
+          <RepartoRing groups={places} muted={[NO_BREAKDOWN]} empty="No hay posiciones abiertas." />
+        </Card>
+
+        {/* Seis tarjetas en tres parejas de alto parecido: el reparto, luego sectores y caídas, y las dos tablas largas juntas. */}
+        <Card title="Por sectores" aside={<span className="text-mute" title="Lo que hay dentro de cada ETF y fondo y el sector de cada acción, según Morningstar; se actualiza una vez al mes">solo la cartera</span>}>
+          <RepartoRing groups={sectors} muted={[NO_BREAKDOWN, "Cripto"]} empty="No hay posiciones abiertas." />
         </Card>
 
         <DrawdownCard returns={d.returns} start={tl.start} />
