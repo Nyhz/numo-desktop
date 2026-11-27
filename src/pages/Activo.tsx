@@ -1,5 +1,5 @@
 import { ArrowLeft, Pencil, Plus } from "lucide-react";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "wouter";
 import { dayNum, isoOf } from "../../shared/dates.ts";
 import { ASSET_KIND_LABEL, TX_LABEL } from "../../shared/types.ts";
@@ -9,7 +9,11 @@ import { avgPrice, dateShort, eur, eurSigned, num, pct, price, seriesColor, unit
 import { openDialog } from "../ui/dialogs.ts";
 import { BigMoney, Btn, Card, Dot, Empty, Kpi, Kpis, Money, Priv, Tag, toneOf } from "../ui/kit.tsx";
 import { useFresh } from "../ui/motion.ts";
-import { L, THead, TRow, Table } from "./common.tsx";
+import { L, Pager, THead, TRow, Table, usePaged } from "./common.tsx";
+
+/** Lotes que se ven de entrada; una aportación mensual acumula cientos con los años. */
+const LOTS_SHOWN = 10;
+const TXS_PAGE = 25;
 
 export function Activo({ id }: { id: string }) {
   const d = useDerived();
@@ -47,6 +51,9 @@ export function Activo({ id }: { id: string }) {
     const model = dates.length > 1 ? lineModel({ dates, values, label: "Precio", format: fmt, axis: (v) => num(v, v < 10 ? 2 : 0), marks }) : null;
     return { txs: [...txs].reverse(), model, marks, realized, income, lots, splits: market.splitsOf(id), last: values[values.length - 1] ?? null };
   }, [asset, id, d]);
+
+  const [allLots, setAllLots] = useState(false);
+  const paged = usePaged(data?.txs ?? [], TXS_PAGE, id);
 
   if (!asset || !data) {
     return <Empty title="Este activo ya no existe" action={<Link href="/posiciones"><Btn>Volver a posiciones</Btn></Link>} />;
@@ -146,7 +153,7 @@ export function Activo({ id }: { id: string }) {
       </Kpis>
 
       {data.lots.length > 0 && (
-        <Card title="Lotes abiertos" note="en el orden en que se venderían (FIFO)" pad={false} className="overflow-hidden">
+        <Card title="Lotes abiertos" note="en el orden en que se venderían (FIFO)" aside={data.lots.length > LOTS_SHOWN ? <span className="text-mute">{data.lots.length} lotes</span> : undefined} pad={false} className="overflow-hidden">
           <Table cols="120px 1fr 1fr 1fr 1fr 1fr" minWidth={760}>
             <THead>
               <L>Adquisición</L>
@@ -156,7 +163,7 @@ export function Activo({ id }: { id: string }) {
               <span>Valor hoy</span>
               <span>Plusvalía</span>
             </THead>
-            {data.lots.map((l, i) => (
+            {(allLots ? data.lots : data.lots.slice(0, LOTS_SHOWN)).map((l, i) => (
               <TRow key={i}>
                 <L className="text-ink2">{dateShort(l.acqDate)}</L>
                 <span className="priv">{units(l.qty)}</span>
@@ -169,40 +176,50 @@ export function Activo({ id }: { id: string }) {
               </TRow>
             ))}
           </Table>
+          {data.lots.length > LOTS_SHOWN && (
+            <div className="border-t border-line px-5 py-2.5">
+              <Btn size="sm" variant="ghost" onClick={() => setAllLots(!allLots)}>
+                {allLots ? `Ver solo los ${LOTS_SHOWN} primeros` : `Ver los ${data.lots.length} lotes`}
+              </Btn>
+            </div>
+          )}
         </Card>
       )}
 
-      <Card title="Operaciones" pad={false} className="overflow-hidden">
-        {data.txs.length === 0 ? (
-          <div className="px-5 pb-5 text-mute">No hay operaciones de este activo en las cuentas seleccionadas.</div>
-        ) : (
-          <Table cols="110px 110px minmax(150px,1fr) 1fr 1fr 1fr" minWidth={760}>
-            <THead>
-              <L>Fecha</L>
-              <L>Tipo</L>
-              <L>Cuenta</L>
-              <span>Unidades</span>
-              <span>Precio</span>
-              <span>Efecto en EUR</span>
-            </THead>
-            {data.txs.map((n) => (
-              <TRow key={n.tx.id} fresh={fresh.has(n.tx.id)} onClick={() => openDialog({ kind: "tx", tx: n.tx })}>
-                <L className="text-ink2">{dateShort(n.tx.date)}</L>
-                <L className="font-medium">{TX_LABEL[n.tx.type]}</L>
-                <L className="flex items-center gap-[7px]">
-                  <Dot color={seriesColor(n.account.color)} />
-                  {n.account.name}
-                </L>
-                <span className="priv">{n.tx.quantity != null ? units(n.tx.quantity) : ""}</span>
-                <span className="text-ink2">{n.tx.price != null ? price(n.tx.price, n.tx.currency) : ""}</span>
-                <span className="font-semibold" style={{ color: n.cashEur > 0 ? "var(--up)" : undefined }}>
-                  {n.tx.type === "transfer" && !n.cashEur ? <span className="font-normal text-mute">sin efecto</span> : <Money value={n.cashEur} signed dim="soft" />}
-                </span>
-              </TRow>
-            ))}
-          </Table>
-        )}
-      </Card>
+      <div ref={paged.anchor} className="scroll-mt-4">
+        <Card title="Operaciones" aside={data.txs.length > TXS_PAGE ? <span className="text-mute">{data.txs.length} operaciones</span> : undefined} pad={false} className="overflow-hidden">
+          {data.txs.length === 0 ? (
+            <div className="px-5 pb-5 text-mute">No hay operaciones de este activo en las cuentas seleccionadas.</div>
+          ) : (
+            <Table cols="110px 110px minmax(150px,1fr) 1fr 1fr 1fr" minWidth={760}>
+              <THead>
+                <L>Fecha</L>
+                <L>Tipo</L>
+                <L>Cuenta</L>
+                <span>Unidades</span>
+                <span>Precio</span>
+                <span>Efecto en EUR</span>
+              </THead>
+              {paged.rows.map((n) => (
+                <TRow key={n.tx.id} fresh={fresh.has(n.tx.id)} onClick={() => openDialog({ kind: "tx", tx: n.tx })}>
+                  <L className="text-ink2">{dateShort(n.tx.date)}</L>
+                  <L className="font-medium">{TX_LABEL[n.tx.type]}</L>
+                  <L className="flex items-center gap-[7px]">
+                    <Dot color={seriesColor(n.account.color)} />
+                    {n.account.name}
+                  </L>
+                  <span className="priv">{n.tx.quantity != null ? units(n.tx.quantity) : ""}</span>
+                  <span className="text-ink2">{n.tx.price != null ? price(n.tx.price, n.tx.currency) : ""}</span>
+                  <span className="font-semibold" style={{ color: n.cashEur > 0 ? "var(--up)" : undefined }}>
+                    {n.tx.type === "transfer" && !n.cashEur ? <span className="font-normal text-mute">sin efecto</span> : <Money value={n.cashEur} signed dim="soft" />}
+                  </span>
+                </TRow>
+              ))}
+            </Table>
+          )}
+          <Pager paged={paged} noun="operaciones" />
+        </Card>
+      </div>
     </div>
   );
 }

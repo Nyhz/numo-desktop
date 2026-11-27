@@ -1,9 +1,9 @@
 import { ChevronDown, Download, TriangleAlert } from "lucide-react";
 import { useMemo, useState } from "react";
 import { dayNum } from "../../shared/dates.ts";
-import { buildYearReport, lossCarryover, taxYearBases, yearsWithActivity } from "../../shared/engine/reports.ts";
+import { buildYearReport, lossCarryover, taxYearBases, yearsWithActivity, type GainRow } from "../../shared/engine/reports.ts";
 import { ASSET_KIND_LABEL, TX_LABEL } from "../../shared/types.ts";
-import { LotsTimeline, SplitBar } from "../charts/viz.tsx";
+import { LotsTimeline, SplitBar, type LotBar } from "../charts/viz.tsx";
 import { useApp, useDerived, useForeign } from "../data/store.ts";
 import { cashSheet, gainsSheet, holdingsSheet, incomeSheet, operationsSheet, saveCsv, saveXlsx, summarySheet, txsOfYear, type Sheet } from "../lib/export.ts";
 import { dateNumeric, dateShort, eur, eurSigned, fxRate, money, num, price, units } from "../lib/format.ts";
@@ -12,6 +12,31 @@ import { L, TFoot, THead, TRow, Table, Welcome } from "./common.tsx";
 import { ForeignBanner, ForeignTab } from "./ForeignTab.tsx";
 
 type Tab = "pat" | "div" | "pos" | "ext";
+
+/**
+ * Una barra por venta, juntando los lotes que consume (una venta de un fondo con
+ * aportación mensual se lleva decenas): desde la compra más antigua hasta la venta.
+ */
+function salesBars(gains: GainRow[]): LotBar[] {
+  const bySale = new Map<string, GainRow[]>();
+  for (const g of gains) if (g.acqDate) bySale.set(g.sellTxId, [...(bySale.get(g.sellTxId) ?? []), g]);
+  return [...bySale.entries()].map(([id, lots]) => {
+    const first = lots.reduce((m, g) => (g.acqDate! < m ? g.acqDate! : m), lots[0]!.acqDate!);
+    const sold = lots[0]!.sellDate;
+    const qty = lots.reduce((s, g) => s + g.qty, 0);
+    const gain = lots.reduce((s, g) => s + g.gainEur, 0);
+    const days = dayNum(sold) - dayNum(first);
+    return {
+      key: id,
+      name: lots[0]!.asset.name,
+      from: first,
+      to: sold,
+      detail: `${units(qty)} uds · ${lots.length === 1 ? `${num(days, 0)} días` : `${lots.length} lotes`}`,
+      result: eurSigned(gain),
+      gain,
+    };
+  });
+}
 
 export function Informes() {
   const d = useDerived();
@@ -126,21 +151,8 @@ export function Informes() {
 
       {tab === "pat" && (
         <>
-          <Card title={`Lo vendido en ${year}`} note="desde que se compró cada lote hasta que se vendió">
-            <LotsTimeline
-              year={year}
-              lots={rep.gains
-                .filter((g) => g.acqDate)
-                .map((g, i) => ({
-                  key: `${g.sellTxId}-${i}`,
-                  name: g.asset.name,
-                  from: g.acqDate!,
-                  to: g.sellDate,
-                  detail: `${units(g.qty)} uds · ${num(dayNum(g.sellDate) - dayNum(g.acqDate!), 0)} días`,
-                  result: eurSigned(g.gainEur),
-                  gain: g.gainEur,
-                }))}
-            />
+          <Card title={`Lo vendido en ${year}`} note="cada venta, desde la compra más antigua que consume hasta que se vendió">
+            <LotsTimeline year={year} lots={salesBars(rep.gains)} />
           </Card>
 
           <Card title="Ganancias y pérdidas patrimoniales" aside={<CsvLink sheet={() => gainsSheet(rep)} slug="ganancias" />} pad={false} className="overflow-hidden">

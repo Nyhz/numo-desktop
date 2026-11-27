@@ -1,4 +1,4 @@
-import { useId, useMemo, useState, type ReactNode } from "react";
+import { useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { dayNum } from "../../shared/dates.ts";
 import { eur, eurSigned, monthName, pct, pctSigned } from "../lib/format.ts";
 import { growX, growY } from "../ui/motion.ts";
@@ -125,6 +125,8 @@ export function RepartoRing({ groups }: { groups: TreeGroup[] }) {
             const rows: Array<{ key: string; name: string; value: number; share: number; more?: boolean }> = rest.length
               ? [...g.cells.slice(0, RING_ROWS - 1), { key: "resto", name: `${rest.length} más`, value: rest.reduce((s, c) => s + c.value, 0), share: rest.reduce((s, c) => s + c.share, 0), more: true }]
               : g.cells;
+            // Las barras van a escala de la fila mayor de las que se ven: «N más» puede sumar más que la primera.
+            const top = Math.max(...rows.map((r) => r.value), 1e-9);
             return (
               <div
                 key={g.name}
@@ -141,7 +143,7 @@ export function RepartoRing({ groups }: { groups: TreeGroup[] }) {
                       <span className="priv min-w-[58px] text-right text-[12px] whitespace-nowrap text-mute">{eur(c.value, 0)}</span>
                     </div>
                     <div className="mt-1 h-[3px] rounded-[2px] bg-raised">
-                      <div ref={growX} className="origin-left h-[3px] rounded-[2px] transition-[width] duration-500" style={{ width: `${((c.value / g.cells[0]!.value) * 100).toFixed(1)}%`, background: ringColor(i) }} />
+                      <div ref={growX} className="origin-left h-[3px] rounded-[2px] transition-[width] duration-500" style={{ width: `${((c.value / top) * 100).toFixed(1)}%`, background: ringColor(i) }} />
                     </div>
                   </div>
                 ))}
@@ -260,7 +262,12 @@ export type ReturnRow = { key: string; name: string; ret: number; gain: number; 
  * Barra horizontal desde una línea cero: el largo es el % sobre el coste (en
  * escala de raíz, para que +370 % no aplaste a +22 %) y el grosor, el peso en cartera.
  */
+/** Con muchas posiciones se ven las mejores y las peores; el resto, al pedirlo. */
+const RETURN_TOP = 10;
+const RETURN_BOTTOM = 5;
+
 export function ReturnBars({ rows }: { rows: ReturnRow[] }) {
+  const [all, setAll] = useState(false);
   if (!rows.length) return null;
   const root = (v: number) => Math.sign(v) * Math.sqrt(Math.abs(v));
   const pcts = rows.map((r) => r.ret * 100);
@@ -275,7 +282,8 @@ export function ReturnBars({ rows }: { rows: ReturnRow[] }) {
   for (const q of [-75, -50, -25, 0, 25, 100, 200, 400, 800]) {
     if (q < min || q > max) continue;
     const left = x(q);
-    if (left - last > 9) {
+    // Separación suficiente para que «+100 %» y «+200 %» no se pisen en una tarjeta estrecha.
+    if (left - last > 15) {
       ticks.push({ left, label: q ? `${q > 0 ? "+" : "−"}${Math.abs(q)} %` : "0" });
       last = left;
     }
@@ -294,9 +302,18 @@ export function ReturnBars({ rows }: { rows: ReturnRow[] }) {
         </div>
         <span />
       </div>
-      {[...rows]
-        .sort((a, b) => b.ret - a.ret)
-        .map((r) => {
+      {(() => {
+        const sorted = [...rows].sort((a, b) => b.ret - a.ret);
+        const cut = !all && sorted.length > RETURN_TOP + RETURN_BOTTOM + 2;
+        // La escala sigue siendo la de todas: al desplegar, las barras no cambian de tamaño.
+        const shown: Array<ReturnRow | null> = cut ? [...sorted.slice(0, RETURN_TOP), null, ...sorted.slice(-RETURN_BOTTOM)] : sorted;
+        return shown.map((r) => {
+          if (!r)
+            return (
+              <button key="gap" type="button" onClick={() => setAll(true)} className="my-1 w-full rounded-[6px] py-1 text-center text-[12px] text-mute transition-colors hover:bg-wash hover:text-ink">
+                ··· {sorted.length - RETURN_TOP - RETURN_BOTTOM} posiciones más · ver todas
+              </button>
+            );
           const h = Math.round(3 + 13 * Math.sqrt(r.weight / maxWeight));
           const tone = toneOf(r.gain);
           return (
@@ -320,7 +337,13 @@ export function ReturnBars({ rows }: { rows: ReturnRow[] }) {
               </span>
             </div>
           );
-        })}
+        });
+      })()}
+      {all && rows.length > RETURN_TOP + RETURN_BOTTOM + 2 && (
+        <button type="button" onClick={() => setAll(false)} className="mt-1 w-full rounded-[6px] py-1 text-center text-[12px] text-mute transition-colors hover:bg-wash hover:text-ink">
+          Ver solo las {RETURN_TOP} mejores y las {RETURN_BOTTOM} peores
+        </button>
+      )}
       <p className="mt-2.5 text-[12px] text-pretty text-mute">El eje está comprimido (escala de raíz) para que una posición muy revalorizada no aplaste a las demás.</p>
     </>
   );
@@ -349,7 +372,14 @@ export function Strip({ items, hot, onHover, height = 38 }: { items: Array<{ key
 
 // ── Flujo de efectivo ──────────────────────────────────────────────────────
 
-export type FlowDot = { key: string; date: string; amount: number; color: string; label: string };
+/** `group`: el tipo de operación («Compra»…), para juntar los tramos cuando no caben uno a uno. */
+export type FlowDot = { key: string; date: string; amount: number; color: string; label: string; group: string };
+
+/** Alto de cada mitad de la columna (entra / sale). */
+const FLOW_LANE = 112;
+/** Lo que puede alargarse la pila más alta con los huecos entre tramos sin pisar su cifra. */
+const FLOW_SLACK = 8;
+const FLOW_MIN = 2;
 
 /** En qué tramos se agrupa el flujo según lo largo que sea el periodo: meses, trimestres o años. */
 function flowBuckets(from: string, to: string): Array<{ key: string; label: string }> {
@@ -370,8 +400,8 @@ function flowBuckets(from: string, to: string): Array<{ key: string; label: stri
  * Una columna por mes: lo que entra se apila hacia arriba y lo que sale hacia
  * abajo desde una línea central. Cada tramo es una operación y su altura, el importe.
  */
-export function FlowColumns({ dots, from, to, hot, onHover }: { dots: FlowDot[]; from: string; to: string; hot: string | null; onHover: (key: string | null) => void }) {
-  const hidden = usePrivate();
+/** Columnas del flujo, la escala y si los tramos van uno por tipo porque uno por operación no caben. */
+export function flowLayout(dots: FlowDot[], from: string, to: string) {
   const buckets = flowBuckets(from, to);
   const span = buckets.length > 1 ? +buckets[1]!.key - +buckets[0]!.key : 1;
   const cols = buckets.map((b) => ({ ...b, ins: [] as FlowDot[], outs: [] as FlowDot[], inTotal: 0, outTotal: 0 }));
@@ -390,18 +420,43 @@ export function FlowColumns({ dots, from, to, hot, onHover }: { dots: FlowDot[];
   }
   // La pila más alta deja sitio encima para su cifra.
   const max = Math.max(1, ...cols.map((c) => Math.max(c.inTotal, c.outTotal))) * 1.25;
+  // Un tramo por operación mientras quepan con su alto mínimo; si no (años con cientos de
+  // operaciones), uno por tipo con la suma: de otro modo la pila se saldría de la columna.
+  // Se decide para todo el gráfico a la vez, para que todas las columnas se lean igual.
+  // La pila más alta ocupa el 80 % del carril (ver `max`); cabe si los altos mínimos y los
+  // huecos entre tramos no la alargan más que el margen que queda bajo su cifra.
+  const fits = (list: FlowDot[]) => list.reduce((h, d) => h + Math.max((Math.abs(d.amount) / max) * FLOW_LANE, FLOW_MIN) + 1, 0) <= FLOW_LANE * 0.8 + FLOW_SLACK;
+  const byType = cols.some((c) => !fits(c.ins) || !fits(c.outs));
+  return { cols, max, byType };
+}
+
+export function FlowColumns({ dots, from, to, hot, onHover }: { dots: FlowDot[]; from: string; to: string; hot: string | null; onHover: (key: string | null) => void }) {
+  const hidden = usePrivate();
+  const { cols, max, byType } = flowLayout(dots, from, to);
   const whole = (n: number) => eur(n, 0);
-  const stack = (list: FlowDot[]) =>
-    [...list]
+  const grouped = (list: FlowDot[], col: string): Array<FlowDot & { count: number }> => {
+    const by = new Map<string, FlowDot & { count: number }>();
+    for (const d of list) {
+      const g = by.get(d.group);
+      if (g) {
+        g.amount += d.amount;
+        g.count++;
+      } else by.set(d.group, { ...d, key: `${col}|${d.group}`, count: 1 });
+    }
+    return [...by.values()].map((g) => ({ ...g, label: `${g.group}: ${g.count} ${g.count === 1 ? "operación" : "operaciones"} · ${g.amount < 0 ? "−" : "+"}${whole(Math.abs(g.amount))}` }));
+  };
+  const stack = (list: FlowDot[], col: string) =>
+    (byType ? grouped(list, col) : list.map((d) => ({ ...d, count: 1 })))
       .sort((x, y) => Math.abs(y.amount) - Math.abs(x.amount))
       .map((dot) => (
         <div
           key={dot.key}
-          onMouseEnter={() => onHover(dot.key)}
-          // El rótulo lleva el importe de la operación.
+          // Un tramo que junta varias operaciones no señala ninguna fila de la tabla.
+          onMouseEnter={() => onHover(dot.count === 1 ? dot.key : null)}
+          // El rótulo lleva el importe de la operación (o de las que junta).
           title={hidden ? undefined : dot.label}
           className="w-full max-w-[72px] flex-none rounded-[3px] transition-opacity duration-150"
-          style={{ height: `${(Math.abs(dot.amount) / max) * 100}%`, minHeight: 2, background: `color-mix(in oklab, ${dot.color} 78%, var(--card))`, opacity: hot && hot !== dot.key ? 0.35 : 1 }}
+          style={{ height: `${(Math.abs(dot.amount) / max) * 100}%`, minHeight: FLOW_MIN, background: `color-mix(in oklab, ${dot.color} 78%, var(--card))`, opacity: hot && hot !== dot.key ? 0.35 : 1 }}
         />
       ));
   return (
@@ -415,12 +470,12 @@ export function FlowColumns({ dots, from, to, hot, onHover }: { dots: FlowDot[];
           // Contenedor: con columnas estrechas (ventana pequeña o un periodo largo) el pie se queda en la cifra.
           <div key={c.key} className="@container flex min-w-0 flex-1 flex-col items-center">
             <div className="flex h-[112px] w-full flex-col-reverse items-center gap-px pb-px">
-              {stack(c.ins)}
+              {stack(c.ins, c.key)}
               <span className="priv pb-[3px] text-[11.5px] font-[550] whitespace-nowrap">{c.inTotal > 0 ? `+${whole(c.inTotal)}` : ""}</span>
             </div>
             <div className="w-full border-t border-line2" />
             <div className="flex h-[112px] w-full flex-col items-center gap-px pt-px">
-              {stack(c.outs)}
+              {stack(c.outs, c.key)}
               <span className="priv pt-[3px] text-[11.5px] font-[550] whitespace-nowrap text-ink2">{c.outTotal > 0 ? `−${whole(c.outTotal)}` : ""}</span>
             </div>
             <div className="mt-1.5 w-full border-t border-line pt-1.5 text-center whitespace-nowrap">
@@ -471,31 +526,61 @@ export function LotsTimeline({ lots, year }: { lots: LotBar[]; year: number }) {
           <span className="absolute top-[5px] left-1.5 text-[11px] text-mute">{y}</span>
         </div>
       ))}
-      {lots.map((l) => {
-        const tone = l.gain >= 0 ? "var(--up)" : "var(--down)";
-        const a = pos(dayNum(l.from));
-        const w = Math.max(pos(dayNum(l.to)) - a, 0.6);
-        return (
-          <div key={l.key} className="relative h-10">
-            <div
-              title={hidden ? l.name : `${l.name} · ${l.detail}`}
-              className="absolute inset-y-[5px] flex items-center gap-2.5 overflow-hidden rounded-lg px-3 text-[12.5px] whitespace-nowrap transition-transform duration-150 hover:-translate-y-px"
-              style={{
-                left: `${a}%`,
-                width: `${w}%`,
-                background: `color-mix(in oklab, ${tone} 20%, var(--card))`,
-                border: `1px solid color-mix(in oklab, ${tone} 55%, var(--card))`,
-              }}
-            >
-              <span className="font-[550]">{l.name}</span>
-              <span className="priv text-ink2">{l.detail}</span>
-              <span className="priv ml-auto font-semibold" style={{ color: tone }}>
-                {l.result}
-              </span>
-            </div>
-          </div>
-        );
-      })}
+      {lots.map((l) => (
+        <LotRow key={l.key} l={l} left={pos(dayNum(l.from))} right={pos(dayNum(l.to))} hidden={hidden} />
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Una barra de «Lo vendido». Si su texto no cabe dentro (una compra de pocas
+ * semanas antes de la venta), se mide y va fuera, a su izquierda, que es donde
+ * queda sitio: las barras acaban todas en el ejercicio, a la derecha.
+ */
+function LotRow({ l, left, right, hidden }: { l: LotBar; left: number; right: number; hidden: boolean }) {
+  const tone = l.gain >= 0 ? "var(--up)" : "var(--down)";
+  const w = Math.max(right - left, 0.6);
+  const bar = useRef<HTMLDivElement>(null);
+  const text = useRef<HTMLDivElement>(null);
+  const [outside, setOutside] = useState(false);
+  useLayoutEffect(() => {
+    const check = () => {
+      if (!bar.current || !text.current) return;
+      // El texto se mide siempre en su sitio de dentro (invisible si va fuera): así no oscila.
+      setOutside(text.current.scrollWidth > bar.current.clientWidth - 24);
+    };
+    check();
+    const watch = new ResizeObserver(check);
+    if (bar.current) watch.observe(bar.current);
+    return () => watch.disconnect();
+  }, [l.name, l.detail]);
+  const label = (
+    <>
+      <span className="font-[550]">{l.name}</span>
+      <span className="priv text-ink2">{l.detail}</span>
+      <span className="priv font-semibold" style={{ color: tone }}>
+        {l.result}
+      </span>
+    </>
+  );
+  return (
+    <div className="relative h-10">
+      <div
+        ref={bar}
+        title={hidden ? l.name : `${l.name} · ${l.detail}`}
+        className="absolute inset-y-[5px] overflow-hidden rounded-lg px-3 text-[12.5px] whitespace-nowrap transition-transform duration-150 hover:-translate-y-px"
+        style={{ left: `${left}%`, width: `${w}%`, background: `color-mix(in oklab, ${tone} 20%, var(--card))`, border: `1px solid color-mix(in oklab, ${tone} 55%, var(--card))` }}
+      >
+        <div ref={text} className={`flex h-full w-max min-w-full items-center gap-2.5 [&>:last-child]:ml-auto ${outside ? "invisible" : ""}`}>
+          {label}
+        </div>
+      </div>
+      {outside && (
+        <div className="absolute inset-y-[5px] flex items-center gap-2.5 pr-2.5 text-[12.5px] whitespace-nowrap" style={{ right: `${100 - left}%` }}>
+          {label}
+        </div>
+      )}
     </div>
   );
 }

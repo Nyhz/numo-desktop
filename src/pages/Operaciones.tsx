@@ -4,14 +4,14 @@ import { txsToCsv } from "../../shared/csv.ts";
 import { isoOf } from "../../shared/dates.ts";
 import type { NTx } from "../../shared/engine/ledger.ts";
 import { TX_LABEL, type TxType } from "../../shared/types.ts";
-import { FlowColumns, type FlowDot } from "../charts/viz.tsx";
+import { FlowColumns, flowLayout, type FlowDot } from "../charts/viz.tsx";
 import { rangeBase, useApp, useDerived } from "../data/store.ts";
 import { operationsSheet, saveText, saveXlsx } from "../lib/export.ts";
 import { dateShort, eur, eurSigned, money, price, seriesColor, units } from "../lib/format.ts";
 import { openDialog } from "../ui/dialogs.ts";
 import { Btn, Card, Dot, Empty, HeaderSlot, Money, Pills, toast } from "../ui/kit.tsx";
 import { useFresh } from "../ui/motion.ts";
-import { L, PeriodPills, THead, TRow, Table, Welcome } from "./common.tsx";
+import { L, Pager, PeriodPills, THead, TRow, Table, Welcome, usePaged } from "./common.tsx";
 
 type Filter = "all" | "buy" | "sell" | "income" | "cash";
 const FILTER: Record<Filter, (t: TxType) => boolean> = {
@@ -41,7 +41,7 @@ const LEGEND: Array<[string, string]> = [
 const COLS = "88px 80px minmax(130px,1fr) minmax(150px,1.6fr) 76px 108px 112px 68px 112px";
 /** Sin precio ni costes: se ven al abrir la operación. */
 const COMPACT = "88px 80px minmax(130px,1fr) minmax(150px,1.6fr) 76px 112px 112px";
-const PAGE = 200;
+const PAGE = 100;
 
 const describeHead = (n: NTx) => `${dateShort(n.tx.date)} · ${TX_LABEL[n.tx.type]}${n.asset ? ` · ${n.asset.name}` : ""}`;
 const describe = (n: NTx) => `${describeHead(n)} · ${eurSigned(n.cashEur)}`;
@@ -51,7 +51,6 @@ export function Operaciones() {
   const range = useApp((s) => s.range);
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
-  const [shown, setShown] = useState(PAGE);
   const [hot, setHot] = useState<string | null>(null);
   const fresh = useFresh();
 
@@ -77,8 +76,11 @@ export function Operaciones() {
       .reverse();
   }, [d.ledger, d.scope, q, filter, since]);
 
+  // Por páginas. Se vuelve a la primera al cambiar de filtro, búsqueda, periodo o cuentas; no al editar una operación.
+  const paged = usePaged(rows, PAGE, `${q}|${filter}|${since}|${d.scope ? [...d.scope].join() : ""}`);
+
   const dots = useMemo<FlowDot[]>(
-    () => rows.filter((n) => Math.abs(n.cashEur) >= 0.005).map((n) => ({ key: n.tx.id, date: n.tx.date, amount: n.cashEur, color: COLOR[n.tx.type], label: describe(n) })),
+    () => rows.filter((n) => Math.abs(n.cashEur) >= 0.005).map((n) => ({ key: n.tx.id, date: n.tx.date, amount: n.cashEur, color: COLOR[n.tx.type], label: describe(n), group: TX_LABEL[n.tx.type] })),
     [rows],
   );
 
@@ -128,7 +130,7 @@ export function Operaciones() {
         </Btn>
       </div>
 
-      <Card title="Flujo de efectivo" note="cada tramo es una operación; su altura, el importe" aside={<span className="truncate text-ink">{hotRow && <>{describeHead(hotRow)} · <span className="priv">{eurSigned(hotRow.cashEur)}</span></>}</span>}>
+      <Card title="Flujo de efectivo" note={flowLayout(dots, since, d.today).byType ? "cada tramo junta las operaciones de un tipo; su altura, el importe" : "cada tramo es una operación; su altura, el importe"} aside={<span className="truncate text-ink">{hotRow && <>{describeHead(hotRow)} · <span className="priv">{eurSigned(hotRow.cashEur)}</span></>}</span>}>
         {dots.length ? <FlowColumns dots={dots} from={since} to={d.today} hot={hot} onHover={setHot} /> : <div className="py-10 text-center text-mute">Ninguna operación mueve efectivo en este periodo.</div>}
         <div className="mt-3 flex flex-wrap gap-4 text-[12px] text-ink2">
           {LEGEND.map(([label, color]) => (
@@ -149,7 +151,7 @@ export function Operaciones() {
           {d.state.txs.length ? "Prueba con otro periodo, otro tipo u otro texto de búsqueda." : "Pulsa N en cualquier momento para registrar una operación."}
         </Empty>
       ) : (
-        <section className="card overflow-hidden" onMouseLeave={() => setHot(null)}>
+        <section ref={paged.anchor} className="card overflow-hidden scroll-mt-4" onMouseLeave={() => setHot(null)}>
           <Table cols={COLS} compact={COMPACT} minWidth={1000}>
             <THead>
               <L>Fecha</L>
@@ -162,7 +164,7 @@ export function Operaciones() {
               <span className="opt">Costes</span>
               <span>Efecto en EUR</span>
             </THead>
-            {rows.slice(0, shown).map((n) => {
+            {paged.rows.map((n) => {
               const { tx } = n;
               const trade = tx.type === "buy" || tx.type === "sell";
               const gross = trade ? (tx.quantity ?? 0) * (tx.price ?? 0) : (tx.amount ?? 0);
@@ -195,11 +197,7 @@ export function Operaciones() {
               );
             })}
           </Table>
-          {rows.length > shown && (
-            <div className="border-t border-line py-3 text-center">
-              <Btn onClick={() => setShown((s) => s + PAGE)}>Mostrar {Math.min(PAGE, rows.length - shown)} más</Btn>
-            </div>
-          )}
+          <Pager paged={paged} noun="operaciones" />
         </section>
       )}
     </div>
