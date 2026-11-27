@@ -16,6 +16,12 @@ export const accountInput = z.object({
   kind: z.enum(ACCOUNT_KINDS),
   currency: currency.default("EUR"),
   trackCash: z.boolean().default(false),
+  country: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .regex(/^([A-Z]{2})?$/, "País no válido")
+    .default("ES"),
   archived: z.boolean().default(false),
 });
 export type AccountInput = z.infer<typeof accountInput>;

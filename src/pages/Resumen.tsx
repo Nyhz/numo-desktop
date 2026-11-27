@@ -7,15 +7,37 @@ import { HeroChart, HeroLegend, bandModel, lineModel, stackModel, type HeroModel
 import { DrawdownCard } from "../charts/drawdown.tsx";
 import { MonthColumns, RepartoRing, ReturnBars, treeGroups, type TreeItem } from "../charts/viz.tsx";
 import { BENCHMARK, benchmarkReturns } from "../data/benchmark.ts";
-import { ensureBenchmark, rangeBase, useApp, useBenchmark, useInvested, type Derived } from "../data/store.ts";
-import { dateShort, eur, eurAxis, eurSigned, num, pctSigned, seriesColor } from "../lib/format.ts";
+import { exposureOf, REGION_LABEL, type RegionKey, type StoredRegions } from "../data/regions.ts";
+import { ensureBenchmark, rangeBase, useApp, useBenchmark, useInvested, useRegions, type Derived } from "../data/store.ts";
+import { dateShort, eur, eurAxis, eurSigned, num, pct, pctSigned, seriesColor } from "../lib/format.ts";
 import { openDialog } from "../ui/dialogs.ts";
 import { usePrivate } from "../ui/privacy.ts";
 import { BigMoney, Btn, Card, Empty, HeaderSlot, Kpi, Kpis, Money, Num, Pills, Priv, toneOf } from "../ui/kit.tsx";
 import { KIND_ORDER, PeriodPills, RANGE_PHRASE, Welcome, kindColor, kindLabel } from "./common.tsx";
 
 type Mode = "valor" | "pat" | "cuenta" | "tipo" | "rent";
-type Group = "Tipo" | "Cuenta" | "Divisa";
+type Group = "Tipo" | "Cuenta" | "Divisa" | "Región";
+
+const NO_BREAKDOWN = "Sin desglose";
+
+/**
+ * Reparto por regiones de la cartera: cada ETF y fondo se parte según lo que lleva
+ * dentro (Morningstar), cada acción va a la región de su país y las criptomonedas
+ * y lo que no tiene desglose (renta fija, materias primas…) van aparte. Ni el
+ * fondo de emergencia ni los inmuebles entran: no son dinero invertido.
+ */
+function regionItems(d: Derived, regions: Map<string, StoredRegions>): TreeItem[] {
+  const items: TreeItem[] = [];
+  for (const p of d.positions) {
+    const ex = exposureOf(p.asset, regions.get(p.asset.id) ?? null);
+    if (ex.kind === "regions") {
+      for (const [r, w] of Object.entries(ex.weights)) items.push({ key: `${p.asset.id}|${r}`, name: p.asset.name, value: p.valueEur * w, group: REGION_LABEL[r as RegionKey] });
+    } else items.push({ key: p.asset.id, name: p.asset.name, value: p.valueEur, group: ex.kind === "crypto" ? "Cripto" : NO_BREAKDOWN });
+  }
+  // Sin saldos: el único efectivo que se lleva es el del fondo de emergencia, que no se invierte
+  // en ninguna región. Tampoco cuando el filtro de cuentas lo incluye.
+  return items;
+}
 
 function treeItems(d: Derived, g: Group): TreeItem[] {
   const tl = d.timeline;
@@ -192,7 +214,10 @@ export function Resumen() {
     });
   }, [view, mode, withHomes, net, reserve, d.state.accounts, tl, bench]);
 
+  const regions = useRegions();
   const groups = useMemo(() => {
+    // Por regiones, solo la cartera: el piso y el fondo de emergencia no dicen nada de dónde inviertes.
+    if (group === "Región") return treeGroups(regionItems(d, regions));
     // Con el patrimonio a la vista, lo que ya es tuyo de cada inmueble entra en el reparto.
     const items = treeItems(d, group);
     for (const h of homes) if (h.equity > 0) items.push({ key: `home|${h.property.id}`, name: h.property.name, value: h.equity, group: group === "Divisa" ? "EUR" : "Inmuebles" });
@@ -203,7 +228,8 @@ export function Resumen() {
       if (acct && value > 0) items.push({ key: `reserve|${id}`, name: acct.name, value, group: group === "Tipo" ? "Fondo de emergencia" : group === "Cuenta" ? acct.name : acct.currency });
     }
     return treeGroups(items);
-  }, [d, group, homes, reserve]);
+  }, [d, group, homes, reserve, regions]);
+  const unknown = group === "Región" ? (groups.find((g) => g.name === NO_BREAKDOWN)?.share ?? 0) : 0;
   const parts = groups.reduce((n, g) => n + g.cells.length, 0);
   const session = useMemo(() => sessionChange(d.positions), [d.positions]);
   const months = useMemo(() => monthlyReturns(tl), [tl]);
@@ -332,8 +358,12 @@ export function Resumen() {
       <div className="grid gap-5" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))" }}>
         <Card
           title="Reparto"
-          note={<Pills size="sm" label="Repartir por" value={group} onChange={setGroup} options={[["Tipo", "Tipo"], ["Cuenta", "Cuenta"], ["Divisa", "Divisa"]]} />}
-          aside={<span className="text-mute">{parts === 1 ? "1 posición o saldo" : `${parts} posiciones y saldos`}</span>}
+          note={<Pills size="sm" label="Repartir por" value={group} onChange={setGroup} options={[["Tipo", "Tipo"], ["Cuenta", "Cuenta"], ["Divisa", "Divisa"], ["Región", "Región"]]} />}
+          aside={
+            <span className="text-mute" title={group === "Región" ? "Lo que hay dentro de cada ETF y fondo, según Morningstar; se actualiza una vez al mes" : undefined}>
+              {group === "Región" ? `solo la cartera${unknown > 0.0005 ? ` · ${pct(unknown)} sin desglose` : ""}` : parts === 1 ? "1 posición o saldo" : `${parts} posiciones y saldos`}
+            </span>
+          }
         >
           <RepartoRing groups={groups} />
         </Card>

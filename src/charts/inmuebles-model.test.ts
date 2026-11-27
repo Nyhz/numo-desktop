@@ -13,6 +13,7 @@ const state = (withLoan: boolean): AppState =>
     prices: {},
     fx: {},
     splits: {},
+    filings: [],
     goals: [],
     properties: [property],
     mortgages: withLoan ? [mortgage] : [],

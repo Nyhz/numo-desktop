@@ -1,6 +1,6 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
-import type { Account, AppState, Asset, Goal, Mortgage, MortgageEvent, Point, Property, PropertyValuation, Tx } from "../../shared/types.ts";
-import type { AppInfo, Backend, Entity, Loaded, Meta, Op } from "./backend.ts";
+import type { Account, AppState, Asset, ForeignFiling, Goal, Mortgage, MortgageEvent, Point, Property, PropertyValuation, Tx } from "../../shared/types.ts";
+import type { AppInfo, Backend, BackupFile, Entity, Loaded, Meta, Op } from "./backend.ts";
 import { stampOf } from "./sync.ts";
 
 type Statement = { sql: string; params?: unknown[]; many?: unknown[][] };
@@ -15,6 +15,7 @@ const ACCOUNT: Array<[string, keyof Account]> = [
   ["currency", "currency"],
   ["color", "color"],
   ["track_cash", "trackCash"],
+  ["country", "country"],
   ["archived", "archived"],
   ["created_at", "createdAt"],
 ];
@@ -98,7 +99,17 @@ const TX: Array<[string, keyof Tx]> = [
   ["note", "note"],
   ["created_at", "createdAt"],
 ];
+const FILING: Array<[string, keyof ForeignFiling]> = [
+  ["id", "id"],
+  ["model", "model"],
+  ["year", "year"],
+  ["blocks", "blocks"],
+  ["items", "items"],
+  ["created_at", "createdAt"],
+];
 const BOOLEANS = new Set(["trackCash", "archived", "planExcluded"]);
+/** Campos que se guardan como JSON en una columna de texto. */
+const JSONS = new Set(["blocks", "items"]);
 
 function upsert<T>(table: string, cols: Array<[string, keyof T]>, row: T): Statement {
   const names = cols.map(([c]) => c);
@@ -108,7 +119,7 @@ function upsert<T>(table: string, cols: Array<[string, keyof T]>, row: T): State
             .filter((c) => c !== "id" && c !== "created_at")
             .map((c) => `${c} = excluded.${c}`)
             .join(", ")}`,
-    params: cols.map(([, f]) => row[f] ?? null),
+    params: cols.map(([, f]) => (JSONS.has(f as string) ? JSON.stringify(row[f]) : (row[f] ?? null))),
   };
 }
 
@@ -230,6 +241,12 @@ function toStatements(ops: Op[]): Statement[] {
       case "delValuation":
         out.push(del("property_valuations", o.id));
         break;
+      case "putFiling":
+        out.push(upsert("foreign_filings", FILING, o.row));
+        break;
+      case "delFiling":
+        out.push(del("foreign_filings", o.id));
+        break;
     }
   }
   return out;
@@ -242,10 +259,19 @@ async function selectAll<T>(table: string, cols: Array<[string, keyof T]>, order
   return rows.map((r) => {
     const obj: Record<string, unknown> = {};
     cols.forEach(([, field], i) => {
-      obj[field as string] = BOOLEANS.has(field as string) ? !!r[i] : r[i];
+      const f = field as string;
+      obj[f] = BOOLEANS.has(f) ? !!r[i] : JSONS.has(f) ? parseJson(r[i]) : r[i];
     });
     return obj as T;
   });
+}
+
+function parseJson(cell: Cell): unknown {
+  try {
+    return JSON.parse(String(cell));
+  } catch {
+    return null;
+  }
 }
 
 async function grouped(sql: string): Promise<Record<string, Point[]>> {
@@ -258,7 +284,7 @@ export const tauriBackend: Backend = {
   native: true,
 
   async load(): Promise<Loaded> {
-    const [accounts, assets, txs, prices, fx, splits, metaRows, goals, properties, mortgages, mortgageEvents, valuations] = await Promise.all([
+    const [accounts, assets, txs, prices, fx, splits, metaRows, goals, properties, mortgages, mortgageEvents, valuations, filings] = await Promise.all([
       selectAll<Account>("accounts", ACCOUNT, "created_at, name"),
       selectAll<Asset>("assets", ASSET, "name"),
       selectAll<Tx>("txs", TX, "date, created_at"),
@@ -272,6 +298,7 @@ export const tauriBackend: Backend = {
       selectAll<Mortgage>("mortgages", MORTGAGE, "created_at"),
       selectAll<MortgageEvent>("mortgage_events", MORTGAGE_EVENT, "date"),
       selectAll<PropertyValuation>("property_valuations", VALUATION, "date"),
+      selectAll<ForeignFiling>("foreign_filings", FILING, "year, model"),
     ]);
     const meta: Meta = {};
     for (const [k, v] of metaRows) {
@@ -279,7 +306,7 @@ export const tauriBackend: Backend = {
       if (key.startsWith("secret:")) meta[`connected:${key.slice(7)}`] = "1";
       else meta[key] = v as string;
     }
-    const state: AppState = { accounts, assets, txs, prices, fx, splits, goals, properties, mortgages, mortgageEvents, valuations, lastSync: meta.lastSync ?? null };
+    const state: AppState = { accounts, assets, txs, prices, fx, splits, goals, properties, mortgages, mortgageEvents, valuations, filings, lastSync: meta.lastSync ?? null };
     return { state, meta };
   },
 
@@ -305,6 +332,9 @@ export const tauriBackend: Backend = {
   syncRead: (dir) => invoke<Array<{ name: string; text: string; sealed: boolean; locked: boolean }>>("sync_read", { dir }),
   syncWrite: (dir, name, text) => invoke<void>("sync_write", { dir, name, text }),
   backupNow: (label) => invoke<void>("backup_now", { label }),
+  backups: () => invoke<BackupFile[]>("backups_list"),
+  backupPick: () => invoke<string | null>("backup_pick"),
+  restoreBackup: (path) => invoke<void>("restore_backup", { path }),
   openReleases: () => invoke<void>("open_releases"),
   checkUpdate: () => invoke<{ version: string; notes: string } | null>("check_update"),
   installUpdate(onProgress) {

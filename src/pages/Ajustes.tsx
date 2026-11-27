@@ -4,7 +4,8 @@ import { txsToCsv } from "../../shared/csv.ts";
 import { todayIso } from "../../shared/dates.ts";
 import { fxHealth } from "../../shared/engine/health.ts";
 import { ACCENTS, useAccent, useTheme } from "../App.tsx";
-import { backend, checkUpdate, chooseSyncFolder, connectionStatus, deviceOf, isExample, installUpdate, renameDevice, saveSecret, setDemo, setSyncPassword, stopSync, sync, syncDevices, syncFolder, syncSealed, useApp, type Service } from "../data/store.ts";
+import { REGIONS_MONTH } from "../data/regions.ts";
+import { backend, checkUpdate, refreshRegions, useRegions, chooseSyncFolder, connectionStatus, deviceOf, isExample, installUpdate, renameDevice, saveSecret, setDemo, setSyncPassword, stopSync, sync, syncDevices, syncFolder, syncSealed, useApp, type Service } from "../data/store.ts";
 import { saveText } from "../lib/export.ts";
 import { ago, dateBrief, num } from "../lib/format.ts";
 import { openDialog } from "../ui/dialogs.ts";
@@ -16,6 +17,43 @@ function Group({ title, children }: { title: string; children: ReactNode }) {
       <div className="wide px-5 py-4 font-semibold">{title}</div>
       {children}
     </section>
+  );
+}
+
+const MONTHS_LONG = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+
+/** Lo que hay dentro de cada ETF y fondo, de Morningstar: cuándo se actualizó y para cuántos hay desglose. */
+function RegionsRow() {
+  const example = useApp((s) => isExample(s));
+  const month = useApp((s) => s.loaded.meta[REGIONS_MONTH]);
+  const regions = useRegions();
+  const [busy, setBusy] = useState(false);
+  const withData = [...regions.values()].filter((r) => r.weights).length;
+  const run = async () => {
+    setBusy(true);
+    const res = await refreshRegions(true);
+    setBusy(false);
+    if (!res.ok) toast(`No se pudo actualizar: ${res.error}`, { tone: "error" });
+    else toast(res.value ? `Reparto actualizado (${res.value} ${res.value === 1 ? "activo" : "activos"})` : "No hay ETF ni fondos que actualizar");
+  };
+  return (
+    <Row
+      title="Exposición geográfica"
+      action={
+        <Btn onClick={() => void run()} disabled={busy || example}>
+          {busy ? "Actualizando…" : "Actualizar ahora"}
+        </Btn>
+      }
+    >
+      Lo que lleva dentro cada ETF y fondo (cuánto en Norteamérica, Europa, emergentes…), de Morningstar, para el Reparto por región del Resumen. A Morningstar solo viaja el ISIN. Se actualiza
+      solo la primera vez que abres la app cada mes.
+      {!example && (
+        <span className="mt-1 block text-mute">
+          {month ? `Última actualización: ${MONTHS_LONG[+month.slice(5, 7) - 1]} de ${month.slice(0, 4)}. ` : "Todavía no se ha actualizado. "}
+          {withData} {withData === 1 ? "activo tiene" : "activos tienen"} desglose.
+        </span>
+      )}
+    </Row>
   );
 }
 
@@ -295,12 +333,17 @@ export function Ajustes() {
         <Row
           title="Copia de seguridad"
           action={
-            <Btn onClick={backup} disabled={!backend.native}>
-              Guardar una copia…
-            </Btn>
+            <div className="flex flex-wrap justify-end gap-2">
+              <Btn onClick={backup} disabled={!backend.native}>
+                Guardar una copia…
+              </Btn>
+              <Btn onClick={() => openDialog({ kind: "restore" })} disabled={example}>
+                Restaurar…
+              </Btn>
+            </div>
           }
         >
-          Tus datos viven en un único archivo en este ordenador (no es una copia: es la base de datos de la app). Numo guarda además una copia diaria, las 14 últimas, en la carpeta «copias» que hay a su lado. La copia que guardas tú no lleva tus claves (la de Indexa Capital ni la contraseña de sincronización): si la restauras, se vuelven a poner en Ajustes.
+          Tus datos viven en un único archivo en este ordenador (no es una copia: es la base de datos de la app). Numo guarda además una copia diaria, las 14 últimas, en la carpeta «copias» que hay a su lado. La copia que guardas tú no lleva tus claves (la de Indexa Capital ni la contraseña de sincronización): al restaurarla se conservan las que ya tienes aquí.
           <div className="selectable mt-1 text-[12px] break-all text-mute">Base de datos: {info?.dbPath}</div>
         </Row>
         <Row
@@ -343,6 +386,10 @@ export function Ajustes() {
             </span>
           </Row>
         )}
+      </Group>
+
+      <Group title="Reparto por regiones">
+        <RegionsRow />
       </Group>
 
       <Group title="Conexiones">

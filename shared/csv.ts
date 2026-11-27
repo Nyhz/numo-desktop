@@ -324,6 +324,7 @@ export function planImport(rows: ImportRow[], state: AppState): ImportPlan {
       kind: kind ?? "broker",
       currency: "EUR",
       trackCash: holdsCash(kind ?? "broker"),
+      country: "ES",
       archived: false,
     });
   };

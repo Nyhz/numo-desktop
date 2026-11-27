@@ -33,6 +33,11 @@ export const browserBackend: Backend = {
   syncRead: async () => [],
   syncWrite: async () => {},
   backupNow: async () => {},
+  backups: async () => [],
+  backupPick: async () => null,
+  restoreBackup: async () => {
+    throw new Error("La vista previa del navegador no tiene copias que restaurar");
+  },
   openReleases: async () => {},
   // Las pruebas de pantalla pueden simular una versión nueva con ?update=1.2.3.
   checkUpdate: async () => {

@@ -2,7 +2,7 @@ import { Activity, ArrowLeftRight, Check, ChevronDown, CircleArrowUp, CloudOff, 
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Link, Route, Router, Switch, useLocation } from "wouter";
 import { useHashLocation } from "wouter/use-hash-location";
-import { backend, hideUpdate, installUpdate, isExample, setDemo, setScope, sync, syncOnFocus, updateOnFocus, useApp, useHealth } from "./data/store.ts";
+import { backend, hideUpdate, installUpdate, isExample, setDemo, setScope, sync, syncOnFocus, updateOnFocus, useApp, useForeignPending, useHealth } from "./data/store.ts";
 import { Dialogs } from "./features/dialogs.tsx";
 import { ago, seriesColor } from "./lib/format.ts";
 import { Activo } from "./pages/Activo.tsx";
@@ -49,13 +49,30 @@ const matches = (n: Nav, loc: string) => (n.href === "/" ? loc === "/" : loc.sta
 const MENU_KEY = "numo.menu";
 const MENU_EASE = "cubic-bezier(.2,.8,.2,1)";
 
+// Con la ventana estrecha el menú se contrae solo, para dejar sitio a las tablas.
+// Se puede abrir igualmente, pero eso no cambia la preferencia guardada: al volver
+// a ensanchar la ventana, el menú queda como estaba.
+const NARROW = "(max-width: 1239px)";
+
 function useMenu(): [boolean, () => void] {
   const [open, setOpen] = useState(() => localStorage.getItem(MENU_KEY) !== "closed");
+  const [narrow, setNarrow] = useState(() => matchMedia(NARROW).matches);
+  const [peek, setPeek] = useState(false);
+  useEffect(() => {
+    const mq = matchMedia(NARROW);
+    const onChange = () => {
+      setNarrow(mq.matches);
+      setPeek(false);
+    };
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
   const toggle = () => {
+    if (narrow) return setPeek(!peek);
     localStorage.setItem(MENU_KEY, open ? "closed" : "open");
     setOpen(!open);
   };
-  return [open, toggle];
+  return [narrow ? peek : open, toggle];
 }
 
 /** Clases de una fila del menú. `quiet`: las acciones del pie, más discretas que las secciones. */
@@ -74,7 +91,7 @@ function RailBody({ open, label, quiet = false, accent = false, dot = false, chi
       </span>
       <span
         aria-hidden={!open}
-        className={`truncate pr-3 whitespace-nowrap transition-[opacity,transform] duration-300 ${quiet ? "text-[12.5px]" : "text-[13.5px] font-semibold"} ${open ? "delay-75" : "-translate-x-1.5 opacity-0"}`}
+        className={`relative truncate pr-3 whitespace-nowrap transition-[opacity,transform] duration-300 ${quiet ? "text-[12.5px]" : "text-[13.5px] font-semibold"} ${open ? "delay-75" : "-translate-x-1.5 opacity-0"}`}
         style={{ transitionTimingFunction: MENU_EASE }}
       >
         {label}
@@ -83,14 +100,14 @@ function RailBody({ open, label, quiet = false, accent = false, dot = false, chi
   );
 }
 
-function RailLink({ nav, open, alerts = 0 }: { nav: Nav; open: boolean; alerts?: number }) {
+function RailLink({ nav, open, alerts = 0, notice }: { nav: Nav; open: boolean; alerts?: number; notice?: string }) {
   const [loc] = useLocation();
   const active = matches(nav, loc);
   const Icon = nav.icon;
-  const label = alerts ? `${nav.label} · ${alerts === 1 ? "1 precio necesita" : `${alerts} precios necesitan`} atención` : nav.label;
+  const label = notice ? `${nav.label} · ${notice}` : alerts ? `${nav.label} · ${alerts === 1 ? "1 precio necesita" : `${alerts} precios necesitan`} atención` : nav.label;
   return (
-    <Link href={nav.href} title={open && !alerts ? undefined : label} aria-label={label} aria-current={active ? "page" : undefined} className={railItem(active)}>
-      <RailBody open={open} label={nav.label} accent={active} dot={alerts > 0}>
+    <Link href={nav.href} title={open && !alerts && !notice ? undefined : label} aria-label={label} aria-current={active ? "page" : undefined} className={railItem(active)}>
+      <RailBody open={open} label={nav.label} accent={active} dot={alerts > 0 || !!notice}>
         <Icon size={19} strokeWidth={1.8} />
       </RailBody>
     </Link>
@@ -237,14 +254,26 @@ function AccountFilter() {
 
 function SyncButton({ open }: { open: boolean }) {
   const syncing = useApp((s) => s.syncing);
+  const progress = useApp((s) => s.progress);
   const issues = useApp((s) => s.issues);
   const lastSync = useApp((s) => s.loaded.state.lastSync);
   const example = useApp((s) => isExample(s));
   if (example) return null;
-  const title = syncing ? "Actualizando precios…" : `Precios actualizados ${ago(lastSync)}${issues.length ? ` · ${issues.length} avisos (ver Activos)` : ""}. Pulsa para actualizar ahora.`;
+  // Mientras se actualiza, la fila se va llenando: cuántos activos van de los que tocan.
+  const share = progress && progress.total > 0 ? progress.done / progress.total : null;
+  const counter = progress && progress.total > 0 ? ` ${progress.done} de ${progress.total}` : "";
+  const title = syncing ? `Actualizando precios…${counter}` : `Precios actualizados ${ago(lastSync)}${issues.length ? ` · ${issues.length} avisos (ver Activos)` : ""}. Pulsa para actualizar ahora.`;
   return (
-    <button type="button" title={title} aria-label="Actualizar precios" disabled={syncing} onClick={() => void sync(true)} className={railItem(false, true)}>
-      <RailBody open={open} quiet label={syncing ? "Actualizando precios…" : lastSync ? `Precios de ${ago(lastSync)}` : "Sin precios todavía"} dot={issues.length > 0 && !syncing}>
+    <button type="button" title={title} aria-label="Actualizar precios" aria-busy={syncing} disabled={syncing} onClick={() => void sync(true)} className={railItem(false, true)}>
+      {syncing && (
+        <span aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden rounded-[11px] bg-wash">
+          <span
+            className={`absolute inset-y-0 left-0 transition-[width] duration-500 ${share == null ? "w-full animate-pulse" : ""}`}
+            style={{ width: share == null ? undefined : `${Math.max(6, share * 100)}%`, background: "color-mix(in oklab, var(--acc) 22%, transparent)", transitionTimingFunction: MENU_EASE }}
+          />
+        </span>
+      )}
+      <RailBody open={open} quiet label={syncing ? (progress && progress.total > 0 ? `Actualizando · ${progress.done} de ${progress.total}` : "Actualizando precios…") : lastSync ? `Precios de ${ago(lastSync)}` : "Sin precios todavía"} dot={issues.length > 0 && !syncing}>
         <RefreshCw size={17} strokeWidth={1.8} className={syncing ? "animate-spin" : ""} />
       </RailBody>
     </button>
@@ -316,6 +345,9 @@ function Shell({ children }: { children: ReactNode }) {
   const [menu, toggleMenu] = useMenu();
   const wideRail = backend.native && isMac;
   const { attention, fxLate } = useHealth();
+  // Una declaración de bienes en el extranjero por presentar (de enero a marzo): se avisa en Informes.
+  const filings = useForeignPending();
+  const filingNotice = filings.length ? `hay que presentar ${filings.length === 1 ? `el modelo ${filings[0]!.model}` : "los modelos 720 y 721"} antes del 31 de marzo` : undefined;
   const here = [...NAV_MAIN, ...NAV_SUB].find((n) => matches(n, loc));
 
   // Pastilla de la sección activa: su altura en el menú, o null si ninguna lo está.
@@ -330,6 +362,14 @@ function Shell({ children }: { children: ReactNode }) {
     const watch = new ResizeObserver(measure);
     watch.observe(el);
     return () => watch.disconnect();
+  }, [loc]);
+
+  // Cada pantalla empieza arriba. El contenedor del scroll es el mismo para todas,
+  // así que guardaría la posición de la anterior: se pone a cero antes de pintar
+  // (efecto de layout), con lo que la nueva aparece ya arriba, sin saltos visibles.
+  const scroller = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    scroller.current?.scrollTo({ top: 0, left: 0, behavior: "instant" });
   }, [loc]);
 
   // Al volver a la ventana se mira si otro equipo ha dejado cambios y si hay una versión nueva.
@@ -389,7 +429,7 @@ function Shell({ children }: { children: ReactNode }) {
           </span>
         </div>
         {NAV_MAIN.map((n) => (
-          <RailLink key={n.href} nav={n} open={menu} />
+          <RailLink key={n.href} nav={n} open={menu} notice={n.href === "/informes" ? filingNotice : undefined} />
         ))}
         <div data-tauri-drag-region className="flex-1 self-stretch" />
         {NAV_SUB.map((n) => (
@@ -430,7 +470,10 @@ function Shell({ children }: { children: ReactNode }) {
           <div data-tauri-drag-region className="min-w-0 flex-[1_1_0] self-stretch" />
           {example && (
             <div className="flex min-w-0 items-center gap-2 text-[12px] text-mute">
-              <span className="truncate">Cartera de ejemplo · nada se guarda</span>
+              <span className="truncate @max-[1200px]:hidden">Cartera de ejemplo · nada se guarda</span>
+              <span className="hidden @max-[1200px]:inline" title="Cartera de ejemplo: nada se guarda">
+                Ejemplo
+              </span>
               {demo && (
                 <button type="button" className="shrink-0 font-medium text-ink underline decoration-line2 underline-offset-2 hover:decoration-ink" onClick={() => setDemo(false)}>
                   Volver a mis datos
@@ -446,7 +489,7 @@ function Shell({ children }: { children: ReactNode }) {
           )}
         </header>
         <UpdateBanner />
-        <div className="min-h-0 flex-1 overflow-auto px-7 pt-4 pb-14">
+        <div ref={scroller} className="min-h-0 flex-1 overflow-auto px-7 pt-4 pb-14">
           <div className="mx-auto max-w-[1240px]">{children}</div>
         </div>
       </main>

@@ -412,7 +412,8 @@ export function FlowColumns({ dots, from, to, hot, onHover }: { dots: FlowDot[];
         const net = c.inTotal - c.outTotal;
         const any = c.inTotal > 0 || c.outTotal > 0;
         return (
-          <div key={c.key} className="flex min-w-0 flex-1 flex-col items-center">
+          // Contenedor: con columnas estrechas (ventana pequeña o un periodo largo) el pie se queda en la cifra.
+          <div key={c.key} className="@container flex min-w-0 flex-1 flex-col items-center">
             <div className="flex h-[112px] w-full flex-col-reverse items-center gap-px pb-px">
               {stack(c.ins)}
               <span className="priv pb-[3px] text-[11.5px] font-[550] whitespace-nowrap">{c.inTotal > 0 ? `+${whole(c.inTotal)}` : ""}</span>
@@ -425,7 +426,17 @@ export function FlowColumns({ dots, from, to, hot, onHover }: { dots: FlowDot[];
             <div className="mt-1.5 w-full border-t border-line pt-1.5 text-center whitespace-nowrap">
               <div className="text-[12px] text-ink2">{c.label}</div>
               <div className="truncate text-[11.5px]" style={{ color: !any ? "var(--mute)" : net >= 0 ? "var(--up)" : "var(--ink2)" }}>
-                {any ? <>neto <span className="priv">{`${net < 0 ? "−" : "+"}${whole(Math.abs(net))}`}</span></> : "sin movimientos"}
+                {any ? (
+                  <>
+                    <span className="@max-[84px]:hidden">neto </span>
+                    <span className="priv" title="Neto del mes: lo que entra menos lo que sale">{`${net < 0 ? "−" : "+"}${whole(Math.abs(net))}`}</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="@max-[96px]:hidden">sin movimientos</span>
+                    <span className="hidden @max-[96px]:inline">—</span>
+                  </>
+                )}
               </div>
             </div>
           </div>

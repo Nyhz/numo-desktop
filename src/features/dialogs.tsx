@@ -5,11 +5,19 @@ import { todayIso } from "../../shared/dates.ts";
 import { ACCOUNT_KINDS, ACCOUNT_KIND_LABEL, ASSET_KINDS, ASSET_KIND_LABEL, PRICE_SOURCES, PRICE_SOURCE_LABEL, PRICE_SOURCE_SHORT, SOURCE_BY_ISIN, SOURCE_CODE, type Account, type Asset, type PriceSource } from "../../shared/types.ts";
 import { probeSource, searchMarket, type Probe, type ProbeInput, type SearchHit } from "../data/market.ts";
 import { backend, importPlan, isExample, sync, syncSoon, removeAccount, removeAsset, saveAccount, saveAsset, setPrice, useApp, useDerived } from "../data/store.ts";
-import { dateBrief, dateShort, num, price } from "../lib/format.ts";
+import { countryName, dateBrief, dateShort, num, price } from "../lib/format.ts";
 import { closeDialog, useDialog } from "../ui/dialogs.ts";
 import { Btn, Dialog, ErrorLine, Field, toast } from "../ui/kit.tsx";
 import { MortgageEventDialog, PropertyDialog, ValuationDialog } from "./property-dialogs.tsx";
+import { RestoreDialog } from "./RestoreDialog.tsx";
 import { TxDialog } from "./TxDialog.tsx";
+
+/**
+ * Países que se ofrecen para la entidad de una cuenta: España, los de la UE y los
+ * habituales de brókers, bancos y exchanges. El nombre lo pone el navegador.
+ */
+const COUNTRIES = ["ES", "DE", "AT", "BE", "BG", "CY", "HR", "DK", "SK", "SI", "EE", "FI", "FR", "GR", "HU", "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "CZ", "RO", "SE", "AD", "AE", "AU", "BM", "BS", "CA", "CH", "CN", "GB", "GG", "GI", "HK", "IM", "JE", "JP", "KY", "LI", "MC", "NO", "NZ", "SC", "SG", "US", "VG"];
+const COUNTRY_OPTIONS = [COUNTRIES[0]!, ...COUNTRIES.slice(1).sort((a, b) => countryName(a).localeCompare(countryName(b), "es"))];
 
 // ── Cuenta ─────────────────────────────────────────────────────────────────
 
@@ -22,6 +30,7 @@ function AccountDialog({ account }: { account?: Account }) {
     currency: account?.currency ?? "EUR",
     // Solo el fondo de emergencia lleva efectivo: el resto de cuentas siguen inversiones.
     trackCash: (account?.kind ?? "broker") === "emergency",
+    country: account?.country ?? "ES",
     archived: account?.archived ?? false,
   });
   const [error, setError] = useState<string | null>(null);
@@ -89,7 +98,11 @@ function AccountDialog({ account }: { account?: Account }) {
         </Field>
         <div className="grid grid-cols-[1fr_96px] gap-3">
           <Field label="Tipo">
-            <select className="field" value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value as Account["kind"], trackCash: e.target.value === "emergency" })}>
+            <select className="field" value={f.kind} onChange={(e) => {
+                const kind = e.target.value as Account["kind"];
+                // «Sin entidad» solo existe para un monedero de criptomonedas.
+                setF({ ...f, kind, trackCash: kind === "emergency", country: kind !== "crypto" && !f.country ? "ES" : f.country });
+              }}>
               {ACCOUNT_KINDS.map((k) => (
                 <option key={k} value={k}>
                   {ACCOUNT_KIND_LABEL[k]}
@@ -101,6 +114,25 @@ function AccountDialog({ account }: { account?: Account }) {
             <input className="field uppercase" maxLength={3} value={f.currency} onChange={(e) => setF({ ...f, currency: e.target.value.toUpperCase() })} />
           </Field>
         </div>
+        <Field label="País de la entidad" hint="para los modelos 720 y 721">
+          <select className="field" value={f.country} onChange={(e) => setF({ ...f, country: e.target.value })}>
+            {COUNTRY_OPTIONS.map((c) => (
+              <option key={c} value={c}>
+                {countryName(c)}
+              </option>
+            ))}
+            {f.kind === "crypto" && <option value="">Ninguna: un monedero propio</option>}
+            {/* Una cuenta con un país que no está en la lista lo conserva. */}
+            {f.country && !COUNTRIES.includes(f.country) && <option value={f.country}>{countryName(f.country)}</option>}
+          </select>
+        </Field>
+        {f.country !== "ES" && (
+          <p className="-mt-1 text-[12px] text-pretty text-mute">
+            {f.country
+              ? "Lo que tengas en esta cuenta entra en la declaración de bienes en el extranjero: el modelo 720 (cuentas, valores y fondos) o el 721 (criptomonedas). Lo verás en Informes."
+              : "Las criptomonedas de un monedero propio no las custodia ninguna entidad: no van al modelo 721."}
+          </p>
+        )}
         {f.kind === "emergency" && (
           // Un fondo de emergencia es solo su saldo: no hay nada que elegir sobre el efectivo.
           <p className="-mt-1 text-[12px] text-pretty text-mute">
@@ -591,6 +623,8 @@ export function Dialogs() {
       return <PriceDialog asset={dlg.asset} />;
     case "import":
       return <ImportDialog />;
+    case "restore":
+      return <RestoreDialog />;
     case "property":
       return <PropertyDialog property={dlg.property} />;
     case "mortgageEvent":

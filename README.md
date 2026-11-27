@@ -30,7 +30,7 @@ Numo lleva la cuenta de lo que tienes y de cómo te va, con los datos guardados 
 - **Precios al día sin pagar por ellos.** Acciones, ETF, fondos y criptomonedas se actualizan solos desde sus bolsas y gestoras; los tipos de cambio, del BCE.
 - **Un plan de inversión.** Bloques con su peso objetivo, cuánto te alejas de él, dónde poner la próxima aportación y una proyección de a dónde llegarías.
 - **Tu vivienda y su hipoteca.** Cuánto es ya tuyo, cuánto llevas pagado y en qué, y el cuadro año a año con revisiones del tipo.
-- **Los papeles de Hacienda.** Ventas emparejadas por FIFO, dividendos e intereses con sus retenciones, posiciones a cierre de ejercicio y pérdidas pendientes de compensar; todo exportable a Excel y CSV.
+- **Los papeles de Hacienda.** Ventas emparejadas por FIFO, dividendos e intereses con sus retenciones, posiciones a cierre de ejercicio y pérdidas pendientes de compensar; todo exportable a Excel y CSV. Y si tienes que presentar los modelos 720 y 721 (bienes y criptomonedas en el extranjero), te avisa.
 - **Modo privado.** Un clic (o la tecla `P`) emborrona importes y unidades para enseñar la app sin enseñar cuánto hay.
 - **En varios equipos.** Mac y Windows se sincronizan a través de una carpeta de tu nube, sin servidor de por medio y, si quieres, cifrada con tu contraseña.
 - **Se actualiza sola.** Avisa cuando hay una versión nueva y la instala con un botón.
@@ -63,19 +63,19 @@ A partir de ahí **la app se actualiza sola**: al abrirla comprueba si hay una v
 ## Privacidad
 
 - Tus datos están en un archivo SQLite en tu ordenador. No hay cuentas de usuario, ni servidor propio, ni telemetría.
-- La app solo se conecta a las fuentes de precios (Deutsche Börse, BME, Nasdaq, fundinfo y Binance, con Yahoo Finance y Financial Times de respaldo), al BCE para los tipos de cambio, a GitHub para saber si hay una versión nueva y, si pones tu token, a Indexa Capital. A las fuentes de precios solo les envía símbolos y divisas, nunca importes ni posiciones.
+- La app solo se conecta a las fuentes de precios (Deutsche Börse, BME, Nasdaq, fundinfo y Binance, con Yahoo Finance y Financial Times de respaldo), al BCE para los tipos de cambio, a Morningstar para saber qué lleva dentro cada ETF y fondo, a GitHub para saber si hay una versión nueva y, si pones tu token, a Indexa Capital. A todas ellas solo les envía símbolos, ISIN y divisas, nunca importes ni posiciones.
 - La app no puede conectarse a ningún otro sitio: la lista de servidores permitidos es fija.
 
 ## Pantallas
 
 | Pantalla | Qué responde |
 |---|---|
-| Resumen | Tu patrimonio neto (la cartera, el fondo de emergencia y lo que ya es tuyo de los inmuebles), cuánto has puesto, cuánto ha ganado y cómo se reparte. |
+| Resumen | Tu patrimonio neto (la cartera, el fondo de emergencia y lo que ya es tuyo de los inmuebles), cuánto has puesto, cuánto ha ganado y cómo se reparte, también por regiones del mundo. |
 | Posiciones | Qué tienes, cuánto pesa cada cosa y cuánto gana o pierde; se descarga en PDF (con gráficos), Excel o CSV. |
 | Operaciones | El libro de operaciones y el flujo de efectivo; importar y exportar. |
 | Plan | Cuánto te alejas de tu reparto objetivo, dónde poner la próxima aportación y a dónde llegarías con una aportación y una rentabilidad dadas. |
 | Inmuebles | Cuánto es ya tuyo, cuánto llevas pagado y en qué, y cuánto queda. |
-| Informes | Lo que pide Hacienda por ejercicio: ventas emparejadas, rendimientos, posiciones a cierre y pérdidas pendientes de compensar. |
+| Informes | Lo que pide Hacienda por ejercicio: ventas emparejadas, rendimientos, posiciones a cierre y pérdidas pendientes de compensar. En «Bienes en el extranjero», si toca presentar los modelos 720 y 721. |
 | Activos | Lo que tienes en cartera: de qué día es cada precio, de dónde sale y qué no se está actualizando. Lo que vendes entero se archiva solo (conserva su historia, pero sale de la lista y deja de actualizarse) y vuelve al comprarlo. |
 | Cuentas · Ajustes | Cuentas, copias de seguridad, conexiones con servicios de datos, actualización de la app, tema y color de acento. |
 
@@ -95,8 +95,10 @@ Una idea manda sobre todo lo demás: **solo se guarda lo que tú registras** (cu
 - **Precios**: cada activo tiene una fuente, todas gratuitas y sin cupo diario. Los cotizados se piden a su propia bolsa: Deutsche Börse (Xetra, por ISIN), BME (Madrid, por ISIN) y Nasdaq (EE. UU., por ticker); los fondos, a fundinfo (por ISIN); las criptomonedas, a Binance; el plan o la cartera de Indexa Capital, a su API con tu token de solo lectura. Si la fuente de un activo falla, se usa un respaldo (Yahoo Finance para cotizados, Financial Times para fondos) y queda anotado. También se puede elegir Yahoo, Financial Times o precio manual. Se actualizan al abrir la app (si han pasado más de 6 horas) para todos los activos dados de alta, con o sin posición. Al añadir un activo se comprueba que su fuente da precio; cada fallo queda anotado por activo y se ve en Activos. Cambiar un activo de fuente conserva su histórico.
 - **Token de Indexa**: se pone en Ajustes → Conexiones. Se guarda en la base de datos local. Va dentro de las copias de seguridad.
 - **Fondo de emergencia**: una cuenta de ese tipo cuenta para el patrimonio, pero queda fuera de la cartera y de su rentabilidad, porque es dinero que no se invierte. Posiciones enseña su saldo, los intereses del último año y lo que renta de verdad: intereses brutos entre saldo medio, anualizado, comparable con la TAE del banco. En Informes sí entra, porque sus intereses tributan. Al apuntar un interés se escribe lo que llega a la cuenta, como lo ingresa el banco; Numo deduce el bruto y la retención del 19 % (o ninguna, si esa cuenta no retiene) y guarda las dos cosas.
+- **Reparto por regiones**: cada ETF y fondo se reparte según lo que lleva dentro, país a país, de Morningstar (solo se le envía el ISIN), agrupado con el criterio de los índices MSCI: Norteamérica, Europa, Japón, Asia-Pacífico desarrollada y emergentes. Se actualiza solo la primera vez que se abre la app cada mes (y en Ajustes, cuando quieras). Cada acción va a la región del país de su ISIN; las criptomonedas, aparte; lo que Morningstar no desglosa (renta fija, oro y otras materias primas), como «sin desglose». Son los servicios que usa la web de Morningstar, no una API pública: si cambian, el reparto deja de actualizarse sin afectar a nada más.
 - **Plan**: la aportación va entera al bloque más retrasado (al que hoy le faltan más euros), en una sola operación para ahorrar comisiones, aunque lo deje por encima de su objetivo. Nunca propone vender.
 - **Hipoteca**: amortización francesa; el cuadro se deriva de las condiciones y de los eventos (revisión del tipo, cuota real).
+- **Modelos 720 y 721**: cuenta lo que hay en entidades de fuera de España según el país de cada cuenta (no el del ISIN), por bloques: cuentas y valores y fondos (720) y criptomonedas (721). Avisa la primera vez que un bloque supera 50.000 € a 31 de diciembre (en las cuentas, también el saldo medio del cuarto trimestre); después, si sube más de 20.000 € desde la última declaración o si se deja de tener algo declarado. Del 1 de enero al 31 de marzo lo avisa también el menú, hasta que confirmas que lo has presentado; lo confirmado es la referencia de los años siguientes. Los inmuebles en el extranjero no se tienen en cuenta.
 - Numo **no calcula impuestos**. El informe anual entrega los datos, avisa de pérdidas con recompra cercana y lleva una cuenta orientativa de las pérdidas pendientes de compensar, sin decidir nada.
 
 ## Varios equipos
@@ -115,7 +117,8 @@ Para usar Numo en más de un ordenador (Mac y Windows, por ejemplo): Ajustes →
 
 - Base de datos: `~/Library/Application Support/app.numo.desktop/numo.db` en macOS; `%APPDATA%\app.numo.desktop\numo.db` en Windows.
 - Copia diaria automática (las 14 últimas) en la carpeta `copias/` de al lado.
-- Ajustes → «Guardar una copia…» y «Exportar todas las operaciones» (un CSV legible). Una app recién instalada y vacía puede importar un CSV con ese formato desde su pantalla de bienvenida.
+- Ajustes → «Guardar una copia…» y «Exportar todas las operaciones» (un CSV legible).
+- Ajustes → «Restaurar…» vuelve a una de las copias diarias o a una que guardaste. Antes guarda una copia de lo que hay, y conserva las claves y la sincronización de ese equipo. Si sincronizas, lo restaurado pasa a ser lo más reciente y los demás equipos quedan igual. Una app recién instalada y vacía puede importar un CSV con ese formato desde su pantalla de bienvenida.
 
 ## Licencia
 

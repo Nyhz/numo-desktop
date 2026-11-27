@@ -2,7 +2,9 @@ import { useMemo, useSyncExternalStore } from "react";
 import { accountKey, assetKey, type ImportPlan } from "../../shared/csv.ts";
 import { addMonths, todayIso } from "../../shared/dates.ts";
 import { fxHealth, needsAttention, parseFailure, priceHealth, type PriceHealth } from "../../shared/engine/health.ts";
+import { filingFrom, foreignStatus, pendingFilings, type ModelStatus } from "../../shared/engine/foreign.ts";
 import { buildLedger, type Ledger } from "../../shared/engine/ledger.ts";
+import { buildYearReport } from "../../shared/engine/reports.ts";
 import {
   buildPositions,
   buildTimeline,
@@ -24,13 +26,14 @@ import {
   valuationInput,
 } from "../../shared/schema.ts";
 import { SOURCE_BY_ISIN, holdsCash } from "../../shared/types.ts";
-import type { Account, AppState, Asset, Goal, Mortgage, MortgageEvent, Point, Property, PropertyValuation, Tx } from "../../shared/types.ts";
+import type { Account, AppState, Asset, ForeignFiling, Goal, Mortgage, MortgageEvent, Point, Property, PropertyValuation, Tx } from "../../shared/types.ts";
 import { EMPTY_STATE, reduce, type AppInfo, type Backend, type Loaded, type Op } from "./backend.ts";
 import { BENCH_KEY, exampleBenchmark, parseBenchmark, syncBenchmark } from "./benchmark.ts";
 import { browserBackend } from "./browser.ts";
 import { makeDemo } from "./demo.ts";
+import { EXAMPLE_REGIONS, parseRegions, regionsKey, syncRegions, type StoredRegions } from "./regions.ts";
 import { dueAssets, fxOn, indexaStatus, syncMarket, type SyncIssue, type SyncProgress } from "./market.ts";
-import { buildSnapshot, mergeSnapshots, parseSnapshot, sealedDevice, snapshotBody, stampOf, type Snapshot } from "./sync.ts";
+import { buildSnapshot, mergeSnapshots, parseSnapshot, restampRestored, sealedDevice, snapshotBody, stampOf, type Snapshot } from "./sync.ts";
 import { tauriBackend } from "./tauri.ts";
 
 export const backend: Backend = "__TAURI_INTERNALS__" in window ? tauriBackend : browserBackend;
@@ -229,6 +232,50 @@ async function doSync(force: boolean): Promise<void> {
   } finally {
     set({ syncing: false, progress: null });
   }
+  // Después de los precios, sin hacerles esperar: el reparto por regiones (una vez al mes).
+  void refreshRegions(false);
+}
+
+// ── Reparto por regiones (Morningstar) ─────────────────────────────────────
+
+let regioning: Promise<Result<number>> | null = null;
+
+/**
+ * Pide a Morningstar el reparto interno de los ETF y fondos: todos la primera vez
+ * que se abre la app en el mes, y entre medias solo los que aún no lo tienen.
+ * Con `force`, todos ahora. Devuelve cuántos activos se han actualizado.
+ */
+export function refreshRegions(force: boolean): Promise<Result<number>> {
+  if (isExample() || s.info?.smoke) return Promise.resolve(ok(0));
+  if (regioning) return regioning;
+  regioning = (async () => {
+    try {
+      const { state, meta } = s.loaded;
+      const ops = await syncRegions(state, meta, backend.httpGet, heldAssets(state), todayIso(), force);
+      if (ops.length) await commit(ops);
+      return ok(ops.filter((o) => o.op === "meta" && o.key.startsWith("regions:asset:")).length);
+    } catch (e) {
+      return fail(message(e));
+    } finally {
+      regioning = null;
+    }
+  })();
+  return regioning;
+}
+
+/** El reparto guardado de cada activo. En la cartera de ejemplo, uno inventado para sus fondos. */
+export function useRegions(): Map<string, StoredRegions> {
+  const example = useApp((x) => isExample(x));
+  const meta = useApp((x) => x.loaded.meta);
+  const assets = useApp((x) => (x.demo ?? x.loaded).state.assets);
+  return useMemo(() => {
+    const out = new Map<string, StoredRegions>();
+    for (const a of assets) {
+      const stored = example ? (EXAMPLE_REGIONS[a.id] ? { secId: null, date: null, fetchedAt: "", weights: EXAMPLE_REGIONS[a.id]! } : null) : parseRegions(meta[regionsKey(a.id)]);
+      if (stored) out.set(a.id, stored);
+    }
+    return out;
+  }, [example, meta, assets]);
 }
 
 /** Actualización en segundo plano tras un cambio; no se lanza en la prueba de humo. */
@@ -421,6 +468,28 @@ export const stopSync = (): Promise<Result> =>
     await commit([{ op: "meta", key: "sync:dir", value: "" }]);
     set({ devices: { busy: false, error: null, peers: [], notes: [] } });
   });
+
+/**
+ * Sustituye los datos por los de una copia y vuelve a abrir la app con ellos. Si
+ * este equipo sincroniza, lo restaurado se marca como lo más reciente para que
+ * llegue así a los demás (ver `restampRestored`).
+ */
+export async function restoreBackup(path: string): Promise<Result> {
+  if (isExample()) return fail("Con la cartera de ejemplo no se restaura nada");
+  try {
+    clearTimeout(publishTimer);
+    await syncingDevices;
+    const before = s.loaded.state;
+    const beforeStamps = await backend.stamps();
+    await backend.restoreBackup(path);
+    const restored = await backend.load();
+    if (restored.meta["sync:dir"]) await backend.apply(restampRestored(before, beforeStamps, restored.state, new Date().toISOString()));
+    location.reload();
+    return ok(undefined);
+  } catch (e) {
+    return fail(message(e));
+  }
+}
 
 export function renameDevice(name: string): Promise<Result> {
   const device = deviceOf();
@@ -825,6 +894,41 @@ export function saveValuation(propertyId: string, input: unknown, id?: string): 
   });
 }
 export const removeValuation = (id: string): Promise<Result> => attempt(() => commit([{ op: "delValuation", id }]));
+
+// ── Modelos 720 y 721 ──────────────────────────────────────────────────────
+
+/** Si hay que presentar los modelos 720 y 721 de un ejercicio. Siempre con todas las cuentas. */
+export function foreignOf(state: AppState, year: number, today = todayIso()): ModelStatus[] {
+  const d = derive(state, null);
+  const report = buildYearReport(d.ledger, state, d.timeline, null, year, today);
+  const previous = buildYearReport(d.ledger, state, d.timeline, null, year - 1, today);
+  return foreignStatus(year, today, report, previous, state.filings);
+}
+
+export function useForeign(year: number): ModelStatus[] {
+  const state = useApp((x) => (x.demo ?? x.loaded).state);
+  return useMemo(() => foreignOf(state, year), [state, year]);
+}
+
+/** Declaraciones del último ejercicio cerrado que hay que presentar y aún no constan: se avisa en el menú. */
+export function useForeignPending(): ModelStatus[] {
+  const state = useApp((x) => (x.demo ?? x.loaded).state);
+  return useMemo(() => {
+    const today = todayIso();
+    return pendingFilings(foreignOf(state, +today.slice(0, 4) - 1, today));
+  }, [state]);
+}
+
+/** El usuario confirma que presentó la declaración: se guarda y deja de avisarse. */
+export function confirmFiling(status: ModelStatus, year: number): Promise<Result<ForeignFiling>> {
+  if (current().state.filings.some((f) => f.model === status.model && f.year === year)) return Promise.resolve(fail("Ya consta como presentada"));
+  const row: ForeignFiling = { ...filingFrom(status, year), id: newId(), createdAt: new Date().toISOString() };
+  return attempt(async () => {
+    await commit([{ op: "putFiling", row }]);
+    return row;
+  });
+}
+export const removeFiling = (id: string): Promise<Result> => attempt(() => commit([{ op: "delFiling", id }]));
 
 // ── Datos derivados ────────────────────────────────────────────────────────
 

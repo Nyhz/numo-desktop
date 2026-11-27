@@ -1,5 +1,6 @@
 import { Search } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from "react";
+import { createPortal } from "react-dom";
 import { addDays, todayIso } from "../../shared/dates.ts";
 import { ASSET_KINDS, ASSET_KIND_LABEL, type Asset, type AssetKind } from "../../shared/types.ts";
 import { searchMarket, yahooChart, type SearchHit } from "../data/market.ts";
@@ -12,6 +13,47 @@ type Item =
   | { kind: "manual"; name: string };
 
 const ISIN = /^[A-Z]{2}[A-Z0-9]{9}\d$/;
+
+/**
+ * Dentro de un diálogo, la lista no puede vivir en su cuerpo: es una caja con
+ * scroll y la recortaría, y el pie (Cancelar · Guardar) la taparía. Se cuelga del
+ * propio <dialog>, que no recorta, colocada bajo el campo (o encima, si abajo no
+ * cabe) y siguiéndolo si el cuerpo se desplaza. Fuera de un diálogo, va debajo tal cual.
+ */
+function usePlacement(input: RefObject<HTMLInputElement | null>, open: boolean) {
+  const [place, setPlace] = useState<{ host: HTMLElement; style: CSSProperties } | null>(null);
+  useLayoutEffect(() => {
+    const el = input.current;
+    const host = el?.closest("dialog");
+    if (!open || !el || !host) return setPlace(null);
+    const measure = () => {
+      const r = el.getBoundingClientRect();
+      const h = host.getBoundingClientRect();
+      const below = window.innerHeight - r.bottom - 16;
+      const above = r.top - 16;
+      const up = below < 220 && above > below;
+      const maxHeight = Math.min(288, up ? above : below);
+      setPlace({
+        host,
+        style: up
+          ? { left: r.left - h.left, width: r.width, bottom: h.bottom - r.top + 6, maxHeight }
+          : { left: r.left - h.left, width: r.width, top: r.bottom - h.top + 6, maxHeight },
+      });
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    // En captura: llegan también los scroll del cuerpo del diálogo.
+    window.addEventListener("scroll", measure, true);
+    // Mientras el diálogo entra está desplazado unos píxeles: al acabar se vuelve a medir.
+    host.addEventListener("animationend", measure);
+    return () => {
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("scroll", measure, true);
+      host.removeEventListener("animationend", measure);
+    };
+  }, [input, open]);
+  return place;
+}
 
 /**
  * Elegir un activo escribiendo: primero los que ya tienes, después el mercado
@@ -85,6 +127,8 @@ export function AssetPicker({
     ...(term.length >= 2 ? [{ kind: "manual", name: term } as Item] : []),
   ];
   useEffect(() => setCursor(0), [term]);
+  const listOpen = open && (items.length > 0 || searching);
+  const place = usePlacement(input, listOpen && !manual);
 
   const pick = (id: string) => {
     onChange(id);
@@ -152,6 +196,46 @@ export function AssetPicker({
     );
   }
 
+  const list = (
+    <ul
+      id="asset-options"
+      role="listbox"
+      className={`pop pop-left z-20 overflow-y-auto rounded-xl border border-line2 bg-raised p-1 ${place ? "absolute" : "absolute mt-1.5 max-h-72 w-full"}`}
+      style={{ boxShadow: "var(--shadow-pop)", ...place?.style, ...(place?.style.bottom != null && { transformOrigin: "bottom left" }) }}
+    >
+      {items.map((it, i) => {
+        const first = i === 0 || items[i - 1]!.kind !== it.kind;
+        return (
+          <li key={i} role="option" aria-selected={i === cursor}>
+            {first && it.kind !== "manual" && <div className="px-3 pt-1.5 pb-0.5 text-[11.5px] text-mute">{it.kind === "own" ? "Tus activos" : "En el mercado"}</div>}
+            <button
+              type="button"
+              className={`flex w-full items-baseline gap-2 rounded-lg px-2.5 py-1.5 text-left ${i === cursor ? "bg-wash2" : "hover:bg-wash"}`}
+              onMouseDown={(e) => e.preventDefault()}
+              onMouseEnter={() => setCursor(i)}
+              onClick={() => void choose(it)}
+            >
+              {it.kind === "own" && (
+                <>
+                  <span className="truncate">{it.asset.name}</span>
+                  <span className="ml-auto shrink-0 text-[12px] text-mute">{[it.asset.symbol, it.asset.isin, it.asset.currency].filter(Boolean).join("  ")}</span>
+                </>
+              )}
+              {it.kind === "market" && (
+                <>
+                  <span className="truncate">{it.hit.name}</span>
+                  <span className="ml-auto shrink-0 text-[12px] text-mute">{[it.hit.symbol, it.hit.exchange, ASSET_KIND_LABEL[it.hit.kind]].filter(Boolean).join("  ")}</span>
+                </>
+              )}
+              {it.kind === "manual" && <span className="text-ink2">Crear «{it.name}» con precio manual</span>}
+            </button>
+          </li>
+        );
+      })}
+      {searching && <li className="px-3 py-1.5 text-[12px] text-mute">Buscando en el mercado…</li>}
+    </ul>
+  );
+
   return (
     <div className="relative">
       <Search size={14} className="pointer-events-none absolute top-2.5 left-3 text-mute" />
@@ -189,40 +273,7 @@ export function AssetPicker({
           }
         }}
       />
-      {open && (items.length > 0 || searching) && (
-        <ul id="asset-options" role="listbox" className="pop pop-left absolute z-20 mt-1.5 max-h-72 w-full overflow-y-auto rounded-xl border border-line2 bg-raised p-1" style={{ boxShadow: "var(--shadow-pop)" }}>
-          {items.map((it, i) => {
-            const first = i === 0 || items[i - 1]!.kind !== it.kind;
-            return (
-              <li key={i} role="option" aria-selected={i === cursor}>
-                {first && it.kind !== "manual" && <div className="px-3 pt-1.5 pb-0.5 text-[11.5px] text-mute">{it.kind === "own" ? "Tus activos" : "En el mercado"}</div>}
-                <button
-                  type="button"
-                  className={`flex w-full items-baseline gap-2 rounded-lg px-2.5 py-1.5 text-left ${i === cursor ? "bg-wash2" : "hover:bg-wash"}`}
-                  onMouseDown={(e) => e.preventDefault()}
-                  onMouseEnter={() => setCursor(i)}
-                  onClick={() => void choose(it)}
-                >
-                  {it.kind === "own" && (
-                    <>
-                      <span className="truncate">{it.asset.name}</span>
-                      <span className="ml-auto shrink-0 text-[12px] text-mute">{[it.asset.symbol, it.asset.isin, it.asset.currency].filter(Boolean).join("  ")}</span>
-                    </>
-                  )}
-                  {it.kind === "market" && (
-                    <>
-                      <span className="truncate">{it.hit.name}</span>
-                      <span className="ml-auto shrink-0 text-[12px] text-mute">{[it.hit.symbol, it.hit.exchange, ASSET_KIND_LABEL[it.hit.kind]].filter(Boolean).join("  ")}</span>
-                    </>
-                  )}
-                  {it.kind === "manual" && <span className="text-ink2">Crear «{it.name}» con precio manual</span>}
-                </button>
-              </li>
-            );
-          })}
-          {searching && <li className="px-3 py-1.5 text-[12px] text-mute">Buscando en el mercado…</li>}
-        </ul>
-      )}
+      {listOpen && (place ? createPortal(list, place.host) : list)}
     </div>
   );
 }

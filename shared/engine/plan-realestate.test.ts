@@ -127,7 +127,7 @@ describe("hipoteca", () => {
 
   it("lo que ya es tuyo, fecha a fecha: nada antes de comprar, la entrada el día de la compra y hoy lo mismo que la ficha", () => {
     const state: AppState = {
-      accounts: [], assets: [], txs: [], prices: {}, fx: {}, splits: {}, goals: [], lastSync: null,
+      accounts: [], assets: [], txs: [], prices: {}, fx: {}, splits: {}, goals: [], filings: [], lastSync: null,
       properties: [{ id: "p", name: "Casa", address: "", purchaseDate: "2024-01-10", purchasePrice: 250000, purchaseCosts: 20000, note: "", createdAt: "" }],
       mortgages: [m],
       mortgageEvents: [],

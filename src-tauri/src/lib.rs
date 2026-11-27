@@ -38,6 +38,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/003_sync.sql"),
     include_str!("../migrations/004_sin_cuenta_banco.sql"),
     include_str!("../migrations/005_efectivo_solo_fondo.sql"),
+    include_str!("../migrations/006_modelos_720_721.sql"),
 ];
 
 /// Únicos servidores a los que la app puede conectarse.
@@ -52,7 +53,15 @@ const ALLOWED_HOSTS: &[&str] = &[
     "www.fundinfo.com",
     "data-api.binance.vision",
     "api.indexacapital.com",
+    // Reparto por regiones de ETF y fondos (src/data/regions.ts).
+    "lt.morningstar.com",
+    "api-global.morningstar.com",
 ];
+
+/// Clave pública con la que la web de Morningstar consulta su propia API. No es
+/// del usuario ni da acceso a nada suyo; si Morningstar la cambia, el reparto por
+/// regiones deja de actualizarse (y se ve «sin desglose») hasta cambiarla aquí.
+const MORNINGSTAR_KEY: &str = "lstzFDEOhfFNMLikKa0am9mgEKLBl49T";
 
 /// Servidores que piden una clave del usuario. La clave vive en la tabla `meta`
 /// con el prefijo `secret:`; la añade este núcleo a cada petición y la interfaz
@@ -349,6 +358,9 @@ async fn http_get(db: State<'_, Db>, url: String) -> CmdResult<String> {
     if let Some((name, value)) = auth {
         request = request.header(name, value);
     }
+    if host == "api-global.morningstar.com" {
+        request = request.header("apikey", MORNINGSTAR_KEY);
+    }
     if host == "markets.ft.com" && url.contains("/ajax/") {
         // El histórico de FT solo responde a peticiones marcadas como AJAX.
         request = request.header("X-Requested-With", "XMLHttpRequest");
@@ -602,15 +614,152 @@ fn sync_write(db: State<'_, Db>, dir: String, name: String, text: String) -> Cmd
 /// Copia de seguridad inmediata (antes de aplicar cambios venidos de otro equipo).
 #[tauri::command]
 fn backup_now(db: State<'_, Db>, label: String) -> CmdResult<()> {
+    let conn = db.conn.lock().map_err(err)?;
+    labelled_backup(&conn, &db.path, &label)
+}
+
+fn labelled_backup(conn: &Connection, db_path: &Path, label: &str) -> CmdResult<()> {
     let label: String = label.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-').take(40).collect();
-    let dir = db.path.parent().map(|p| p.join("copias")).ok_or("Sin carpeta de datos")?;
+    let dir = db_path.parent().map(|p| p.join("copias")).ok_or("Sin carpeta de datos")?;
     fs::create_dir_all(&dir).map_err(err)?;
     let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(err)?.as_secs();
     // El nombre empieza como las copias diarias para que la limpieza las trate igual.
     let file = dir.join(format!("numo-{}-{label}-{secs}.db", today_utc()));
-    let conn = db.conn.lock().map_err(err)?;
     conn.execute("VACUUM INTO ?1", [file.to_string_lossy().as_ref()]).map_err(err)?;
     Ok(())
+}
+
+// ── Restaurar una copia ─────────────────────────────────────────────────────
+// Sustituye la base de datos por una copia: una de las automáticas de la carpeta
+// `copias` o una que el usuario guardó. Antes se guarda una copia de lo que hay.
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BackupFile {
+    path: String,
+    name: String,
+    /// Segundos desde 1970 de la última modificación del archivo.
+    modified: u64,
+    bytes: u64,
+}
+
+/// Las copias de la carpeta `copias`, de la más reciente a la más antigua.
+#[tauri::command]
+fn backups_list(db: State<'_, Db>) -> CmdResult<Vec<BackupFile>> {
+    let Some(dir) = db.path.parent().map(|p| p.join("copias")) else {
+        return Ok(vec![]);
+    };
+    let Ok(entries) = fs::read_dir(&dir) else {
+        return Ok(vec![]);
+    };
+    let mut out: Vec<BackupFile> = entries
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension().is_some_and(|x| x == "db"))
+        .filter_map(|e| {
+            let meta = e.metadata().ok()?;
+            let modified = meta.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs();
+            Some(BackupFile {
+                path: e.path().display().to_string(),
+                name: e.file_name().to_string_lossy().into_owned(),
+                modified,
+                bytes: meta.len(),
+            })
+        })
+        .collect();
+    out.sort_by_key(|b| std::cmp::Reverse(b.modified));
+    Ok(out)
+}
+
+/// Pide al usuario una copia guardada por él. Devuelve null si cancela.
+#[tauri::command]
+async fn backup_pick(app: AppHandle) -> CmdResult<Option<String>> {
+    let picked = app.dialog().file().add_filter("Copia de Numo", &["db"]).blocking_pick_file();
+    Ok(match picked {
+        Some(p) => Some(p.into_path().map_err(err)?.display().to_string()),
+        None => None,
+    })
+}
+
+#[tauri::command]
+fn restore_backup(db: State<'_, Db>, path: String) -> CmdResult<()> {
+    let mut conn = db.conn.lock().map_err(err)?;
+    restore_from(&mut conn, &db.path, Path::new(&path))
+}
+
+/// Claves de `meta` que son de este equipo y no de la copia: las claves de los
+/// servicios (una copia guardada no las lleva) y la identidad y carpeta de la
+/// sincronización (una copia de otro equipo traería las suyas).
+const LOCAL_META: &str = "key LIKE 'secret:%' OR key LIKE 'sync:%'";
+
+/// Comprueba que el archivo es una base de datos de Numo sana y de una versión que esta app entiende.
+fn check_backup(src: &Path) -> Result<(), String> {
+    let bad = || "Ese archivo no es una copia de Numo".to_string();
+    let conn = Connection::open_with_flags(src, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(|_| bad())?;
+    let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).map_err(|_| bad())?;
+    if version < 1 {
+        return Err(bad());
+    }
+    if version as usize > MIGRATIONS.len() {
+        return Err("Esa copia es de una versión de Numo más nueva que esta. Actualiza la app y vuelve a intentarlo.".into());
+    }
+    let tables: i64 = conn
+        .query_row("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('accounts', 'assets', 'txs', 'meta')", [], |r| r.get(0))
+        .map_err(|_| bad())?;
+    if tables != 4 {
+        return Err(bad());
+    }
+    let check: String = conn.query_row("PRAGMA quick_check", [], |r| r.get(0)).map_err(|_| bad())?;
+    if check != "ok" {
+        return Err("Esa copia está dañada y no se puede restaurar".into());
+    }
+    Ok(())
+}
+
+/// Sustituye la base de datos abierta en `conn` (archivo `db_path`) por la copia `src`.
+/// Si algo falla antes del cambio, no se toca nada; si falla al cambiar, se vuelve a abrir la de antes.
+fn restore_from(conn: &mut Connection, db_path: &Path, src: &Path) -> Result<(), String> {
+    if !src.is_file() {
+        return Err("No se encuentra esa copia".into());
+    }
+    if src.canonicalize().ok() == db_path.canonicalize().ok() {
+        return Err("Ese archivo es la base de datos en uso, no una copia".into());
+    }
+    check_backup(src)?;
+    labelled_backup(conn, db_path, "antes-de-restaurar")?;
+
+    // La copia se prepara aparte: se trae entera, se pone al día y recibe lo que es de este equipo.
+    let staging = db_path.with_file_name("numo-restaurando.db");
+    let _ = fs::remove_file(&staging);
+    let prepare = || -> Result<(), String> {
+        let source = Connection::open_with_flags(src, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(err)?;
+        source.execute("VACUUM INTO ?1", [staging.to_string_lossy().as_ref()]).map_err(err)?;
+        drop(source);
+        let mut next = Connection::open(&staging).map_err(err)?;
+        next.execute_batch("PRAGMA foreign_keys = ON;").map_err(err)?;
+        migrate(&mut next).map_err(err)?;
+        let mut keep = conn.prepare(&format!("SELECT key, value FROM meta WHERE {LOCAL_META}")).map_err(err)?;
+        let rows: Vec<(String, String)> = keep.query_map([], |r| Ok((r.get(0)?, r.get(1)?))).map_err(err)?.collect::<Result<_, _>>().map_err(err)?;
+        let tx = next.transaction().map_err(err)?;
+        tx.execute(&format!("DELETE FROM meta WHERE {LOCAL_META}"), []).map_err(err)?;
+        for (k, v) in &rows {
+            tx.execute("INSERT INTO meta (key, value) VALUES (?1, ?2)", [k, v]).map_err(err)?;
+        }
+        tx.commit().map_err(err)
+    };
+    if let Err(e) = prepare() {
+        let _ = fs::remove_file(&staging);
+        return Err(e);
+    }
+
+    // Cambio: se cierra la base de datos (lo pendiente del WAL se consolida al cerrar) y la copia ocupa su sitio.
+    let old = std::mem::replace(conn, Connection::open_in_memory().map_err(err)?);
+    drop(old);
+    for ext in ["db-wal", "db-shm"] {
+        let _ = fs::remove_file(db_path.with_extension(ext));
+    }
+    let swapped = fs::rename(&staging, db_path).map_err(err);
+    *conn = open(db_path).map_err(err)?;
+    swapped
 }
 
 /// Página de versiones del repositorio: de ahí se descargan los instaladores.
@@ -736,6 +885,9 @@ pub fn run() {
             sync_read,
             sync_write,
             backup_now,
+            backups_list,
+            backup_pick,
+            restore_backup,
             open_releases,
             check_update,
             install_update,
@@ -901,6 +1053,9 @@ mod tests {
         assert!(check_url("https://data-api.binance.vision/api/v3/klines").is_ok());
         assert!(check_url("https://api.indexacapital.com/users/me").is_ok());
         assert!(check_url("https://api.binance.com/api/v3/klines").is_err());
+        assert!(check_url("https://lt.morningstar.com/api/rest.svc/x/security/screener").is_ok());
+        assert!(check_url("https://api-global.morningstar.com/sal-service/v1/fund/portfolio/regionalSector/x/data").is_ok());
+        assert!(check_url("https://www.morningstar.com/").is_err());
         assert!(check_url("http://query1.finance.yahoo.com/").is_err());
         assert!(check_url("https://example.com/").is_err());
         assert!(check_url("https://query1.finance.yahoo.com.evil.test/").is_err());
@@ -1034,6 +1189,47 @@ mod tests {
         assert!(old_dir.join(LEGACY_DB).exists(), "la carpeta antigua no se toca");
         // Sin versión anterior no pasa nada.
         adopt_legacy_data(&base.join("otra").join("app.numo.desktop"));
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn a_backup_replaces_the_data_but_keeps_this_devices_keys() {
+        let base = std::env::temp_dir().join(format!("numo-restore-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        fs::create_dir_all(&base).unwrap();
+        let db_path = base.join("numo.db");
+        let mut conn = open(&db_path).unwrap();
+        migrate(&mut conn).unwrap();
+        conn.execute(NEW_ACCOUNT, ["a1", "Antes"]).unwrap();
+        let copy = base.join("copia.db");
+        conn.execute("VACUUM INTO ?1", [copy.to_string_lossy().as_ref()]).unwrap();
+        // La copia viene de otro equipo: su identidad de sincronización no debe quedarse.
+        {
+            let c = Connection::open(&copy).unwrap();
+            c.execute("INSERT INTO meta (key, value) VALUES ('sync:device', 'otro')", []).unwrap();
+        }
+        // Después de la copia, cambios en este equipo.
+        conn.execute(NEW_ACCOUNT, ["a2", "Después"]).unwrap();
+        conn.execute("INSERT INTO meta (key, value) VALUES ('secret:indexa', 'tok'), ('sync:device', 'este')", []).unwrap();
+
+        restore_from(&mut conn, &db_path, &copy).unwrap();
+        let names: Vec<String> = conn.prepare("SELECT name FROM accounts").unwrap().query_map([], |r| r.get(0)).unwrap().map(Result::unwrap).collect();
+        assert_eq!(names, vec!["Antes".to_string()], "quedan los datos de la copia");
+        let meta = |k: &str| -> Option<String> { conn.query_row("SELECT value FROM meta WHERE key = ?1", [k], |r| r.get(0)).ok() };
+        assert_eq!(meta("secret:indexa").as_deref(), Some("tok"), "la clave de este equipo se conserva");
+        assert_eq!(meta("sync:device").as_deref(), Some("este"), "la identidad de este equipo se conserva");
+        let saved = fs::read_dir(base.join("copias")).unwrap().filter_map(|e| e.ok()).any(|e| e.file_name().to_string_lossy().contains("antes-de-restaurar"));
+        assert!(saved, "antes de restaurar se guarda una copia de lo que había");
+        assert!(!base.join("numo-restaurando.db").exists());
+
+        // Un archivo que no es una copia de Numo no toca nada.
+        let junk = base.join("otra.db");
+        Connection::open(&junk).unwrap().execute_batch("CREATE TABLE x (y);").unwrap();
+        assert!(restore_from(&mut conn, &db_path, &junk).is_err());
+        assert!(restore_from(&mut conn, &db_path, &db_path).is_err(), "la base de datos en uso no se restaura sobre sí misma");
+        let count: i64 = conn.query_row("SELECT COUNT(*) FROM accounts", [], |r| r.get(0)).unwrap();
+        assert_eq!(count, 1);
+        drop(conn);
         let _ = fs::remove_dir_all(&base);
     }
 

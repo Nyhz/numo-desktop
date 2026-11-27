@@ -396,6 +396,16 @@ textarea,
   .trow.linked {
     background: var(--wash2);
   }
+  /* Degradado en el borde de una tabla más ancha que la ventana (ver Table en pages/common.tsx). */
+  .table-edge {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 28px;
+    pointer-events: none;
+    background: linear-gradient(to right, var(--card), transparent);
+    transition: opacity 0.18s;
+  }
   .thead {
     display: grid;
     gap: 12px;
@@ -558,4 +568,10 @@ html[data-splash] .ring-sweep {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* Columnas secundarias de una tabla en su plantilla compacta (ver Table en
+   pages/common.tsx). Fuera de las capas para ganar a cualquier `flex` o `grid`. */
+[data-compact] .opt {
+  display: none;
 }

@@ -14,7 +14,7 @@ const EPOCH = "1970-01-01T00:00:00.000Z";
 
 /** Campos de cada tipo de registro. Lo que no esté aquí no viaja. */
 const FIELDS: Record<Entity, readonly string[]> = {
-  accounts: ["id", "name", "institution", "kind", "currency", "color", "trackCash", "archived", "createdAt"],
+  accounts: ["id", "name", "institution", "kind", "currency", "color", "trackCash", "country", "archived", "createdAt"],
   goals: ["id", "name", "targetPct", "color", "sortOrder", "createdAt"],
   assets: ["id", "name", "kind", "symbol", "isin", "currency", "priceSource", "goalId", "planExcluded", "createdAt"],
   properties: ["id", "name", "address", "purchaseDate", "purchasePrice", "purchaseCosts", "note", "createdAt"],
@@ -22,9 +22,10 @@ const FIELDS: Record<Entity, readonly string[]> = {
   txs: ["id", "date", "type", "accountId", "assetId", "quantity", "price", "amount", "currency", "fxRate", "fee", "feeCurrency", "taxSource", "taxHome", "toAccountId", "toAssetId", "toQuantity", "note", "createdAt"],
   mortgageEvents: ["id", "mortgageId", "date", "type", "amount", "mode", "ratePct", "note", "createdAt"],
   valuations: ["id", "propertyId", "date", "value", "note"],
+  filings: ["id", "model", "year", "blocks", "items", "createdAt"],
 };
-const PUT = { accounts: "putAccount", goals: "putGoal", assets: "putAsset", properties: "putProperty", mortgages: "putMortgage", txs: "putTx", mortgageEvents: "putMortgageEvent", valuations: "putValuation" } as const;
-const DEL = { accounts: "delAccount", goals: "delGoal", assets: "delAsset", properties: "delProperty", mortgages: "delMortgage", txs: "delTx", mortgageEvents: "delMortgageEvent", valuations: "delValuation" } as const;
+const PUT = { accounts: "putAccount", goals: "putGoal", assets: "putAsset", properties: "putProperty", mortgages: "putMortgage", txs: "putTx", mortgageEvents: "putMortgageEvent", valuations: "putValuation", filings: "putFiling" } as const;
+const DEL = { accounts: "delAccount", goals: "delGoal", assets: "delAsset", properties: "delProperty", mortgages: "delMortgage", txs: "delTx", mortgageEvents: "delMortgageEvent", valuations: "delValuation", filings: "delFiling" } as const;
 
 type Row = Record<string, unknown> & { id: string };
 type Stamped = Row & { _at: string };
@@ -90,6 +91,8 @@ export function parseSnapshot(text: string): Snapshot | null {
   if (!raw || typeof raw !== "object" || typeof raw.format !== "number" || !raw.device?.id || !raw.records) return null;
   if (raw.format > SYNC_FORMAT) throw new Error(`«${raw.device.name || "Otro equipo"}» usa una versión más nueva de Numo. Actualiza la app en este equipo para sincronizar.`);
   const records = {} as Record<Entity, Stamped[]>;
+  // Hasta la 0.5 las cuentas no tenían país: las de un equipo sin actualizar se leen como españolas.
+  for (const a of Array.isArray(raw.records.accounts) ? raw.records.accounts : []) if (a && a.country === undefined) a.country = "ES";
   for (const entity of ENTITIES) {
     const list = Array.isArray(raw.records[entity]) ? raw.records[entity] : [];
     // Solo se aceptan registros completos: con todos sus campos y su marca de tiempo.
@@ -311,4 +314,25 @@ export function stampOps(stamps: Stamp[], ops: Op[], now: string, state: AppStat
     loaded = reduce(loaded, [o]);
   }
   return [...map.values()];
+}
+
+/**
+ * Tras restaurar una copia, lo restaurado tiene que ganar en los demás equipos: si
+ * no, al sincronizar volverían sus versiones más recientes y deshacerían la
+ * restauración. Cada registro de la copia pasa a ser un cambio de ahora, y lo que
+ * había aquí y la copia no tiene, un borrado de ahora.
+ */
+export function restampRestored(before: AppState, beforeStamps: Stamp[], restored: AppState, now: string): Op[] {
+  const puts: Op[] = [];
+  const dels: Op[] = [];
+  for (const entity of ENTITIES) {
+    const kept = new Set(rowsOf(restored, entity).map((r) => r.id));
+    for (const row of rowsOf(restored, entity)) puts.push({ op: PUT[entity], row, at: now } as Op);
+    const gone = new Set<string>();
+    for (const row of rowsOf(before, entity)) if (!kept.has(row.id)) gone.add(row.id);
+    for (const st of beforeStamps) if (st.entity === entity && !st.deleted && !kept.has(st.id)) gone.add(st.id);
+    for (const id of gone) dels.push({ op: DEL[entity], id, at: now } as Op);
+  }
+  // Primero los borrados, de los que dependen a aquellos de los que dependen; después, lo restaurado.
+  return [...dels.reverse(), ...puts];
 }

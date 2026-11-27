@@ -22,6 +22,8 @@ const SORT: Record<SortKey, (p: Position) => number | string> = {
 };
 // La primera columna cede sitio: con el menú desplegado la tabla ha de caber sin barra horizontal.
 const COLS = "minmax(180px,2.2fr) 84px 124px 64px 88px 128px 128px 132px";
+/** Sin unidades ni tendencia: están en el detalle de cada posición. */
+const COMPACT = "minmax(180px,2.2fr) 124px 64px 128px 128px 132px";
 
 /** Botón con las tres formas de llevarse las posiciones: PDF (con gráficos), Excel o CSV. */
 function DownloadMenu({ onPick, busy }: { onPick: (format: "pdf" | "xlsx" | "csv") => void; busy: boolean }) {
@@ -341,15 +343,15 @@ export function Posiciones() {
             <DownloadMenu onPick={(f) => void download(f)} busy={exporting} />
           </div>
           <section className="card overflow-hidden" onMouseLeave={() => setHot(null)}>
-            <Table cols={COLS} minWidth={990} order={rows.map((p) => p.asset.id).join()}>
+            <Table cols={COLS} compact={COMPACT} minWidth={990} order={rows.map((p) => p.asset.id).join()}>
               <THead>
                 <Th k="name" left>
                   Activo
                 </Th>
-                <span>Unidades</span>
+                <span className="opt">Unidades</span>
                 <span>Precio</span>
                 <Th k="day">Día</Th>
-                <span>Tendencia</span>
+                <span className="opt">Tendencia</span>
                 <Th k="value">Valor</Th>
                 <Th k="gain">Plusvalía</Th>
                 <Th k="weight">Peso</Th>
@@ -374,12 +376,12 @@ export function Posiciones() {
                         <span>· {ASSET_KIND_LABEL[p.asset.kind]}</span>
                       </div>
                     </L>
-                    <span className="priv">{units(p.qty)}</span>
+                    <span className="opt priv">{units(p.qty)}</span>
                     <span className="text-ink2">
                       <Flash value={p.price}>{p.price == null ? "—" : price(p.price, p.asset.currency)}</Flash>
                     </span>
                     <span style={{ color: toneOf(p.dayChangePct, 0.0005) }}>{p.dayChangePct == null ? "—" : pctSigned(p.dayChangePct)}</span>
-                    {series.length > 1 ? <Spark values={series} color={toneOf(trend, 1e-9)} /> : <span className="text-mute">—</span>}
+                    <span className="opt flex justify-end">{series.length > 1 ? <Spark values={series} color={toneOf(trend, 1e-9)} /> : <span className="text-mute">—</span>}</span>
                     <div>
                       <div className="font-semibold">
                         <Flash value={p.valueEur}>
@@ -407,10 +409,10 @@ export function Posiciones() {
                 <L>
                   {rows.length} {rows.length === 1 ? "posición" : "posiciones"}
                 </L>
+                <span className="opt" />
                 <span />
                 <span />
-                <span />
-                <span />
+                <span className="opt" />
                 <span className="priv">{eur(value)}</span>
                 <div style={{ color: toneOf(value - cost) }}>
                   <div className="priv">{eurSigned(value - cost)}</div>

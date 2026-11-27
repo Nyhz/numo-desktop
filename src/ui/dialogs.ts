@@ -9,6 +9,7 @@ export type DialogState =
   | { kind: "asset"; asset?: Asset; stay?: boolean }
   | { kind: "price"; asset: Asset }
   | { kind: "import" }
+  | { kind: "restore" }
   | { kind: "property"; property?: Property }
   | { kind: "mortgageEvent"; mortgage: Mortgage; type: MortgageEventType; amount?: number; mode?: "reduce_term" | "reduce_installment" }
   | { kind: "valuation"; property: Property }

@@ -4,13 +4,14 @@ import { dayNum } from "../../shared/dates.ts";
 import { buildYearReport, lossCarryover, taxYearBases, yearsWithActivity } from "../../shared/engine/reports.ts";
 import { ASSET_KIND_LABEL, TX_LABEL } from "../../shared/types.ts";
 import { LotsTimeline, SplitBar } from "../charts/viz.tsx";
-import { useApp, useDerived } from "../data/store.ts";
+import { useApp, useDerived, useForeign } from "../data/store.ts";
 import { cashSheet, gainsSheet, holdingsSheet, incomeSheet, operationsSheet, saveCsv, saveXlsx, summarySheet, txsOfYear, type Sheet } from "../lib/export.ts";
 import { dateNumeric, dateShort, eur, eurSigned, fxRate, money, num, price, units } from "../lib/format.ts";
 import { Btn, Card, HeaderSlot, Kpi, Kpis, Money, Pills, Priv, Tag, toast, toneOf } from "../ui/kit.tsx";
 import { L, TFoot, THead, TRow, Table, Welcome } from "./common.tsx";
+import { ForeignBanner, ForeignTab } from "./ForeignTab.tsx";
 
-type Tab = "pat" | "div" | "pos";
+type Tab = "pat" | "div" | "pos" | "ext";
 
 export function Informes() {
   const d = useDerived();
@@ -24,6 +25,7 @@ export function Informes() {
   const [tab, setTab] = useState<Tab>("pat");
   const rep = useMemo(() => buildYearReport(d.ledger, d.state, d.timeline, d.scope, year, d.today), [d, year]);
 
+  const foreign = useForeign(year);
   const carry = useMemo(() => lossCarryover(taxYearBases(d.ledger, d.scope)).find((y) => y.year === year), [d.ledger, d.scope, year]);
 
   if (d.state.accounts.length === 0) return <Welcome />;
@@ -64,6 +66,7 @@ export function Informes() {
             ["pat", "Ganancias y pérdidas"],
             ["div", "Dividendos e intereses"],
             ["pos", "Posiciones y efectivo"],
+            ["ext", "Bienes en el extranjero"],
           ]}
         />
       </HeaderSlot>
@@ -97,23 +100,29 @@ export function Informes() {
         </Btn>
       </section>
 
-      <Kpis>
-        <Kpi label="Resultado de ventas" note={<>ganancias <Priv>{eur(t.gainsEur, 0)}</Priv> · pérdidas <Priv>{eur(t.lossesEur, 0)}</Priv></>} tone={t.netGainEur}>
-          <Money value={t.netGainEur} signed dim="soft" />
-        </Kpi>
-        <Kpi priv label="Dividendos brutos">
-          {eur(t.dividendsGrossEur)}
-        </Kpi>
-        <Kpi priv label="Intereses brutos">
-          {eur(t.interestGrossEur)}
-        </Kpi>
-        <Kpi priv label="Retenciones" note={<>origen <Priv>{eur(t.taxSourceEur)}</Priv> · España <Priv>{eur(t.taxHomeEur)}</Priv></>}>
-          {eur(t.taxSourceEur + t.taxHomeEur)}
-        </Kpi>
-        <Kpi priv label="Comisiones y gastos">
-          {eur(t.feesEur)}
-        </Kpi>
-      </Kpis>
+      <ForeignBanner year={year} statuses={foreign} onOpen={tab === "ext" ? undefined : () => setTab("ext")} />
+
+      {tab === "ext" && <ForeignTab year={year} statuses={foreign} />}
+
+      {tab !== "ext" && (
+        <Kpis>
+          <Kpi label="Resultado de ventas" note={<>ganancias <Priv>{eur(t.gainsEur, 0)}</Priv> · pérdidas <Priv>{eur(t.lossesEur, 0)}</Priv></>} tone={t.netGainEur}>
+            <Money value={t.netGainEur} signed dim="soft" />
+          </Kpi>
+          <Kpi priv label="Dividendos brutos">
+            {eur(t.dividendsGrossEur)}
+          </Kpi>
+          <Kpi priv label="Intereses brutos">
+            {eur(t.interestGrossEur)}
+          </Kpi>
+          <Kpi priv label="Retenciones" note={<>origen <Priv>{eur(t.taxSourceEur)}</Priv> · España <Priv>{eur(t.taxHomeEur)}</Priv></>}>
+            {eur(t.taxSourceEur + t.taxHomeEur)}
+          </Kpi>
+          <Kpi priv label="Comisiones y gastos">
+            {eur(t.feesEur)}
+          </Kpi>
+        </Kpis>
+      )}
 
       {tab === "pat" && (
         <>
@@ -138,10 +147,10 @@ export function Informes() {
             {rep.gains.length === 0 ? (
               <div className="px-5 pb-5 text-mute">No hubo ventas en {year}.</div>
             ) : (
-              <Table cols="minmax(200px,1.6fr) 130px 70px 100px 130px 100px 130px 130px" minWidth={1000}>
+              <Table cols="minmax(190px,1.6fr) 120px 60px 88px 112px 88px 112px 112px" compact="minmax(190px,1.6fr) 60px 88px 112px 88px 112px 112px" minWidth={1000}>
                 <THead>
                   <L>Activo</L>
-                  <L>Cuenta</L>
+                  <L className="opt">Cuenta</L>
                   <span>Unidades</span>
                   <span>Adquisición</span>
                   <span>Valor de adquisición</span>
@@ -162,7 +171,7 @@ export function Informes() {
                       </div>
                       <div className="selectable text-[11.5px] text-mute">{[g.asset.isin, ASSET_KIND_LABEL[g.asset.kind]].filter(Boolean).join(" · ")}</div>
                     </L>
-                    <L className="truncate">{g.account.name}</L>
+                    <L className="opt truncate">{g.account.name}</L>
                     <span className="priv">{units(g.qty)}</span>
                     <span className="text-ink2">{g.acqDate ? dateNumeric(g.acqDate) : <span className="text-acc">sin compra</span>}</span>
                     <span className="priv">{eur(g.acqValueEur)}</span>
@@ -175,7 +184,7 @@ export function Informes() {
                 ))}
                 <TFoot>
                   <L>Total</L>
-                  <span />
+                  <span className="opt" />
                   <span />
                   <span />
                   <span className="priv">{eur(t.acqValueEur)}</span>
@@ -255,13 +264,13 @@ export function Informes() {
             {rep.income.length === 0 ? (
               <div className="px-5 pb-5 text-mute">No hubo cobros en {year}.</div>
             ) : (
-              <Table cols="96px minmax(240px,2fr) 44px 110px 76px 84px 84px 90px 90px" minWidth={1000}>
+              <Table cols="96px minmax(240px,2fr) 44px 110px 76px 84px 84px 90px 90px" compact="96px minmax(240px,2fr) 44px 84px 84px 90px 90px" minWidth={1000}>
                 <THead>
                   <L>Fecha</L>
                   <L>Concepto</L>
                   <L>País</L>
-                  <span>Bruto en divisa</span>
-                  <span>Cambio</span>
+                  <span className="opt">Bruto en divisa</span>
+                  <span className="opt">Cambio</span>
                   <span>Bruto</span>
                   <span>Ret. origen</span>
                   <span>Ret. España</span>
@@ -274,8 +283,8 @@ export function Informes() {
                       <span className="font-medium">{r.asset?.name ?? TX_LABEL[r.type]}</span> <span className="text-mute">· {r.account.name}</span>
                     </L>
                     <L className="text-ink2">{r.country || "—"}</L>
-                    <span className="priv">{r.currency === "EUR" ? "" : money(r.grossNative, r.currency)}</span>
-                    <span className="text-mute">{r.currency === "EUR" ? "" : fxRate(r.fxRate)}</span>
+                    <span className="opt priv">{r.currency === "EUR" ? "" : money(r.grossNative, r.currency)}</span>
+                    <span className="opt text-mute">{r.currency === "EUR" ? "" : fxRate(r.fxRate)}</span>
                     <span className="priv">{eur(r.grossEur)}</span>
                     <span className="priv text-mute">{r.taxSourceEur ? eur(r.taxSourceEur) : ""}</span>
                     <span className="priv text-mute">{r.taxHomeEur ? eur(r.taxHomeEur) : ""}</span>
@@ -286,8 +295,8 @@ export function Informes() {
                   <L>Total</L>
                   <span />
                   <span />
-                  <span />
-                  <span />
+                  <span className="opt" />
+                  <span className="opt" />
                   <span className="priv">{eur(gross)}</span>
                   <span className="priv">{eur(t.taxSourceEur)}</span>
                   <span className="priv">{eur(t.taxHomeEur)}</span>
@@ -305,14 +314,14 @@ export function Informes() {
             {rep.holdings.length === 0 ? (
               <div className="px-5 pb-5 text-mute">No había posiciones abiertas.</div>
             ) : (
-              <Table cols="150px minmax(220px,2fr) 44px 110px 130px 80px 130px" minWidth={940}>
+              <Table cols="150px minmax(220px,2fr) 44px 110px 130px 80px 130px" compact="150px minmax(220px,2fr) 44px 110px 130px 130px" minWidth={940}>
                 <THead>
                   <L>Cuenta</L>
                   <L>Activo</L>
                   <L>País</L>
                   <span>Unidades</span>
                   <span>Precio</span>
-                  <span>Cambio</span>
+                  <span className="opt">Cambio</span>
                   <span>Valor</span>
                 </THead>
                 {rep.holdings.map((h, i) => (
@@ -325,7 +334,7 @@ export function Informes() {
                     <L className="text-ink2">{h.country || "—"}</L>
                     <span className="priv">{units(h.qty)}</span>
                     <span className="text-ink2">{h.price == null ? <span className="text-acc">sin precio</span> : price(h.price, h.currency)}</span>
-                    <span className="text-mute">{h.currency === "EUR" ? "" : fxRate(h.fxRate)}</span>
+                    <span className="opt text-mute">{h.currency === "EUR" ? "" : fxRate(h.fxRate)}</span>
                     <span className="priv font-semibold">{eur(h.valueEur)}</span>
                   </TRow>
                 ))}
@@ -335,7 +344,7 @@ export function Informes() {
                   <span />
                   <span />
                   <span />
-                  <span />
+                  <span className="opt" />
                   <span className="priv">{eur(t.holdingsEur)}</span>
                 </TFoot>
               </Table>

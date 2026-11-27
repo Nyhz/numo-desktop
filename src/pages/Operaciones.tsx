@@ -38,7 +38,9 @@ const LEGEND: Array<[string, string]> = [
   ["Ingreso o retirada", "var(--ink2)"],
   ["Comisión", "var(--down)"],
 ];
-const COLS = "96px 96px 150px minmax(160px,1.6fr) 84px 118px 130px 86px 124px";
+const COLS = "88px 80px minmax(130px,1fr) minmax(150px,1.6fr) 76px 108px 112px 68px 112px";
+/** Sin precio ni costes: se ven al abrir la operación. */
+const COMPACT = "88px 80px minmax(130px,1fr) minmax(150px,1.6fr) 76px 112px 112px";
 const PAGE = 200;
 
 const describeHead = (n: NTx) => `${dateShort(n.tx.date)} · ${TX_LABEL[n.tx.type]}${n.asset ? ` · ${n.asset.name}` : ""}`;
@@ -148,16 +150,16 @@ export function Operaciones() {
         </Empty>
       ) : (
         <section className="card overflow-hidden" onMouseLeave={() => setHot(null)}>
-          <Table cols={COLS} minWidth={1080}>
+          <Table cols={COLS} compact={COMPACT} minWidth={1000}>
             <THead>
               <L>Fecha</L>
               <L>Tipo</L>
               <L>Cuenta</L>
               <L>Activo</L>
               <span>Unidades</span>
-              <span>Precio</span>
+              <span className="opt">Precio</span>
               <span>Importe</span>
-              <span>Costes</span>
+              <span className="opt">Costes</span>
               <span>Efecto en EUR</span>
             </THead>
             {rows.slice(0, shown).map((n) => {
@@ -181,9 +183,9 @@ export function Operaciones() {
                     {to && <span className="font-normal text-mute"> → {to}</span>}
                   </L>
                   <span className="priv">{tx.quantity != null ? units(tx.quantity) : ""}</span>
-                  <span className="text-ink2">{tx.price != null ? price(tx.price, tx.currency) : ""}</span>
+                  <span className="opt text-ink2">{tx.price != null ? price(tx.price, tx.currency) : ""}</span>
                   <span className="priv">{tx.type === "transfer" ? "" : money(gross, tx.currency)}</span>
-                  <span className="priv text-mute" title={n.taxSourceEur + n.taxHomeEur ? "Comisión y retenciones" : "Comisión"}>
+                  <span className="opt priv text-mute" title={n.taxSourceEur + n.taxHomeEur ? "Comisión y retenciones" : "Comisión"}>
                     {costs ? eur(costs) : ""}
                   </span>
                   <span className="font-semibold" style={{ color: n.cashEur > 0.005 ? "var(--up)" : undefined }}>

@@ -5,7 +5,7 @@ import { periodStats } from "../../shared/engine/timeline.ts";
 import { ACCOUNT_KIND_LABEL } from "../../shared/types.ts";
 import { Trend } from "../charts/viz.tsx";
 import { derive, setScope, useApp } from "../data/store.ts";
-import { eur, eurSigned, money, pct, seriesColor, splitMoney } from "../lib/format.ts";
+import { countryName, eur, eurSigned, money, pct, seriesColor, splitMoney } from "../lib/format.ts";
 import { openDialog } from "../ui/dialogs.ts";
 import { Btn, Dot, Tag, toneOf } from "../ui/kit.tsx";
 import { Welcome } from "./common.tsx";
@@ -80,7 +80,7 @@ export function Cuentas() {
                     {r.account.archived && <Tag>Archivada</Tag>}
                   </div>
                   <div className="mt-0.5 truncate text-[12px] text-mute">
-                    {[r.account.institution, ACCOUNT_KIND_LABEL[r.account.kind], r.account.currency !== "EUR" ? r.account.currency : ""].filter(Boolean).join(" · ")}
+                    {[r.account.institution, ACCOUNT_KIND_LABEL[r.account.kind], r.account.country !== "ES" ? countryName(r.account.country) : "", r.account.currency !== "EUR" ? r.account.currency : ""].filter(Boolean).join(" · ")}
                   </div>
                 </div>
                 <span className="shrink-0 text-[12px] text-mute">{fund ? "aparte de la cartera" : total > 0 ? `${pct(Math.max(0, r.value) / total)} de la cartera` : ""}</span>

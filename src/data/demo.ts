@@ -35,7 +35,8 @@ export function makeDemo(today: string): AppState {
   const from = addDays(start, -12);
   const at = "2020-01-01T00:00:00.000Z";
 
-  const account = (i: number, name: string, institution: string, kind: Account["kind"], currency: string): Account => ({
+  // El país de la entidad decide qué entra en los modelos 720 y 721 (Informes).
+  const account = (i: number, name: string, institution: string, kind: Account["kind"], currency: string, country = "ES"): Account => ({
     id: `demo-acct-${i}`,
     name,
     institution,
@@ -43,13 +44,14 @@ export function makeDemo(today: string): AppState {
     currency,
     color: i,
     trackCash: holdsCash(kind),
+    country,
     archived: false,
     createdAt: at,
   });
-  const broker = account(1, "Bróker Atlas", "Atlas Valores", "broker", "EUR");
+  const broker = account(1, "Bróker Atlas", "Atlas Valores", "broker", "EUR", "DE");
   const funds = account(2, "Fondos Norte", "Banco Norte", "broker", "EUR");
-  const usd = account(3, "Bróker Meridian", "Meridian Securities", "broker", "USD");
-  const crypto = account(4, "Cripto", "Exchange Boreal", "crypto", "EUR");
+  const usd = account(3, "Bróker Meridian", "Meridian Securities", "broker", "USD", "IE");
+  const crypto = account(4, "Cripto", "Exchange Boreal", "crypto", "EUR", "MT");
   const cushion = account(5, "Fondo de emergencia", "Banco Litoral", "emergency", "EUR");
 
   const assets: Asset[] = [];
@@ -194,5 +196,5 @@ export function makeDemo(today: string): AppState {
   const mortgageEvents: MortgageEvent[] = [];
   const valuations = [{ id: "demo-val-1", propertyId: property.id, date: addMonths(bought, 20), value: 262000, note: "Tasación" }];
 
-  return { accounts: [broker, funds, usd, crypto, cushion], assets, txs, prices, fx, splits: {}, goals, properties: [property], mortgages: [mortgage], mortgageEvents, valuations, lastSync: null };
+  return { accounts: [broker, funds, usd, crypto, cushion], assets, txs, prices, fx, splits: {}, goals, properties: [property], mortgages: [mortgage], mortgageEvents, valuations, filings: [], lastSync: null };
 }

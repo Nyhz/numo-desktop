@@ -326,11 +326,11 @@ export function Plan() {
 
         <Card title="Qué activo va en cada bloque" pad={false} className="flex-[2.4_1_560px] overflow-hidden" note="lo que marques como «fuera del plan» no cuenta en ningún bloque">
           <div onMouseLeave={() => setHot(null)}>
-            <Table cols="minmax(150px,1fr) 92px 62px 184px 122px" minWidth={700}>
+            <Table cols="minmax(150px,1fr) 92px 62px 184px 122px" compact="minmax(150px,1fr) 92px 184px 122px" minWidth={700}>
               <THead>
                 <L>Activo</L>
                 <span>Valor</span>
-                <span>Peso</span>
+                <span className="opt">Peso</span>
                 <L>Bloque</L>
                 <L>En el plan</L>
               </THead>
@@ -353,7 +353,7 @@ export function Plan() {
                         </button>
                       </L>
                       <span className="priv">{eur(p?.valueEur ?? 0, 0)}</span>
-                      <span className="text-ink2">{a.planExcluded || !plan.totalEur ? "—" : pct((p?.valueEur ?? 0) / plan.totalEur)}</span>
+                      <span className="opt text-ink2">{a.planExcluded || !plan.totalEur ? "—" : pct((p?.valueEur ?? 0) / plan.totalEur)}</span>
                       <L className="flex items-center gap-2">
                         <Dot color={g ? seriesColor(g.color) : "var(--line2)"} size={8} />
                         <select className="field h-8" aria-label={`Bloque de ${a.name}`} disabled={a.planExcluded} value={a.goalId ?? ""} onChange={(e) => void set(e.target.value || null, false)}>

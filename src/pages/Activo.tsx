@@ -5,7 +5,7 @@ import { dayNum, isoOf } from "../../shared/dates.ts";
 import { ASSET_KIND_LABEL, TX_LABEL } from "../../shared/types.ts";
 import { HeroChart, lineModel } from "../charts/hero.tsx";
 import { useDerived, useHeld } from "../data/store.ts";
-import { dateShort, eur, eurSigned, num, pct, price, seriesColor, units } from "../lib/format.ts";
+import { avgPrice, dateShort, eur, eurSigned, num, pct, price, seriesColor, units } from "../lib/format.ts";
 import { openDialog } from "../ui/dialogs.ts";
 import { BigMoney, Btn, Card, Dot, Empty, Kpi, Kpis, Money, Priv, Tag, toneOf } from "../ui/kit.tsx";
 import { useFresh } from "../ui/motion.ts";
@@ -137,7 +137,7 @@ export function Activo({ id }: { id: string }) {
           {pos?.price != null ? price(pos.price, asset.currency) : data.last != null ? price(data.last, asset.currency) : "—"}
         </Kpi>
         <Kpi label="Coste medio" note="por unidad, en EUR">
-          {avg == null ? "—" : price(avg, "EUR")}
+          {avg == null ? "—" : avgPrice(avg, "EUR")}
         </Kpi>
         <Kpi label="Peso en la cartera">{pos ? pct(pos.weight) : "—"}</Kpi>
         <Kpi label="Realizado y cobrado" note={<>ventas <Priv>{eur(data.realized, 0)}</Priv> · dividendos <Priv>{eur(data.income, 0)}</Priv></>} tone={data.realized + data.income}>

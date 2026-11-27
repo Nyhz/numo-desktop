@@ -297,7 +297,8 @@ function PropertyPanel({ v, today, portfolio }: { v: PropertyView; today: string
         </Kpis>
       )}
 
-      <div className="grid items-start gap-5" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))" }}>
+      {/* 520 px: lo que necesita el cuadro por años; si no caben dos, van uno debajo del otro. */}
+      <div className="grid items-start gap-5" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(520px, 1fr))" }}>
         {loan && tableYears.length > 0 && <YearTable years={shownYears} hot={hy} onHover={setHy} total={tableYears.length} all={allYears} onToggle={() => setAllYears((x) => !x)} />}
         <History v={v} />
       </div>

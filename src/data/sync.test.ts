@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Account, Asset, Goal, Mortgage, Property, PropertyValuation, Tx } from "../../shared/types.ts";
 import { EMPTY_STATE, reduce, type Loaded, type Op, type Stamp } from "./backend.ts";
-import { buildSnapshot, mergeSnapshots, parseSnapshot, sealedDevice, snapshotBody, stampOps, SYNC_FORMAT, type Snapshot } from "./sync.ts";
+import { buildSnapshot, mergeSnapshots, parseSnapshot, restampRestored, sealedDevice, snapshotBody, stampOps, SYNC_FORMAT, type Snapshot } from "./sync.ts";
 
 // Dos (o tres) equipos de mentira: cada uno con su estado y sus marcas de tiempo,
 // que solo se comunican publicando y leyendo archivos, como en la app.
@@ -36,7 +36,7 @@ class Equipo {
 }
 const t = (n: number) => `2026-11-${String(n).padStart(2, "0")}T10:00:00.000Z`;
 
-const account = (id: string, name = id): Account => ({ id, name, institution: "", kind: "broker", currency: "EUR", color: 1, trackCash: false, archived: false, createdAt: t(1) });
+const account = (id: string, name = id): Account => ({ id, name, institution: "", kind: "broker", currency: "EUR", color: 1, trackCash: false, country: "ES", archived: false, createdAt: t(1) });
 const asset = (id: string, goalId: string | null = null): Asset => ({ id, name: id, kind: "etf", symbol: null, isin: null, currency: "EUR", priceSource: "manual", goalId, planExcluded: false, createdAt: t(1) });
 const goal = (id: string, targetPct = 50): Goal => ({ id, name: id, targetPct, color: 1, sortOrder: 0, createdAt: t(1) });
 const tx = (id: string, accountId: string, assetId: string, quantity = 1): Tx => ({ id, date: "2026-11-02", type: "buy", accountId, assetId, quantity, price: 10, amount: 10 * quantity, currency: "EUR", fxRate: 1, fee: 0, feeCurrency: "EUR", taxSource: 0, taxHome: 0, toAccountId: null, toAssetId: null, toQuantity: null, note: "", createdAt: t(2) });
@@ -198,5 +198,31 @@ describe("sincronización entre equipos", () => {
     ]);
     // La hora de escritura no cuenta para decidir si hay que volver a publicar.
     expect(snapshotBody({ ...snap, writtenAt: t(20) })).toBe(snapshotBody(snap));
+  });
+});
+
+describe("restaurar una copia con la sincronización activa", () => {
+  it("lo restaurado gana en los demás equipos y lo posterior a la copia se borra", () => {
+    const mac = conDatos("mac");
+    const pc = new Equipo("pc");
+    pc.trae(mac);
+    const copia = mac.loaded; // la copia se guarda aquí
+    // Después de la copia: el PC añade una compra y el Mac la recibe.
+    pc.hace(t(5), { op: "putTx", row: tx("compra-2", "cuenta", "etf", 3) });
+    mac.trae(pc);
+    expect(mac.s.txs.map((x) => x.id).sort()).toEqual(["compra", "compra-2"]);
+
+    // El Mac restaura la copia y reajusta las marcas como hace la app.
+    const before = mac.s;
+    const ops = restampRestored(before, mac.stamps, copia.state, t(9));
+    mac.loaded = copia;
+    mac.stamps = stampOps(mac.stamps, ops, t(9), mac.loaded.state);
+    mac.loaded = reduce(mac.loaded, ops);
+
+    // Al sincronizar, el Mac no recupera la compra posterior y el PC la borra.
+    mac.trae(pc);
+    expect(mac.s.txs.map((x) => x.id)).toEqual(["compra"]);
+    pc.trae(mac);
+    expect(pc.s.txs.map((x) => x.id)).toEqual(["compra"]);
   });
 });

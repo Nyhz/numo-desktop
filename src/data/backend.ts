@@ -1,4 +1,4 @@
-import type { Account, AppState, Asset, Goal, Mortgage, MortgageEvent, Point, Property, PropertyValuation, Tx } from "../../shared/types.ts";
+import type { Account, AppState, Asset, ForeignFiling, Goal, Mortgage, MortgageEvent, Point, Property, PropertyValuation, Tx } from "../../shared/types.ts";
 
 /**
  * Un cambio sobre los datos guardados. La interfaz nunca escribe SQL: describe
@@ -32,16 +32,20 @@ export type Op =
   | { op: "putMortgageEvent"; row: MortgageEvent; at?: string }
   | { op: "delMortgageEvent"; id: string; at?: string }
   | { op: "putValuation"; row: PropertyValuation; at?: string }
-  | { op: "delValuation"; id: string; at?: string };
+  | { op: "delValuation"; id: string; at?: string }
+  | { op: "putFiling"; row: ForeignFiling; at?: string }
+  | { op: "delFiling"; id: string; at?: string };
 
 export type Meta = Record<string, string>;
 export type Loaded = { state: AppState; meta: Meta };
 
 /** Registros del usuario que se sincronizan entre equipos, en orden de dependencia. */
-export const ENTITIES = ["accounts", "goals", "assets", "properties", "mortgages", "txs", "mortgageEvents", "valuations"] as const;
+export const ENTITIES = ["accounts", "goals", "assets", "properties", "mortgages", "txs", "mortgageEvents", "valuations", "filings"] as const;
 export type Entity = (typeof ENTITIES)[number];
 export type Stamp = { entity: Entity; id: string; at: string; deleted: boolean };
 export type AppInfo = { version: string; dbPath: string; smoke: boolean };
+/** `modified`: segundos desde 1970. */
+export type BackupFile = { path: string; name: string; modified: number; bytes: number };
 
 export interface Backend {
   /** true dentro de la app de escritorio; false en la vista previa del navegador. */
@@ -69,6 +73,13 @@ export interface Backend {
   syncWrite(dir: string, name: string, text: string): Promise<void>;
   /** Copia de seguridad inmediata de la base de datos, con una etiqueta en el nombre. */
   backupNow(label: string): Promise<void>;
+  // ── Restaurar una copia (solo en la app de escritorio) ──
+  /** Las copias de la carpeta «copias», de la más reciente a la más antigua. */
+  backups(): Promise<BackupFile[]>;
+  /** Pide al usuario una copia que guardó él; null si cancela. */
+  backupPick(): Promise<string | null>;
+  /** Sustituye los datos por los de la copia (antes guarda una de lo que hay). */
+  restoreBackup(path: string): Promise<void>;
 }
 
 const mergePoints = (cur: Point[] | undefined, add: Point[]): Point[] => {
@@ -192,6 +203,12 @@ export function reduce(loaded: Loaded, ops: Op[]): Loaded {
       case "delValuation":
         state = { ...state, valuations: state.valuations.filter((v) => v.id !== o.id) };
         break;
+      case "putFiling":
+        state = { ...state, filings: upsert(state.filings, o.row) };
+        break;
+      case "delFiling":
+        state = { ...state, filings: state.filings.filter((f) => f.id !== o.id) };
+        break;
     }
   }
   return { state, meta };
@@ -209,5 +226,6 @@ export const EMPTY_STATE: AppState = {
   mortgages: [],
   mortgageEvents: [],
   valuations: [],
+  filings: [],
   lastSync: null,
 };

@@ -37,7 +37,9 @@ function reason(a: Asset, h: PriceHealth, example: boolean): string {
   }
 }
 
-const COLS = "minmax(210px,2.1fr) 150px 118px 112px minmax(190px,1.5fr) 118px 64px";
+const COLS = "minmax(200px,2.1fr) 140px 112px 104px minmax(180px,1.5fr) 112px 64px";
+/** Sin la fuente del precio: se ve al editar el activo. */
+const COMPACT = "minmax(200px,2.1fr) 112px 104px minmax(180px,1.5fr) 112px 64px";
 
 export function Activos() {
   const state = useApp((s) => (s.demo ?? s.loaded).state);
@@ -172,10 +174,10 @@ export function Activos() {
       )}
 
       <section className="card overflow-hidden">
-        <Table cols={COLS} minWidth={1060}>
+        <Table cols={COLS} compact={COMPACT} minWidth={1000}>
           <THead>
             <L>Activo</L>
-            <L>Fuente del precio</L>
+            <L className="opt">Fuente del precio</L>
             <span>Último precio</span>
             <span>Fecha</span>
             <L>Estado</L>
@@ -193,7 +195,7 @@ export function Activos() {
                   <div className="truncate font-[550]">{a.name}</div>
                   <div className="truncate text-[11.5px] text-mute">{[ASSET_KIND_LABEL[a.kind], a.isin].filter(Boolean).join(" · ")}</div>
                 </L>
-                <L>
+                <L className="opt">
                   <div className={a.priceSource === "manual" ? "text-mute" : "text-ink2"}>{PRICE_SOURCE_SHORT[a.priceSource]}</div>
                   <div className="selectable truncate text-[11.5px] text-mute">{a.priceSource === "manual" ? "sin fuente automática" : ((SOURCE_BY_ISIN[a.priceSource] ? a.isin : a.symbol) ?? "—")}</div>
                 </L>

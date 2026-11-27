@@ -73,6 +73,12 @@ export type Account = {
    * compatibilidad, pero siempre vale `holdsCash(kind)`; lo que cuenta es el tipo.
    */
   trackCash: boolean;
+  /**
+   * País de la entidad (ISO de dos letras, «ES» para España). Decide si lo que hay
+   * en la cuenta entra en los modelos 720 y 721. Vacío: sin entidad (un monedero
+   * de criptomonedas propio), que no se declara.
+   */
+  country: string;
   archived: boolean;
   createdAt: string;
 };
@@ -194,6 +200,27 @@ export type Tx = {
   createdAt: string;
 };
 
+/** Modelo 720 (bienes en el extranjero) o 721 (criptomonedas custodiadas en el extranjero). */
+export type ForeignModel = "720" | "721";
+/** Bloques que se declaran por separado: cuentas (720), valores y fondos (720) y criptomonedas (721). */
+export type ForeignBlock = "accounts" | "securities" | "crypto";
+
+/**
+ * Declaración de bienes en el extranjero que el usuario confirma haber presentado.
+ * Guarda lo que hace falta para saber si al año siguiente hay que volver a presentarla.
+ */
+export type ForeignFiling = {
+  id: string;
+  model: ForeignModel;
+  /** Ejercicio declarado. */
+  year: number;
+  /** Valor de cada bloque presentado, en EUR: la referencia para la regla de los 20.000 €. */
+  blocks: Partial<Record<ForeignBlock, number>>;
+  /** Lo declarado (cuenta, o cuenta y activo), para saber después si se deja de tener. */
+  items: string[];
+  createdAt: string;
+};
+
 /** [fecha, valor] */
 export type Point = [date: string, value: number];
 
@@ -212,6 +239,7 @@ export type AppState = {
   mortgages: Mortgage[];
   mortgageEvents: MortgageEvent[];
   valuations: PropertyValuation[];
+  filings: ForeignFiling[];
   lastSync: string | null;
 };
 

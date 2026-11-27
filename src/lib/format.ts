@@ -38,6 +38,31 @@ export const price = (n: number, currency: string): string => {
   }
 };
 
+/**
+ * Un precio calculado, no cotizado (coste medio por unidad): no tiene «sus»
+ * decimales, así que se recorta a 4 (172,5383 €). Por debajo de 1 se dejan
+ * hasta 8, que hay criptomonedas que cuestan millonésimas.
+ */
+export const avgPrice = (n: number, currency: string): string => {
+  const max = Math.abs(n) >= 1 ? 4 : 8;
+  try {
+    return nf(`ap${currency}${max}`, { style: "currency", currency, minimumFractionDigits: 2, maximumFractionDigits: max }).format(safe(n));
+  } catch {
+    return `${num(n, max, 2)} ${currency}`;
+  }
+};
+
+const regions = new Intl.DisplayNames("es", { type: "region" });
+/** País por su código ISO: «NL» → «Países Bajos». Sin código, una cuenta sin entidad. */
+export const countryName = (code: string): string => {
+  if (!code) return "Sin entidad";
+  try {
+    return regions.of(code) ?? code;
+  } catch {
+    return code;
+  }
+};
+
 /** Número con hasta `max` decimales (sin ceros de relleno salvo `min`). */
 export const num = (n: number, max = 4, min = 0): string =>
   nf(`n${max}-${min}`, { minimumFractionDigits: min, maximumFractionDigits: max }).format(safe(n));

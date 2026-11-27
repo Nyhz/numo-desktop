@@ -28,6 +28,7 @@ const acct = (id: string, over: Partial<Account> = {}): Account => ({
   currency: "EUR",
   color: 1,
   trackCash: false,
+  country: "ES",
   archived: false,
   createdAt: "2020-01-01T00:00:00Z",
   ...over,
@@ -76,6 +77,7 @@ const state = (over: Partial<AppState>): AppState => ({
   mortgages: [],
   mortgageEvents: [],
   valuations: [],
+  filings: [],
   lastSync: null,
   ...over,
 });

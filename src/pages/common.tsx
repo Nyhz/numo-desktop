@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { ASSET_KIND_LABEL, type AssetKind } from "../../shared/types.ts";
 import { RANGES, backend, chooseSyncFolder, setDemo, setRange, syncDevices, syncFolder, useApp, type RangeKey } from "../data/store.ts";
 import { seriesColor } from "../lib/format.ts";
@@ -78,16 +78,73 @@ export function Welcome() {
 // Cada tabla define su plantilla de columnas una vez y la comparten cabecera,
 // filas y pie. Los numéricos van a la derecha: se alinean con `l` los que no.
 
-/** `order`: las claves de las filas en su orden; al cambiar, las filas con `flip` se desplazan a su sitio nuevo. */
-export function Table({ cols, minWidth, order = "", children }: { cols: string; minWidth: number; order?: string; children: ReactNode }) {
+/**
+ * `order`: las claves de las filas en su orden; al cambiar, las filas con `flip` se desplazan a su sitio nuevo.
+ * `compact`: otra plantilla, sin las columnas secundarias, para cuando la tabla
+ * entera no cabe. Las celdas de esas columnas llevan la clase `opt` y se esconden.
+ */
+export function Table({ cols, compact, minWidth, order = "", children }: { cols: string; compact?: string; minWidth: number; order?: string; children: ReactNode }) {
   const box = useFlip<HTMLDivElement>(order);
+  const { ref, edges, width } = useEdges();
+  const full = Math.max(minWidth, tableFloor(cols));
+  const small = !!compact && width > 0 && width < full;
   return (
-    <div className="overflow-x-auto">
-      <div ref={box} className="relative text-right" style={{ minWidth, "--cols": cols } as CSSProperties}>
-        {children}
+    <div className="relative">
+      <div ref={ref} className="overflow-x-auto">
+        <div
+          ref={box}
+          data-compact={small ? "" : undefined}
+          className="relative text-right"
+          style={{ minWidth: small ? tableFloor(compact) : full, "--cols": small ? compact : cols } as CSSProperties}
+        >
+          {children}
+        </div>
       </div>
+      {/* Si ni así cabe, un degradado en el borde avisa de que hay más tabla a ese lado. */}
+      <span aria-hidden className={`table-edge left-0 ${edges.left ? "opacity-100" : "opacity-0"}`} />
+      <span aria-hidden className={`table-edge right-0 rotate-180 ${edges.right ? "opacity-100" : "opacity-0"}`} />
     </div>
   );
+}
+
+/**
+ * Lo mínimo que ocupa una plantilla de columnas: sus anchos fijos y los mínimos de
+ * cada `minmax`, más los huecos entre columnas (12 px) y el relleno de las filas
+ * (20 px a cada lado). Por debajo de eso la rejilla se saldría de su caja y la
+ * última columna quedaría recortada.
+ */
+export function tableFloor(cols: string): number {
+  const tracks = cols.match(/minmax\([^)]*\)|\S+/g) ?? [];
+  const fixed = tracks.reduce((sum, t) => sum + Number((t.startsWith("minmax") ? t.slice(7) : t).match(/^(\d+(?:\.\d+)?)px/)?.[1] ?? 0), 0);
+  return fixed + Math.max(0, tracks.length - 1) * 12 + 40;
+}
+
+/** Si una caja con scroll horizontal tiene contenido escondido a la izquierda o a la derecha. */
+function useEdges() {
+  const ref = useRef<HTMLDivElement>(null);
+  const [edges, setEdges] = useState({ left: false, right: false });
+  const [width, setWidth] = useState(0);
+  // De layout: la tabla se pinta ya con la plantilla que le toca, sin un fotograma con la otra.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const check = () => {
+      const left = el.scrollLeft > 1;
+      const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 1;
+      setEdges((e) => (e.left === left && e.right === right ? e : { left, right }));
+      setWidth(el.clientWidth);
+    };
+    check();
+    el.addEventListener("scroll", check, { passive: true });
+    const watch = new ResizeObserver(check);
+    watch.observe(el);
+    if (el.firstElementChild) watch.observe(el.firstElementChild);
+    return () => {
+      el.removeEventListener("scroll", check);
+      watch.disconnect();
+    };
+  }, []);
+  return { ref, edges, width };
 }
 const grid: CSSProperties = { gridTemplateColumns: "var(--cols)" };
 

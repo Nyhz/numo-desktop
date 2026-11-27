@@ -31,6 +31,7 @@ Una idea manda sobre todo lo demás: **solo se guarda lo que tú registras** (cu
 | `src/charts/`, `src/ui/`, `src/features/`, `src/pages/` | Interfaz (React). Gráficos propios en HTML/SVG; tokens visuales en `src/styles.css`. |
 | `src-tauri/` | Núcleo nativo en Rust. Hace lo que la interfaz no puede: SQLite (lecturas y lotes de escritura en una transacción), HTTPS limitado a los servidores de datos (Deutsche Börse, BME, Nasdaq, fundinfo, Binance, Indexa Capital, Yahoo Finance, Financial Times y el BCE), leer y escribir los archivos de sincronización, guardar archivos y actualizar la app. |
 
+- **Morningstar** (`src/data/regions.ts`): reparto por regiones de ETF y fondos. Se busca el ISIN en `lt.morningstar.com` y el desglose por países se pide a `api-global.morningstar.com` con la clave pública que usa su web (`MORNINGSTAR_KEY` en `src-tauri/src/lib.rs`, la añade el núcleo nativo). Se guarda en `meta` (`regions:asset:<id>`, `regions:month`) y no se sincroniza.
 - **Ojo**: las de las bolsas y fundinfo no son APIs documentadas, sino los servicios que usan sus propias webs; pueden cambiar sin aviso. Por eso existen el respaldo y la pantalla Activos.
 - **Modo privado**: es solo visual. `src/ui/privacy.ts` marca `<html data-private>` y el CSS desenfoca lo que lleve la clase `.priv`; una cifra nueva hay que marcarla.
 - **Sincronización**: la lógica está en `src/data/sync.ts` (pura, con pruebas de varios equipos simulados); el núcleo nativo solo lee y escribe los archivos, y los cifra si hay contraseña.
